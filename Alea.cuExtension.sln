@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{2683B672-5644-4E71-9807-CF9DDD357154}"
+	ProjectSection(SolutionItems) = preProject
+		.nuget\NuGet.Config = .nuget\NuGet.Config
+		.nuget\NuGet.exe = .nuget\NuGet.exe
+		.nuget\NuGet.targets = .nuget\NuGet.targets
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5B1B304A-2678-479D-A98D-CC2F94B37CDF}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension", "src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj", "{AAC76230-0E14-4F65-8300-01CDF6388A1D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{DE03025A-FA3F-47D9-A3A4-8F0F7A6DF45C}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.CUDA.Extension", "tests\Test.Alea.CUDA.Extension\Test.Alea.CUDA.Extension.fsproj", "{E41C076C-8CC2-4290-8D4E-B413376C4F46}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AAC76230-0E14-4F65-8300-01CDF6388A1D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AAC76230-0E14-4F65-8300-01CDF6388A1D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AAC76230-0E14-4F65-8300-01CDF6388A1D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AAC76230-0E14-4F65-8300-01CDF6388A1D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E41C076C-8CC2-4290-8D4E-B413376C4F46}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E41C076C-8CC2-4290-8D4E-B413376C4F46}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E41C076C-8CC2-4290-8D4E-B413376C4F46}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E41C076C-8CC2-4290-8D4E-B413376C4F46}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{AAC76230-0E14-4F65-8300-01CDF6388A1D} = {5B1B304A-2678-479D-A98D-CC2F94B37CDF}
+		{E41C076C-8CC2-4290-8D4E-B413376C4F46} = {DE03025A-FA3F-47D9-A3A4-8F0F7A6DF45C}
+	EndGlobalSection
+EndGlobal
