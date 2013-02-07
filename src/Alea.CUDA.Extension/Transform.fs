@@ -1,8 +1,7 @@
 ﻿module Alea.CUDA.Extension.Transform
 
 open Alea.CUDA
-
-let private divup num den = (num + den - 1) / den
+open Alea.CUDA.Extension.Common
 
 type IMap<'T> =
     abstract Map : int * DevicePtr<'T> * DevicePtr<'T> -> unit
