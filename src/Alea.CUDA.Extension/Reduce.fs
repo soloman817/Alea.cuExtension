@@ -2,7 +2,7 @@
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
-open Alea.CUDA.Extension.Common
+open Alea.CUDA.Extension.Util
 
 type IReduce<'T> =
     abstract Reduce : int * DevicePtr<'T> -> 'T

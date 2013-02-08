@@ -38,10 +38,9 @@
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
     <Compile Include="Common.fs" />
-    <Compile Include="Transform.fs" />
-    <Compile Include="Reduce.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="PArray.fs" />
+    <Compile Include="Reduce.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
