@@ -40,6 +40,7 @@
     <Compile Include="Common.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="PArray.fs" />
+    <Compile Include="Reduce.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
