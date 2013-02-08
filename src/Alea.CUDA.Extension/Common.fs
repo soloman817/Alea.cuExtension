@@ -1,31 +1,35 @@
-﻿module Alea.CUDA.Extension.Common
+﻿namespace Alea.CUDA.Extension
 
-let [<ReflectedDefinition>] WARP_SIZE = 32
-let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
+open Alea.CUDA
 
-let divup num den = (num + den - 1) / den
+type PArray internal (memory:DeviceMemory, rawptr:DevicePtr<byte>, size:int, needDispose:bool) =
+    inherit DisposableObject()
+    member this.Memory = memory
+    member this.Worker = memory.Worker
+    member this.RawPtr = rawptr
+    member this.Size = size
 
-let ispow2 x = x &&& x-1 = 0
-  
-let nextpow2 i =
-    let mutable x = i - 1
-    x <- x ||| (x >>> 1)
-    x <- x ||| (x >>> 2)
-    x <- x ||| (x >>> 4)
-    x <- x ||| (x >>> 8)
-    x <- x ||| (x >>> 16)
-    x + 1
-     
-let log2 (arg:int) =
-    if arg = 0 then failwith "argument cannot be zero"
-    let mutable n = arg
-    let mutable logValue = 0
-    while n > 1 do
-        logValue <- logValue + 1
-        n <- n >>> 1
-    logValue
+    override this.Dispose(disposing) =
+        if needDispose && disposing then memory.Dispose()
+        base.Dispose(disposing)
 
-module NumericLiteralG =
-    let [<ReflectedDefinition>] inline FromZero() = LanguagePrimitives.GenericZero
-    let [<ReflectedDefinition>] inline FromOne() = LanguagePrimitives.GenericOne
-    let [<ReflectedDefinition>] inline FromInt32 (i:int) = Alea.CUDA.DevicePrimitive.genericNumberFromInt32 i
+type PArray<'T when 'T:unmanaged> internal (memory:DeviceMemory, ptr:DevicePtr<'T>, length:int, needDispose:bool) =
+    inherit PArray(memory, ptr.Reinterpret<byte>(), length * sizeof<'T>, needDispose)
+    
+    member this.Ptr = ptr
+    member this.Length = length
+    
+    member this.ToHost() =
+        let host = Array.zeroCreate<'T> length
+        DevicePtrUtil.Gather(memory.Worker, ptr, host, length)
+        host
+
+type PArray with
+    static member Create(worker:DeviceWorker, host:'T[]) =
+        let memory = worker.Malloc(host)
+        new PArray<'T>(memory, memory.Ptr, memory.Length, true)
+
+    static member Create<'T when 'T:unmanaged>(worker:DeviceWorker, length:int) =
+        let memory = worker.Malloc(length)
+        new PArray<'T>(memory, memory.Ptr, memory.Length, true)
+
