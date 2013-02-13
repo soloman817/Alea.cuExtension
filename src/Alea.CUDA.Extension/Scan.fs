@@ -6,16 +6,12 @@ open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.Timing
 open Alea.CUDA.Extension.Reduce
 
-type IScan<'T> =
-    abstract Scatter : 'T[] -> DevicePtr<'T> * DevicePtr<'T>
+type IScan<'T when 'T : unmanaged> =
+    abstract Scatter : 'T[] -> int -> DeviceMemory<'T> -> unit 
     abstract Gather : int -> DevicePtr<'T> -> 'T[]
     abstract Scan : int * DevicePtr<'T> * DevicePtr<'T> * bool -> unit 
     abstract Scan : 'T[] * bool -> 'T[]
     abstract Scan : 'T[] * bool * TimingCollectFunc -> 'T[]
-
-type Api<'T> =
-    abstract Invoke : 'T[] * bool -> 'T[]
-    abstract Invoke : 'T[] * bool * TimingCollectFunc -> 'T[]
 
 module Generic = 
     /// Multi-scan function for all warps in the block.
@@ -377,24 +373,17 @@ let scanPadding (plan:Plan) n =
     // try with a safe value first
     plan.numValues + 1
 
-let scatter (plan:Plan) (m:Module) (values:'T[]) =
-    let padding = scanPadding plan values.Length  
-    let size = values.Length + padding
-    use dValuesIn = m.Worker.Malloc<'T>(size)
-    use dValuesOut = m.Worker.Malloc<'T>(size)
-        
-    // Scatter relevant data into padded array dValuesIn.
-    dValuesIn.Scatter(values)
+/// Scatter relevant data into padded array dValues.
+let scatter (m:Module) (values:'T[]) padding (dValues:DeviceMemory<'T>)=
+    dValues.Scatter(values)
     if padding > 0 then
-        DevicePtrUtil.Scatter(m.Worker, Array.zeroCreate<'T>(padding), dValuesIn.Ptr + values.Length, padding)
-
-    (dValuesIn.Ptr, dValuesOut.Ptr)
+        DevicePtrUtil.Scatter(m.Worker, Array.zeroCreate<'T>(padding), dValues.Ptr + values.Length, padding)
 
 // Gather only the relevant data from GPU.
-let gather (m:Module) numValues (dValuesOut:DevicePtr<'T>) =
-    let hValuesOut = Array.zeroCreate numValues
-    DevicePtrUtil.Gather(m.Worker, dValuesOut, hValuesOut, numValues)
-    hValuesOut
+let gather (m:Module) numValues (dValues:DevicePtr<'T>) =
+    let hValues = Array.zeroCreate numValues
+    DevicePtrUtil.Gather(m.Worker, dValues, hValues, numValues)
+    hValues
     
 /// <summary>
 /// Global scan algorithm template. 
@@ -437,19 +426,29 @@ let inline genericScan (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 
     return PFunc(fun (m:Module) ->
         let launch = launch m
         { new IScan<'T> with
-            member this.Scatter values = scatter plan m values 
+            member this.Scatter values padding dValues = scatter m values padding dValues
             member this.Gather numValues dValuesOut = gather m numValues dValuesOut 
             member this.Scan(values, inclusive) =
-                let dValuesIn, dValuesOut = this.Scatter values
-                launch None values.Length dValuesIn dValuesOut inclusive
-                this.Gather values.Length dValuesOut
+                let padding = scanPadding plan values.Length
+                let size = values.Length + padding
+                use dValuesIn = m.Worker.Malloc<'T>(size)
+                use dValuesOut = m.Worker.Malloc<'T>(size)                 
+                this.Scatter values padding dValuesIn
+                launch None values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
+                this.Gather values.Length dValuesOut.Ptr
             member this.Scan(values, inclusive, tc) =
-                let dValuesIn, dValuesOut = this.Scatter values
-                launch (Some tc) values.Length dValuesIn dValuesOut inclusive
-                this.Gather values.Length dValuesOut
+                let padding = scanPadding plan values.Length
+                let size = values.Length + padding
+                use dValuesIn = m.Worker.Malloc<'T>(size)
+                use dValuesOut = m.Worker.Malloc<'T>(size)                 
+                this.Scatter values padding dValuesIn
+                launch (Some tc) values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
+                this.Gather values.Length dValuesOut.Ptr
             member this.Scan(numValues, dValuesIn, dValuesOut, inclusive) =
                 launch None numValues dValuesIn dValuesOut inclusive
         } ) }
+
+// TODO unify this and the above cuda monad with a function taking the kernel1, kernel2, kernel3 as args
 
 /// <summary>
 /// Global scan algorithm template. 
@@ -492,16 +491,23 @@ let inline scan (plan:Plan) = cuda {
     return PFunc(fun (m:Module) ->
         let launch = launch m
         { new IScan<'T> with
-            member this.Scatter values = scatter plan m values 
+            member this.Scatter values padding dValues = scatter m values padding dValues
             member this.Gather numValues dValuesOut = gather m numValues dValuesOut 
             member this.Scan(values, inclusive) =
-                let dValuesIn, dValuesOut = this.Scatter values
-                launch None values.Length dValuesIn dValuesOut inclusive
-                this.Gather values.Length dValuesOut
+                let padding = scanPadding plan values.Length
+                let size = values.Length + padding
+                use dValuesIn = m.Worker.Malloc<'T>(size)
+                use dValuesOut = m.Worker.Malloc<'T>(size)                 
+                this.Scatter values padding dValuesIn
+                launch None values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
+                this.Gather values.Length dValuesOut.Ptr
             member this.Scan(values, inclusive, tc) =
-                let dValuesIn, dValuesOut = this.Scatter values
-                launch (Some tc) values.Length dValuesIn dValuesOut inclusive
-                this.Gather values.Length dValuesOut
+                let padding = scanPadding plan values.Length
+                let size = values.Length + padding
+                use dValuesIn = m.Worker.Malloc<'T>(size)
+                use dValuesOut = m.Worker.Malloc<'T>(size)                 
+                launch (Some tc) values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
+                this.Gather values.Length dValuesOut.Ptr
             member this.Scan(numValues, dValuesIn, dValuesOut, inclusive) =
                 launch None numValues dValuesIn dValuesOut inclusive
         } ) }
