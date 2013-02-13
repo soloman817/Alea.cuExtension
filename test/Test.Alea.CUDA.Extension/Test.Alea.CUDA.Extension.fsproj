@@ -65,6 +65,7 @@
     <Compile Include="Transformation.fs" />
     <Compile Include="NormalDistribution.fs" />
     <Compile Include="Reduce.fs" />
+    <Compile Include="Scan.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />
   </ItemGroup>
