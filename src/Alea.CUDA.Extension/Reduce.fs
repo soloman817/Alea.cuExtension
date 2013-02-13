@@ -94,7 +94,7 @@ module Generic =
         totalsShared.[2 * numWarps - 1]
 
     /// Reduces ranges and store reduced values in array of the range totals.         
-    let inline reduceUpSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) =
+    let inline reduceUpSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
         let numThreads = plan.numThreads
         let numWarps = plan.numWarps
         let logNumWarps = log2 numWarps
@@ -124,7 +124,7 @@ module Generic =
         @>
 
     /// Reduces range totals to a single total, which is written back to the first element in the range totals input array.
-    let inline reduceRangeTotalsKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) =
+    let inline reduceRangeTotalsKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (plan:Plan) =
         let numThreads = plan.numThreadsReduction
         let numWarps = plan.numWarpsReduction
         let logNumWarps = log2 numWarps
@@ -232,44 +232,11 @@ module Sum =
             if tid = 0 then dRangeTotals.[0] <- total
         @>
 
-let inline genericReduce (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! upSweep = Generic.reduceUpSweepKernel plan init op transf |> defineKernelFuncWithName "upSweep"
-    let! reduce = Generic.reduceRangeTotalsKernel plan init op |> defineKernelFuncWithName "reduce"
-
-    let launch (m:Module) (n:int) (values:DevicePtr<'T>) =
-        let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.blockRanges numSm n
-        let numRanges = ranges.Length - 1
-        use dRanges = m.Worker.Malloc(ranges)
-        use dRangeTotals = m.Worker.Malloc<'T>(Array.zeroCreate (numRanges))  
-            
-        // Launch block reduction kernel to calculate the totals per range.
-        let lp = LaunchParam(numRanges, plan.numThreads)
-        upSweep.Launch m lp values dRanges.Ptr dRangeTotals.Ptr
-
-        printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        // Need to aggregate the block sums as well.
-        if numRanges > 1 then              
-            let lp = LaunchParam(1, plan.numThreadsReduction)
-            reduce.Launch m lp numRanges dRangeTotals.Ptr
-
-        let blockTotals = dRangeTotals.ToHost()
-        blockTotals.[0]
-
-    return PFunc(fun (m:Module) ->
-        let launch = launch m
-        { new IReduce<'T> with
-            member this.Reduce (n, values) = 
-                launch n values 
-            member this.Reduce values =  
-                let dValues = m.Worker.Malloc(values)
-                launch values.Length dValues.Ptr
-        } ) }
-
-let inline reduce (plan:Plan) = cuda {
-    let! upSweep = Sum.reduceUpSweepKernel plan |> defineKernelFuncWithName "upSweep"
-    let! reduce = Sum.reduceRangeTotalsKernel plan |> defineKernelFuncWithName "reduce"
+let inline reduceBuilder (plan:Plan) 
+                         (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+                         (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
+    let! upSweep = kernelExpr1 plan |> defineKernelFuncWithName "upSweep"
+    let! reduce = kernelExpr2 plan |> defineKernelFuncWithName "reduce"
 
     let launch (m:Module) (n:int) (values:DevicePtr<'T>) =
         let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
@@ -299,3 +266,10 @@ let inline reduce (plan:Plan) = cuda {
                 let dValues = m.Worker.Malloc(values)
                 launch values.Length dValues.Ptr
         } ) }
+
+let inline genericReduce (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = 
+    reduceBuilder plan (Generic.reduceUpSweepKernel init op transf) (Generic.reduceRangeTotalsKernel init op)
+
+let inline reduce (plan:Plan) = 
+    reduceBuilder plan Sum.reduceUpSweepKernel Sum.reduceRangeTotalsKernel
+

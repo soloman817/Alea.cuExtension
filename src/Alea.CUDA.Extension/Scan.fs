@@ -132,7 +132,7 @@ module Generic =
         exclScan.[tid]
 
     /// Exclusive scan of range totals.        
-    let inline scanReduceKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) =
+    let inline scanReduceKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan)  =
         let numThreads = plan.numThreadsReduction
         let numWarps = plan.numWarpsReduction
         let logNumWarps = log2 numWarps
@@ -148,7 +148,7 @@ module Generic =
             dRangeTotals.[tid] <- multiScanExcl init op numWarps logNumWarps tid x total
         @>
 
-    let inline scanDownSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) =
+    let inline scanDownSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
         let numWarps = plan.numWarps
         let numValues = plan.numValues
         let valuesPerThread = plan.valuesPerThread
@@ -385,78 +385,14 @@ let gather (m:Module) numValues (dValues:DevicePtr<'T>) =
     DevicePtrUtil.Gather(m.Worker, dValues, hValues, numValues)
     hValues
     
-/// <summary>
-/// Global scan algorithm template. 
-/// </summary>
-let inline genericScan (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! kernel1 = Generic.reduceUpSweepKernel plan init op transf |> defineKernelFunc
-    let! kernel2 = Generic.scanReduceKernel plan init op transf |> defineKernelFunc
-    let! kernel3 = Generic.scanDownSweepKernel plan init op transf |> defineKernelFunc
-
-    let launch (m:Module) (tc:TimingCollectFunc option) numValues (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
-        let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.blockRanges numSm numValues
-        let numRanges = ranges.Length - 1
-        let inclusive = if inclusive then 1 else 0
-        use dRanges = m.Worker.Malloc(ranges)
-        use dRangeTotals = m.Worker.Malloc<'T>(Array.zeroCreate (numRanges + 1))  
-
-        //printfn "====> size = %A, ranges = %A" size ranges
-        //printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        //let lp = LaunchParam (numRanges-1, plan.numThreads) |> setDiagnoser (diagnose "upSweep")
-        let lp = LaunchParam (numRanges, plan.numThreads)
-        let lp = match tc with Some(tc) -> lp |> Engine.setDiagnoser ((tcToDiag tc) "upsweep") | None -> lp
-        kernel1.Launch m lp dValuesIn dRanges.Ptr dRangeTotals.Ptr
-
-        //printfn "1) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        let lp = LaunchParam(1, plan.numThreadsReduction)
-        let lp = match tc with Some(tc) -> lp |> Engine.setDiagnoser ((tcToDiag tc) "reduce") | None -> lp
-        kernel2.Launch m lp numRanges dRangeTotals.Ptr
-
-        //printfn "2) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        let lp = LaunchParam(numRanges, plan.numThreads)
-        let lp = match tc with Some(tc) -> lp |> Engine.setDiagnoser ((tcToDiag tc) "downsweep") | None -> lp
-        kernel3.Launch m lp dValuesIn dValuesOut dRangeTotals.Ptr dRanges.Ptr inclusive
-
-        //printfn "3) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-    return PFunc(fun (m:Module) ->
-        let launch = launch m
-        { new IScan<'T> with
-            member this.Scatter values padding dValues = scatter m values padding dValues
-            member this.Gather numValues dValuesOut = gather m numValues dValuesOut 
-            member this.Scan(values, inclusive) =
-                let padding = scanPadding plan values.Length
-                let size = values.Length + padding
-                use dValuesIn = m.Worker.Malloc<'T>(size)
-                use dValuesOut = m.Worker.Malloc<'T>(size)                 
-                this.Scatter values padding dValuesIn
-                launch None values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
-                this.Gather values.Length dValuesOut.Ptr
-            member this.Scan(values, inclusive, tc) =
-                let padding = scanPadding plan values.Length
-                let size = values.Length + padding
-                use dValuesIn = m.Worker.Malloc<'T>(size)
-                use dValuesOut = m.Worker.Malloc<'T>(size)                 
-                this.Scatter values padding dValuesIn
-                launch (Some tc) values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
-                this.Gather values.Length dValuesOut.Ptr
-            member this.Scan(numValues, dValuesIn, dValuesOut, inclusive) =
-                launch None numValues dValuesIn dValuesOut inclusive
-        } ) }
-
-// TODO unify this and the above cuda monad with a function taking the kernel1, kernel2, kernel3 as args
-
-/// <summary>
-/// Global scan algorithm template. 
-/// </summary>
-let inline scan (plan:Plan) = cuda {
-    let! kernel1 = Sum.reduceUpSweepKernel plan |> defineKernelFunc
-    let! kernel2 = Sum.scanReduceKernel plan |> defineKernelFunc
-    let! kernel3 = Sum.scanDownSweepKernel plan |> defineKernelFunc
+/// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
+let inline scanBuilder (plan:Plan) 
+                       (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+                       (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>)
+                       (kernelExpr3:Plan -> Expr<DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit>) = cuda {
+    let! kernel1 = kernelExpr1 plan |> defineKernelFunc
+    let! kernel2 = kernelExpr2 plan |> defineKernelFunc
+    let! kernel3 = kernelExpr3 plan |> defineKernelFunc
 
     let launch (m:Module) (tc:TimingCollectFunc option) numValues (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
         let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
@@ -511,3 +447,18 @@ let inline scan (plan:Plan) = cuda {
             member this.Scan(numValues, dValuesIn, dValuesOut, inclusive) =
                 launch None numValues dValuesIn dValuesOut inclusive
         } ) }
+
+/// <summary>
+/// Global scan algorithm template. 
+/// </summary>
+let inline scan (plan:Plan) = 
+    scanBuilder plan Sum.reduceUpSweepKernel Sum.scanReduceKernel Sum.scanDownSweepKernel
+
+/// <summary>
+/// Global scan algorithm template. 
+/// </summary>
+let inline genericScan (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>)  =
+    scanBuilder plan (Generic.reduceUpSweepKernel init op transf) 
+                     (Generic.scanReduceKernel init op transf) 
+                     (Generic.scanDownSweepKernel init op transf)
+
