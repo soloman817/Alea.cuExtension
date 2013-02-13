@@ -14,7 +14,7 @@ let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000
 let ``reduce sum<int>`` () =
     
     let worker = Engine.workers.DefaultWorker
-    let reducer:IReduce<int> = worker.LoadPModule(Sum.reduce plan32).Invoke
+    let reducer:IReduce<int> = worker.LoadPModule(reduce plan32).Invoke
     let reduce input = reducer.Reduce(input)
 
     let test init n = 
@@ -29,9 +29,8 @@ let ``reduce sum<int>`` () =
 
 [<Test>]
 let ``reduce sum<float>`` () =
-
     let worker = Engine.workers.DefaultWorker
-    let reducer:IReduce<float> = worker.LoadPModule(Sum.reduce plan64).Invoke
+    let reducer:IReduce<float> = worker.LoadPModule(reduce plan64).Invoke
     let reduce input = reducer.Reduce(input)
 
     let test init n = 
@@ -47,12 +46,9 @@ let ``reduce sum<float>`` () =
 
 [<Test>]
 let ``reduce generic sum<float>`` () =
-    let reduce plan =
-        let worker = Engine.workers.DefaultWorker
-        let reducer = worker.LoadPModule(reduce plan <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x @>).Invoke
-        fun input -> reducer.Reduce(input)
-    
-    let reduce = reduce plan64
+    let worker = Engine.workers.DefaultWorker
+    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x @>).Invoke
+    let reduce input = reducer.Reduce(input)
 
     let test init n = 
         let values = Array.init n (init)
@@ -67,13 +63,10 @@ let ``reduce generic sum<float>`` () =
 
 [<Test>]
 let ``reduce generic sum square<float>`` () =
-    let reduce plan =
-        let worker = Engine.workers.DefaultWorker
-        let reducer = worker.LoadPModule(reduce plan <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x*x @>).Invoke
-        fun input -> reducer.Reduce(input)
-    
-    let reduce = reduce plan64
-
+    let worker = Engine.workers.DefaultWorker
+    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x*x @>).Invoke
+    let reduce input = reducer.Reduce(input)
+   
     let test init n = 
         let values = Array.init n (init)
         let total = reduce values
@@ -82,17 +75,13 @@ let ``reduce generic sum square<float>`` () =
         printfn "size %d, total = %f expected = %f, rel err = %f" n total expected relErr
         Assert.That(relErr < 1e-10)
 
-    sizes |> Seq.iter (test (fun _ -> 1.0))
     sizes |> Seq.iter (test (fun _ -> rng.NextDouble()))
 
 [<Test>]
 let ``reduce generic max<float>`` () =
-    let reduce plan =
-        let worker = Engine.workers.DefaultWorker
-        let reducer = worker.LoadPModule(reduce plan <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ fun x -> x @>).Invoke
-        fun input -> reducer.Reduce(input)
-    
-    let reduce = reduce plan64
+    let worker = Engine.workers.DefaultWorker
+    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ fun x -> x @>).Invoke
+    let reduce input = reducer.Reduce(input)
 
     let test init n = 
         let values = Array.init n (init)
@@ -107,12 +96,9 @@ let ``reduce generic max<float>`` () =
 
 [<Test>]
 let ``reduce generic min<float>`` () =
-    let reduce plan =
-        let worker = Engine.workers.DefaultWorker
-        let reducer = worker.LoadPModule(reduce plan <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ fun x -> x @>).Invoke
-        fun input -> reducer.Reduce(input)
-    
-    let reduce = reduce plan64
+    let worker = Engine.workers.DefaultWorker
+    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ fun x -> x @>).Invoke
+    let reduce input = reducer.Reduce(input)
 
     let test init n = 
         let values = Array.init n (init)
