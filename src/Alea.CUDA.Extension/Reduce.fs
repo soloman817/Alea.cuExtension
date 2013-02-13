@@ -13,6 +13,7 @@ type Plan =
     member this.valuesPerWarp = this.valuesPerThread * WARP_SIZE
     member this.numWarps = this.numThreads / WARP_SIZE
     member this.numWarpsReduction = this.numThreadsReduction / WARP_SIZE
+    member this.numValues = this.numThreads * this.valuesPerThread
 
     /// <summary>
     /// Finds the ranges for each block to process. 
@@ -57,16 +58,16 @@ let [<ReflectedDefinition>] inline multiReduce (init: unit -> 'T) (op:'T -> 'T -
     s.[0] <- x
 
     // Run inclusive scan on each warp's data.
-    let mutable scan = x
+    let mutable warpScan = x
     for i = 0 to LOG_WARP_SIZE - 1 do
         let offset = 1 <<< i
-        scan <- op scan s.[-offset]   
-        if i < LOG_WARP_SIZE - 1 then s.[0] <- scan
+        warpScan <- op warpScan s.[-offset]   
+        if i < LOG_WARP_SIZE - 1 then s.[0] <- warpScan
         
     let totalsShared = __shared__<'T>(2*numWarps).Ptr(0).Volatile() 
 
     // Last line of warp stores the warp scan.
-    if lane = WARP_SIZE - 1 then totalsShared.[numWarps + warp] <- scan  
+    if lane = WARP_SIZE - 1 then totalsShared.[numWarps + warp] <- warpScan  
 
     // Synchronize to make all the totals available to the reduction code.
     __syncthreads()
@@ -92,7 +93,7 @@ let [<ReflectedDefinition>] inline multiReduce (init: unit -> 'T) (op:'T -> 'T -
     totalsShared.[2 * numWarps - 1]
 
 /// Reduces ranges and store reduced values in array of the range totals.         
-let inline upSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) =
+let inline reduceUpSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) =
     let numThreads = plan.numThreads
     let numWarps = plan.numWarps
     let logNumWarps = log2 numWarps
@@ -102,13 +103,13 @@ let inline upSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T
         let transf = %transfExpr
 
         // Each block is processing a range.
-        let block = blockIdx.x
+        let range = blockIdx.x
         let tid = threadIdx.x
-        let rangeX = dRanges.[block]
-        let rangeY = dRanges.[block + 1]
+        let rangeX = dRanges.[range]
+        let rangeY = dRanges.[range + 1]
 
         // Loop through all elements in the interval, adding up values.
-        // There is no need to synchronize until we perform the multiscan.
+        // There is no need to synchronize until we perform the multireduce.
         let mutable reduced = init()
         let mutable index = rangeX + tid
         while index < rangeY do              
@@ -118,7 +119,7 @@ let inline upSweepKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T
         // Get the total.
         let total = multiReduce init op numWarps logNumWarps tid reduced 
 
-        if tid = 0 then dRangeTotals.[block] <- total
+        if tid = 0 then dRangeTotals.[range] <- total
     @>
 
 /// Reduces range totals to a single total, which is written back to the first element in the range totals input array.
@@ -139,7 +140,7 @@ let inline reduceKernel (plan:Plan) (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T 
     @>
 
 let inline reduce (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! upSweep = upSweepKernel plan init op transf |> defineKernelFuncWithName "upSweep"
+    let! upSweep = reduceUpSweepKernel plan init op transf |> defineKernelFuncWithName "upSweep"
     let! reduce = reduceKernel plan init op |> defineKernelFuncWithName "reduce"
 
     let launch (m:Module) (n:int) (values:DevicePtr<'T>) =
@@ -152,6 +153,8 @@ let inline reduce (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) 
         // Launch block reduction kernel to calculate the totals per range.
         let lp = LaunchParam(numRanges, plan.numThreads)
         upSweep.Launch m lp values dRanges.Ptr dRangeTotals.Ptr
+
+        printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
         // Need to aggregate the block sums as well.
         if numRanges > 1 then              

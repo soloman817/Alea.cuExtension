@@ -40,8 +40,10 @@
     <Compile Include="Common.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="PArray.fs" />
+    <Compile Include="Timing.fs" />
     <Compile Include="Reduce.fs" />
     <None Include="packages.config" />
+    <Compile Include="Scan.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
