@@ -5,12 +5,12 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{81a895be-ce7f-4612-af39-7217d29062ee}</ProjectGuid>
+    <ProjectGuid>{f50430e7-7849-4e22-b1e5-4cac6f1f1769}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <RootNamespace>Alea.CUDA.Extension.NormalDistribution</RootNamespace>
-    <AssemblyName>Alea.CUDA.Extension.NormalDistribution</AssemblyName>
+    <RootNamespace>Alea.CUDA.Extension.Random</RootNamespace>
+    <AssemblyName>Alea.CUDA.Extension.Random</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
-    <Name>Alea.CUDA.Extension.NormalDistribution</Name>
+    <Name>Alea.CUDA.Extension.Random</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -22,7 +22,7 @@
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Alea.CUDA.Extension.NormalDistribution.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Alea.CUDA.Extension.Random.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,39 +31,15 @@
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Alea.CUDA.Extension.NormalDistribution.XML</DocumentationFile>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <Tailcalls>false</Tailcalls>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Alea.CUDA.Extension.NormalDistribution.XML</DocumentationFile>
-    <PlatformTarget>x64</PlatformTarget>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <Tailcalls>true</Tailcalls>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Alea.CUDA.Extension.NormalDistribution.XML</DocumentationFile>
-    <PlatformTarget>x64</PlatformTarget>
+    <DocumentationFile>bin\Release\Alea.CUDA.Extension.Random.XML</DocumentationFile>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
-    <Compile Include="ShawBrickman32.fs" />
-    <Compile Include="ShawBrickman.fs" />
-    <Compile Include="ShawBrickmanExtended.fs" />
-    <Compile Include="Acklam.fs" />
-    <Compile Include="AbramowitzStegun.fs" />
-    <Compile Include="NormalCdfErf.fs" />
+    <Compile Include="SobolJoeKuo_6_21201.fs" />
+    <Compile Include="Sobol.fs" />
+    <Compile Include="SobolGold.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
@@ -80,6 +56,13 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
+      <Name>Alea.CUDA.Extension</Name>
+      <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
 	     Other similar extension points exist, see Microsoft.Common.targets.
