@@ -10,30 +10,30 @@ type ISegmentedScanFlags<'T> =
     abstract Scan : int * DevicePtr<int> * DevicePtr<'T> -> DevicePtr<'T>
     abstract Scan : int[] * 'T[] -> 'T[] 
 
-module Sum =
-
-/// Reduction function for upsweep pass. This performs addition for code 0 and max for code 1.
-let [<ReflectedDefinition>] inline reduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
-    let warp = tid / WARP_SIZE
-    let lane = tid &&& (WARP_SIZE - 1)
-    let warpStride = WARP_SIZE + WARP_SIZE / 2
-    let sharedSize = numWarps * warpStride
-    
-    let shared = __shared__<'T>(sharedSize).Ptr(0)
-    let shared = __shared__<'T>(sharedSize).Ptr(0)
-    
-    let warpShared = (shared + warp * warpStride).Volatile()      
-    let s = warpShared + (lane + WARP_SIZE / 2)
-
-    warpShared.[lane] <- init()  
-    s.[0] <- x
-
-    // Run inclusive scan on each warp's data.
-    let mutable warpScan = x
-    for i = 0 to LOG_WARP_SIZE - 1 do
-        let offset = 1 <<< i
-        warpScan <- op warpScan s.[-offset]   
-        if i < LOG_WARP_SIZE - 1 then s.[0] <- warpScan
+//module Sum =
+//
+///// Reduction function for upsweep pass. This performs addition for code 0 and max for code 1.
+//let [<ReflectedDefinition>] inline reduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
+//    let warp = tid / WARP_SIZE
+//    let lane = tid &&& (WARP_SIZE - 1)
+//    let warpStride = WARP_SIZE + WARP_SIZE / 2
+//    let sharedSize = numWarps * warpStride
+//    
+//    let shared = __shared__<'T>(sharedSize).Ptr(0)
+//    let shared = __shared__<'T>(sharedSize).Ptr(0)
+//    
+//    let warpShared = (shared + warp * warpStride).Volatile()      
+//    let s = warpShared + (lane + WARP_SIZE / 2)
+//
+//    warpShared.[lane] <- init()  
+//    s.[0] <- x
+//
+//    // Run inclusive scan on each warp's data.
+//    let mutable warpScan = x
+//    for i = 0 to LOG_WARP_SIZE - 1 do
+//        let offset = 1 <<< i
+//        warpScan <- op warpScan s.[-offset]   
+//        if i < LOG_WARP_SIZE - 1 then s.[0] <- warpScan
         
 
 (*
