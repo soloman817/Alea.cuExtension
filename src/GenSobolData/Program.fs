@@ -2,9 +2,9 @@
 open System.IO
 open Alea.CUDA.Extension.Random.SobolJoeKuo_6_21201
 
-let file = new StreamWriter(@"..\..\..\Alea.CUDA.Extension.Random\SobolJoeKuo_6_21201.fs")
+let file = new StreamWriter(@"..\..\..\Alea.CUDA.Extension\SobolJoeKuo_6_21201.fs")
 
-fprintfn file "module Alea.CUDA.Extension.Random.SobolJoeKuo_6_21201"
+fprintfn file "module Alea.CUDA.Extension.SobolJoeKuo_6_21201"
 fprintfn file ""
 
 fprintfn file "let d = [|"

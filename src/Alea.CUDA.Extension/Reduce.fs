@@ -1,12 +1,15 @@
 ﻿module Alea.CUDA.Extension.Reduce
 
 open Microsoft.FSharp.Quotations
+open Alea.Interop.CUDA
 open Alea.CUDA
 open Alea.CUDA.Extension.Util
 
-type IReduce<'T> =
-    abstract Reduce : int * DevicePtr<'T> -> 'T
-    abstract Reduce : 'T[] -> 'T
+type IReduce<'T when 'T:unmanaged> =
+    abstract Ranges : int[] // Ranges is a host array of int, which will be scattered later with blob
+    abstract NumRangeTotals : int // NumRangeTotals is a length of rangeTotals, which will be used to calc blob size later
+    // ranges -> rangeTotals -> values -> result
+    abstract Reduce : PArray<int> -> PArray<'T> -> PArray<'T> -> 'T
 
 type Plan =
     {numThreads:int; valuesPerThread:int; numThreadsReduction:int; blockPerSm:int} 
@@ -46,7 +49,7 @@ let plan64 = {numThreads = 512; valuesPerThread = 4; numThreadsReduction = 256; 
 
 module Generic = 
     /// Multi-reduce function for all warps in the block.
-    let [<ReflectedDefinition>] inline multiReduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
+    let [<ReflectedDefinition>] multiReduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
         let warpStride = WARP_SIZE + WARP_SIZE / 2
@@ -94,7 +97,7 @@ module Generic =
         totalsShared.[2 * numWarps - 1]
 
     /// Reduces ranges and store reduced values in array of the range totals.         
-    let inline reduceUpSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
+    let reduceUpSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
         let numThreads = plan.numThreads
         let numWarps = plan.numWarps
         let logNumWarps = log2 numWarps
@@ -124,7 +127,7 @@ module Generic =
         @>
 
     /// Reduces range totals to a single total, which is written back to the first element in the range totals input array.
-    let inline reduceRangeTotalsKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (plan:Plan) =
+    let reduceRangeTotalsKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (plan:Plan) =
         let numThreads = plan.numThreadsReduction
         let numWarps = plan.numWarpsReduction
         let logNumWarps = log2 numWarps
@@ -232,44 +235,42 @@ module Sum =
             if tid = 0 then dRangeTotals.[0] <- total
         @>
 
-let inline reduceBuilder (plan:Plan) 
-                         (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
                          (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
+    let plan = if sizeof<'T> >= 8 then plan64 else plan32
+
     let! upSweep = kernelExpr1 plan |> defineKernelFuncWithName "upSweep"
     let! reduce = kernelExpr2 plan |> defineKernelFuncWithName "reduce"
 
-    let launch (m:Module) (n:int) (values:DevicePtr<'T>) =
+    return PFunc(fun (m:Module) (n:int) ->
+        let upSweep = upSweep.Apply m
+        let reduce = reduce.Apply m
+
         let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
         let ranges = plan.blockRanges numSm n
         let numRanges = ranges.Length - 1
-        use dRanges = m.Worker.Malloc(ranges)
-        use dRangeTotals = m.Worker.Malloc<'T>(Array.zeroCreate (numRanges))  
-            
-        // Launch range reduction kernel to calculate the totals per range.
-        let lp = LaunchParam(numRanges, plan.numThreads)
-        upSweep.Launch m lp values dRanges.Ptr dRangeTotals.Ptr
+        
+        let upSweep = upSweep.Launch (LaunchParam(numRanges, plan.numThreads))
+        let reduce = reduce.Launch (LaunchParam(1, plan.numThreadsReduction))
 
-        // Need to aggregate the block sums as well.
-        if numRanges > 1 then
-            let lp = LaunchParam(1, plan.numThreadsReduction)
-            reduce.Launch m lp numRanges dRangeTotals.Ptr
+        let result = Array.zeroCreate<'T> 1
+        let launch (ranges:PArray<int>) (rangeTotals:PArray<'T>) (values:PArray<'T>) () =
+            // here use CUDA Driver API to memset
+            // NOTICE: cause it is raw api call, so MUST be run with worker.Eval
+            cuSafeCall(cuMemsetD8Async(rangeTotals.Ptr.Handle, 0uy, nativeint(numRanges * sizeof<'T>), 0n))
             
-        let blockTotals = dRangeTotals.ToHost()    
-        blockTotals.[0]
+            // Launch range reduction kernel to calculate the totals per range.
+            upSweep values.Ptr ranges.Ptr rangeTotals.Ptr
 
-    return PFunc(fun (m:Module) ->
-        let launch = launch m
+            // Need to aggregate the block sums as well.
+            if numRanges > 1 then reduce numRanges rangeTotals.Ptr
+
+            // gather result
+            DevicePtrUtil.Gather(m.Worker, rangeTotals.Ptr, result, 1)
+            result.[0]
+
         { new IReduce<'T> with
-            member this.Reduce (n, values) = 
-                launch n values 
-            member this.Reduce values =  
-                let dValues = m.Worker.Malloc(values)
-                launch values.Length dValues.Ptr
+            member this.Ranges = ranges
+            member this.NumRangeTotals = numRanges
+            member this.Reduce ranges rangeTotals values = m.Worker.Eval(launch ranges rangeTotals values)
         } ) }
-
-let inline genericReduce (plan:Plan) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = 
-    reduceBuilder plan (Generic.reduceUpSweepKernel init op transf) (Generic.reduceRangeTotalsKernel init op)
-
-let inline reduce (plan:Plan) = 
-    reduceBuilder plan Sum.reduceUpSweepKernel Sum.reduceRangeTotalsKernel
-

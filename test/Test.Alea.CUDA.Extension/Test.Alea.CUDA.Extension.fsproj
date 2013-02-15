@@ -111,16 +111,6 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.NormalDistribution\Alea.CUDA.Extension.NormalDistribution.fsproj">
-      <Name>Alea.CUDA.Extension.NormalDistribution</Name>
-      <Project>{81a895be-ce7f-4612-af39-7217d29062ee}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Random\Alea.CUDA.Extension.Random.fsproj">
-      <Name>Alea.CUDA.Extension.Random</Name>
-      <Project>{f50430e7-7849-4e22-b1e5-4cac6f1f1769}</Project>
-      <Private>True</Private>
-    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
