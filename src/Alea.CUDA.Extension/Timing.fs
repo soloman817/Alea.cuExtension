@@ -14,10 +14,6 @@ let tictoc (f:unit -> 'T) =
     let timing = stopwatch.Elapsed.TotalMilliseconds
     result, timing
 
-let private stopwatch = Stopwatch()
-let tic() = stopwatch.Restart()
-let toc() = stopwatch.Stop(); stopwatch.Elapsed.TotalMilliseconds
-
 type TimingCollector() =
     let timings = new Dictionary<string, List<float>>()
 

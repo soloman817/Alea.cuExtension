@@ -25,6 +25,11 @@ let log2 (arg:int) =
         n <- n >>> 1
     logValue
 
+let padding alignment size =
+    match alignment with
+    | 0 -> 0
+    | alignment -> int(ceil(float(size) / float(alignment))) * alignment - size
+
 module NumericLiteralG =
     let [<ReflectedDefinition>] inline FromZero() = LanguagePrimitives.GenericZero
     let [<ReflectedDefinition>] inline FromOne() = LanguagePrimitives.GenericOne

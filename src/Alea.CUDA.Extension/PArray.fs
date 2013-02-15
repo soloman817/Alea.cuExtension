@@ -1,6 +1,7 @@
 ﻿[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]        
 module Alea.CUDA.Extension.PArray
 
+open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Extension.Util
 
@@ -101,4 +102,31 @@ let transform2i transform = cuda {
         let n = input1.Length
         let lp = calcLaunchParam n
         kernel.Launch lp n input1.Ptr input2.Ptr output.Ptr) }
+
+// a helper function to simplify the usage, it will handles the working memory malloc
+// for advanced usage, please go for reduce'
+let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
+    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
+                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
+
+    return PFunc(fun (m:Module) (values:PArray<'T>) ->
+        let reducer = reducer.Invoke m values.Length
+        use ranges = PArray.Create(m.Worker, reducer.Ranges)
+        use rangeTotals = PArray.Create(m.Worker, reducer.NumRangeTotals)
+        reducer.Reduce ranges rangeTotals values) }
+
+let reduce' (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
+    Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
+                         (Reduce.Generic.reduceRangeTotalsKernel init op)
+
+let inline sum () = cuda {
+    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
+
+    return PFunc(fun (m:Module) (values:PArray<'T>) ->
+        let reducer = reducer.Invoke m values.Length
+        use ranges = PArray.Create(m.Worker, reducer.Ranges)
+        use rangeTotals = PArray.Create<'T>(m.Worker, reducer.NumRangeTotals)
+        reducer.Reduce ranges rangeTotals values) }
+
+let inline sum' () = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
 

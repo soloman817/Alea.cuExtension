@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Random.SobolGold
+﻿module Alea.CUDA.Extension.SobolGold
 
 /// Reorder points aligned as produced by Sobol kernel to consecutive points.
 let reorderPoints dimensions vectors (points:'T[]) =

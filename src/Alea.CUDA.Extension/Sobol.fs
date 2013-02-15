@@ -1,8 +1,14 @@
-﻿module Alea.CUDA.Extension.Random.Sobol
+﻿module Alea.CUDA.Extension.Sobol
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Extension
+
+type ISobol<'T when 'T:unmanaged> =
+    abstract NumDimensions : int
+    abstract Directions : uint32[]
+    // vectors -> offset -> directions -> output -> unit
+    abstract Generate : int -> int -> PArray<uint32> -> PArray<'T> -> unit
 
 let [<ReflectedDefinition>] internal nDirections = 32
 
@@ -116,9 +122,18 @@ let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
 
         LaunchParam(dimGrid, dimBlock)
 
-    return PFunc(fun (m:Module) dimensions vectors offset (directions:PArray<uint32>) (output:PArray<'T>) ->
+    return PFunc(fun (m:Module) dimensions ->
         let kernel = kernel.Apply m
-        let lp = launchParam dimensions vectors
-        let offset = offset + 1
-        if output.Length < dimensions * vectors then failwith "output length should >= dimensions * vectors"
-        kernel.Launch lp dimensions vectors offset directions.Ptr output.Ptr) }
+        let directions = directions dimensions
+
+        let launch vectors offset (directions:PArray<uint32>) (output:PArray<'T>) () =
+            let lp = launchParam dimensions vectors
+            let offset = offset + 1
+            if output.Length < dimensions * vectors then failwith "output length should >= dimensions * vectors"
+            kernel.Launch lp dimensions vectors offset directions.Ptr output.Ptr
+
+        { new ISobol<'T> with
+            member this.NumDimensions = dimensions
+            member this.Directions = directions
+            member this.Generate vectors offset directions output = m.Worker.Eval(launch vectors offset directions output)
+        } ) }
