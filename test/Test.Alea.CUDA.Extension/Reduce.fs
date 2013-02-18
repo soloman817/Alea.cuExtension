@@ -4,19 +4,20 @@ open System
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.Reduce
 
 let rng = System.Random()
 
 let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608; 33554432]
 
 [<Test>]
-let ``reduce sum<int>`` () =
+let ``sum<int>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.sum())
+    let reduce = reducem.Invoke
+    let reduce (values:int[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
     
-    let worker = Engine.workers.DefaultWorker
-    let reducer:IReduce<int> = worker.LoadPModule(reduce plan32).Invoke
-    let reduce input = reducer.Reduce(input)
-
     let test init n = 
         let values = Array.init n (init)
         let total = reduce values
@@ -28,10 +29,13 @@ let ``reduce sum<int>`` () =
     sizes |> Seq.iter (test (fun _ -> rng.Next(-100, 100)))
 
 [<Test>]
-let ``reduce sum<float>`` () =
-    let worker = Engine.workers.DefaultWorker
-    let reducer:IReduce<float> = worker.LoadPModule(reduce plan64).Invoke
-    let reduce input = reducer.Reduce(input)
+let ``sum<float>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.sum())
+    let reduce = reducem.Invoke
+    let reduce (values:float[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
 
     let test init n = 
         let values = Array.init n (init)
@@ -45,12 +49,15 @@ let ``reduce sum<float>`` () =
     sizes |> Seq.iter (test (fun _ -> rng.NextDouble()))
 
 [<Test>]
-let ``reduce generic sum<float>`` () =
-    let worker = Engine.workers.DefaultWorker
-    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x @>).Invoke
-    let reduce input = reducer.Reduce(input)
+let ``reduce sum<float>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.reduce <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x @>)
+    let reduce = reducem.Invoke
+    let reduce (values:float[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
 
-    let test init n = 
+    let test init n =
         let values = Array.init n (init)
         let total = reduce values
         let expected = Array.sum values
@@ -62,10 +69,13 @@ let ``reduce generic sum<float>`` () =
     sizes |> Seq.iter (test (fun _ -> rng.NextDouble()))
 
 [<Test>]
-let ``reduce generic sum square<float>`` () =
-    let worker = Engine.workers.DefaultWorker
-    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x*x @>).Invoke
-    let reduce input = reducer.Reduce(input)
+let ``reduce sum square<float>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.reduce <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>)
+    let reduce = reducem.Invoke
+    let reduce (values:float[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
    
     let test init n = 
         let values = Array.init n (init)
@@ -78,10 +88,13 @@ let ``reduce generic sum square<float>`` () =
     sizes |> Seq.iter (test (fun _ -> rng.NextDouble()))
 
 [<Test>]
-let ``reduce generic max<float>`` () =
-    let worker = Engine.workers.DefaultWorker
-    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ fun x -> x @>).Invoke
-    let reduce input = reducer.Reduce(input)
+let ``reduce max<float>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.reduce <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ fun x -> x @>)
+    let reduce = reducem.Invoke
+    let reduce (values:float[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
 
     let test init n = 
         let values = Array.init n (init)
@@ -95,10 +108,13 @@ let ``reduce generic max<float>`` () =
     sizes |> Seq.iter (test (fun _ -> rng.NextDouble()))
 
 [<Test>]
-let ``reduce generic min<float>`` () =
-    let worker = Engine.workers.DefaultWorker
-    let reducer = worker.LoadPModule(genericReduce plan64 <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ fun x -> x @>).Invoke
-    let reduce input = reducer.Reduce(input)
+let ``reduce min<float>`` () =
+    let worker = getDefaultWorker()
+    use reducem = worker.LoadPModule(PArray.reduce <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ fun x -> x @>)
+    let reduce = reducem.Invoke
+    let reduce (values:float[]) =
+        use values = PArray.Create(worker, values)
+        reduce values
 
     let test init n = 
         let values = Array.init n (init)

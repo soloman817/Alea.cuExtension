@@ -4,19 +4,17 @@ open System.IO
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.Random
 open Test.Alea.CUDA.Extension.Util
 
 let worker = getDefaultWorker()
 
-let generator = worker.LoadPModule(Sobol.generator <@ Sobol.toUInt32 @>)
+let generator = worker.LoadPModule(PRandom.sobol <@ Sobol.toUInt32 @>)
 let generate = generator.Invoke
 
 let testSobol verify (dimensions:int) vectors offset =
     let dOutput =
         use output = PArray.Create(worker, dimensions * vectors)
-        use directions = PArray.Create(worker, Sobol.directions dimensions)
-        generate dimensions vectors offset directions output
+        generate dimensions vectors offset output
         output.ToHost()
 
     if verify then
@@ -25,14 +23,13 @@ let testSobol verify (dimensions:int) vectors offset =
         let dOutput = dOutput |> SobolGold.reorderPoints dimensions vectors
         (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
 
-let generatorFloat32 = worker.LoadPModule(Sobol.generator <@ Sobol.toFloat32 @>)
+let generatorFloat32 = worker.LoadPModule(PRandom.sobol <@ Sobol.toFloat32 @>)
 let generateFloat32 = generatorFloat32.Invoke
 
 let testSobolFloat32 verify (dimensions:int) vectors offset =
     let dOutput =
         use output = PArray.Create(worker, dimensions * vectors)
-        use directions = PArray.Create(worker, Sobol.directions dimensions)
-        generateFloat32 dimensions vectors offset directions output
+        generateFloat32 dimensions vectors offset output
         output.ToHost()
 
     if verify then
@@ -41,14 +38,13 @@ let testSobolFloat32 verify (dimensions:int) vectors offset =
         let dOutput = dOutput |> SobolGold.reorderPoints dimensions vectors
         (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
 
-let generatorFloat64 = worker.LoadPModule(Sobol.generator <@ Sobol.toFloat64 @>)
+let generatorFloat64 = worker.LoadPModule(PRandom.sobol <@ Sobol.toFloat64 @>)
 let generateFloat64 = generatorFloat64.Invoke
 
 let testSobolFloat64 verify (dimensions:int) vectors offset =
     let dOutput =
         use output = PArray.Create(worker, dimensions * vectors)
-        use directions = PArray.Create(worker, Sobol.directions dimensions)
-        generateFloat64 dimensions vectors offset directions output
+        generateFloat64 dimensions vectors offset output
         output.ToHost()
 
     if verify then

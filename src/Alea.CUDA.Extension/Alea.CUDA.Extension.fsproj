@@ -64,7 +64,12 @@
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="SegmentedScan.fs" />
+    <Compile Include="SobolJoeKuo_6_21201.fs" />
+    <Compile Include="Sobol.fs" />
+    <Compile Include="SobolGold.fs" />
     <Compile Include="PArray.fs" />
+    <Compile Include="PRandom.fs" />
+    <Compile Include="NormalDistribution.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
