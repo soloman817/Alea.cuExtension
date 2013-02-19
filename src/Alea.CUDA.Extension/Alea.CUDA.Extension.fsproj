@@ -58,9 +58,11 @@
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
-    <Compile Include="Common.fs" />
+    <Compile Include="Memory.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="Timing.fs" />
+    <Compile Include="PCalc.fs" />
+    <Compile Include="Transform.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="SobolJoeKuo_6_21201.fs" />

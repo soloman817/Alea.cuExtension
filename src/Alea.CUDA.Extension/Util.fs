@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.Util
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.Util
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
