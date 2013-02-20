@@ -1,7 +1,6 @@
 ﻿module Alea.CUDA.Extension.Transform
 
 open Alea.CUDA
-open Alea.CUDA.Extension.Util
 
 let transform name transform = cuda {
     let! kernel =
@@ -16,12 +15,13 @@ let transform name transform = cuda {
 
     let calcLaunchParam (m:Module) (n:int) =
         let blockSize = 256 // TODO: more advanced calcuation due to fine tune
-        let gridSize = min 64 (divup n blockSize)
+        let gridSize = min 64 (Util.divup n blockSize)
         LaunchParam(gridSize, blockSize)
 
-    return PFunc(fun (m:Module) lpmod (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
+    return PFunc(fun (m:Module) (lpmod:LaunchParam -> LaunchParam) ->
         let kernel = kernel.Apply m
         let calcLaunchParam = calcLaunchParam m
-        let lp = calcLaunchParam n |> lpmod
-        kernel.Launch lp n input output) }
+        fun (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
+            let lp = calcLaunchParam n |> lpmod
+            kernel.Launch lp n input output) }
 

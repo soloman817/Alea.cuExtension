@@ -8,46 +8,57 @@ open Alea.CUDA.Extension
 [<Test>]
 let test () =
     let worker = getDefaultWorker()
-    let map1 = worker.LoadPModule(PArray.map <@ fun x -> x + 1.0 @>).Invoke
-    let map2 = worker.LoadPModule(PArray.map <@ fun x -> x - 1.0 @>).Invoke
-    let map3 = worker.LoadPModule(PArray.map <@ fun x -> x + 10.0 @>).Invoke
 
-    let calc (i:float[]) = pcalc {
-        printfn "******* 1 *******"
-        let! i = PCalc.scatterArray worker i
-        printfn "******* 2 *******"
-        let! o1 = i |> map1
-        printfn "******* 3 *******"
-        let! o2 = i |> map2
-        printfn "******* 4 *******"
-        let! o1 = o1 |> PCalc.gatherArray
-        printfn "******* 5 *******"
-        let! o2 = o2 |> PCalc.gatherArray
-        printfn "******* 6 *******"
-        let! o3 = i |> map3
-        printfn "******* 7 *******"
-        let! o3 = o3 |> PCalc.gatherArray
-        printfn "******* 8 *******"
-        return o1, o2, o3 }
+    let pfunct = cuda {
+        let! map1 = PArray.map <@ fun x -> x + 1.0 @>
+        let! map2 = PArray.map <@ fun x -> x - 1.0 @>
+        let! map3 = PArray.map <@ fun x -> x + 10.0 @>
 
-    let kldiag (stat:Engine.KernelExecutionStats) =
-        let dim3str (d:dim3) = sprintf "(%dx%dx%d)" d.x d.y d.z
-        printfn "%s: %A %A %f %f"
-            stat.Kernel.Name
-            (stat.LaunchParam.GridDim |> dim3str)
-            (stat.LaunchParam.BlockDim |> dim3str)
-            stat.Occupancy
-            stat.TimeSpan
-    let diagnoser = { PCalc.Diagnoser.Default()
-                      with DebugBlob = true
-                           DebugResourceDispose = true
-                           KernelLaunchDiagnoser = Some kldiag }
+        return PFunc(fun (m:Module) (i:float[]) ->
+            let worker = m.Worker
+            let map1 = map1.Apply m
+            let map2 = map2.Apply m
+            let map3 = map3.Apply m
+            pcalc {
+                let! i = DArray.CreateInBlob(worker, i)
+
+                let! o1 = i |> map1
+                let! o2 = i |> map2
+                let! o3 = i |> map3
+
+                let! o1 = o1.ToHost()
+                let! o2 = o2.ToHost()
+                let! o3 = o3.ToHost()
+
+                return o1, o2, o3 } ) }
+
+    let pfunc = worker.LoadPModule(pfunct).Invoke
+
     let i = Array.init (1<<<22) (fun i -> float(i))
-    let o1, o2, o3 = calc i |> PCalc.runWithDiagnoser diagnoser
-    printfn "%A" i
-    printfn "%A" o1
-    printfn "%A" o2
-    printfn "%A" o3
+    let o1, o2, o3 = pfunc i |> PCalc.runWithDiagnoser (Diagnoser.DefaultAll)
+//    printfn "%A" i
+//    printfn "%A" o1
+//    printfn "%A" o2
+//    printfn "%A" o3
+
+    let _, loggers = pfunc i |> PCalc.runWithTimingLogger
+    loggers.["default"].Dump()
+
+    let _, loggers = pfunc i |> PCalc.runInWorkerWithTimingLogger worker
+    loggers.["default"].Dump()
+
+    let _, timing = pfunc i |> PCalc.runWithTiming 10
+    printfn "%.3f ms" timing
+
+    let _, timing = pfunc i |> PCalc.runInWorkerWithTiming worker 10
+    printfn "%.3f ms" timing
+
+    let _, tc = pfunc i |> PCalc.runWithKernelTiming 10
+    printfn "%A" tc
+
+    let _, tc = pfunc i |> PCalc.runInWorkerWithKernelTiming worker 10
+    printfn "%A" tc
+
 
 //[<Test>]
 //let ``transform (x:float) -> log x``() =

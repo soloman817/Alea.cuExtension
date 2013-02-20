@@ -10,10 +10,12 @@ let map (f:Expr<'T -> 'U>) = cuda {
     return PFunc(fun (m:Module) (i:DArray<'T>) ->
         let transform = transform.Apply m
         pcalc {
+            let! lpmod = PCalc.lpmod()
+            let transform = transform lpmod
+
             let n = i.Length
-            let! o = PCalc.createArray<'U> m.Worker n
-            let! lpmod = getLaunchParamModifier()
-            do! PCalc.addAction (fun () -> transform lpmod n i.Ptr o.Ptr)
+            let! o = DArray.CreateInBlob(m.Worker, n)
+            do! PCalc.action (lazy (transform n i.Ptr o.Ptr))
             return o }) }
 
 
