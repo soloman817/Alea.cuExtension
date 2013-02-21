@@ -42,10 +42,10 @@ type Plan =
         ranges
 
 /// The standard thread plan for 32 bit values.
-let plan32 = {numThreads = 1024; valuesPerThread = 4; numThreadsReduction = 256; blockPerSm = 1}
+let plan32 = {numThreads = 1024; valuesPerThread = 4; numThreadsReduction = 256; blockPerSm = 2}
     
 /// The thread plan for 64 bit values such as float.
-let plan64 = {numThreads = 512; valuesPerThread = 4; numThreadsReduction = 256; blockPerSm = 1}
+let plan64 = {numThreads = 512; valuesPerThread = 4; numThreadsReduction = 256; blockPerSm = 2}
 
 module Generic = 
     /// Multi-reduce function for all warps in the block.

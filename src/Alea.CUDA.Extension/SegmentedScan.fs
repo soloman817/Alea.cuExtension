@@ -142,7 +142,6 @@ DEVICE2 uint BlockScan(uint tid, uint warp, uint lane, uint last,
 }
 *)
 
-
     // Inter-warp reduction. Calculate the length of the last segment in the last lane in each warp. 
     // Also store the block offset to shared memory for the next pass.
     let [<ReflectedDefinition>] inline blockScan numWarps logNumWarps tid warp lane last warpFlags mask (blockOffsetShared:SharedPtr<int>) =
@@ -196,7 +195,6 @@ DEVICE2 uint BlockScan(uint tid, uint warp, uint lane, uint last,
         __syncthreads()
 
         blockShared.[warp]
-
 
 (*
 // Segmented scan downsweep logic. Abstracts away loading of values and head 
@@ -349,12 +347,10 @@ DEVICE2 void SegScanDownsweep(uint tid, uint lane, uint warp,
             if distance > offset then sum <- sum + shifted.[-offset]
             if i < LOG_WARP_SIZE - 1 then shifted.[0] <- sum
 
-        // Subtract last to make exclusive and add first to grab the fragment
-        // sum of the preceding thread.
+        // Subtract last to make exclusive and add first to grab the fragment sum of the preceding thread.
         sum <- sum + first - last;
 
-        // Call BlockScan for inter-warp scan on the reductions of the last
-        // segment in each warp.
+        // Call BlockScan for inter-warp scan on the reductions of the last segment in each warp.
         let mutable lastSegLength = last
         if hasHeadFlag = 0 then lastSegLength <- lastSegLength + sum
 
@@ -488,6 +484,8 @@ void SegScanUpsweepFlags(const uint* dValues,
                 if segmentStart = -1 then  
                     __syncthreads()
                     current <- current - numValues
+                else
+                    current <- -1  // force break
 
             // We've either hit the head flag or run out of values. Do a horizontal sum
             // of the thread values and store to global memory.
