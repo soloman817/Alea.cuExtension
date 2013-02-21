@@ -693,7 +693,7 @@ let inline segScan () = cuda {
     let plan = if sizeof<'T> >= 8 then plan64 else plan32
 
     let! kernel1 = Sum.segScanUpsweepFlagsKernel plan |> defineKernelFunc
-    let! kernel2 = Reduce.Sum.reduceRangeTotalsKernel plan |> defineKernelFunc
+    let! kernel2 = Scan.Sum.scanReduceKernel plan |> defineKernelFunc
     let! kernel3 = Sum.segScanDownsweepFlags plan |> defineKernelFunc
 
     let launch (m:Module) numValues (dValuesIn:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
@@ -703,7 +703,7 @@ let inline segScan () = cuda {
         let inclusive = if inclusive then 1 else 0
         use dRanges = m.Worker.Malloc(ranges)
         use dRangeTotals = m.Worker.Malloc<'T>(Array.zeroCreate (numRanges + 1))  
-        use dHeadFlags = m.Worker.Malloc<'T>(1025)  // TODO determine proper size
+        use dHeadFlags = m.Worker.Malloc<'T>(numRanges)   
 
         printfn "====> ranges = %A" ranges
         printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())

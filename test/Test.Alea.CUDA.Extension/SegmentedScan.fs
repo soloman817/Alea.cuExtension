@@ -62,7 +62,7 @@ let ``segmented scan upsweep`` () =
     let worker = getDefaultWorker()
     let scan = worker.LoadPModule(segScan ()).Invoke
 
-    let n = 5*1024
+    let n = 20*1024
     let values = Array.init n (fun _ -> 1)
     let flags = Array.zeroCreate n
     flags.[0] <- 1
@@ -70,6 +70,8 @@ let ``segmented scan upsweep`` () =
     flags.[1024] <- 1
     flags.[2000] <- 1
     flags.[3000] <- 1
+    flags.[5000] <- 1
+    flags.[7000] <- 1
 
     let segScan = scan values flags false
 
