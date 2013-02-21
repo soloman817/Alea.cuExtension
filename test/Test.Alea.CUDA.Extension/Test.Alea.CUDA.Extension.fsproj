@@ -88,6 +88,7 @@
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="Sobol.fs" />
+    <Compile Include="SegmentedScan.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />
   </ItemGroup>
