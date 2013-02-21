@@ -1,1 +1,3 @@
-﻿Test.Alea.CUDA.Extension.Transformation.test()
+﻿printfn "haha"
+
+//Test.Alea.CUDA.Extension.Transformation.test()

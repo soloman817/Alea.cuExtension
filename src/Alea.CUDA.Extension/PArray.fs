@@ -1,101 +1,117 @@
-﻿[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]        
-module Alea.CUDA.Extension.PArray
+﻿module Alea.CUDA.Extension.PArray
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 
+let transform (f:Expr<'T -> 'U>) = cuda {
+    let! pfunc = Transform.transform "transform" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input:DArray<'T>) (output:DArray<'U>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input.Length
+                do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr)) } ) }
+
+let transform2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transform2 "transform2" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input1.Length
+                do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr)) } ) }
+
+let transformi (f:Expr<int -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformi "transformi" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input:DArray<'T>) (output:DArray<'U>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input.Length
+                do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr)) } ) }
+
+let transformi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformi2 "transformi2" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input1.Length
+                do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr)) } ) }
+
 let map (f:Expr<'T -> 'U>) = cuda {
-    let! transform = Transform.transform "map" f
+    let! pfunc = Transform.transform "map" f
 
-    return PFunc(fun (m:Module) (i:DArray<'T>) ->
-        let transform = transform.Apply m
-        pcalc {
-            let! lpmod = PCalc.lpmod()
-            let transform = transform lpmod
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input:DArray<'T>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input.Length
+                let! output = DArray.CreateInBlob(worker, n)
+                do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr))
+                return output } ) }
 
-            let n = i.Length
-            let! o = DArray.CreateInBlob(m.Worker, n)
-            do! PCalc.action (lazy (transform n i.Ptr o.Ptr))
-            return o }) }
+let map2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transform2 "map2" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input1.Length
+                let! output = DArray.CreateInBlob(worker, n)
+                do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr))
+                return output } ) }
+
+let mapi (f:Expr<int -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformi "mapi" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input:DArray<'T>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input.Length
+                let! output = DArray.CreateInBlob(worker, n)
+                do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr))
+                return output } ) }
+
+let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformi2 "mapi2" f
+
+    return PFunc(fun (m:Module) ->
+        let pfunc = pfunc.Apply m
+        let worker = m.Worker
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) ->
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let n = input1.Length
+                let! output = DArray.CreateInBlob(worker, n)
+                do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr))
+                return output } ) }
 
 
 
 
 
-//let transformi transform = cuda {
-//    let! kernel =
-//        <@ fun (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
-//            let start = blockIdx.x * blockDim.x + threadIdx.x
-//            let stride = gridDim.x * blockDim.x
-//            let mutable i = start
-//            while i < n do
-//                output.[i] <- (%transform) i input.[i]
-//                i <- i + stride @>
-//        |> defineKernelFuncWithName "transformi"
-//
-//    let calcLaunchParam (m:Module) (n:int) =
-//        let blockSize = 256 // TODO: more advanced calcuation due to fine tune
-//        let gridSize = min 64 (divup n blockSize)
-//        LaunchParam(gridSize, blockSize)
-//
-//    return PFunc(fun (m:Module) (input:PArray<'T>) (output:PArray<'U>) ->
-//        let kernel = kernel.Apply m
-//        let calcLaunchParam = calcLaunchParam m
-//        if input.Length > output.Length then failwithf "transformi: input.Length(%d) > output.Length(%d)" input.Length output.Length
-//        let n = input.Length
-//        let lp = calcLaunchParam n
-//        kernel.Launch lp n input.Ptr output.Ptr) }
-//
-//let transform2 transform = cuda {
-//    let! kernel =
-//        <@ fun (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
-//            let start = blockIdx.x * blockDim.x + threadIdx.x
-//            let stride = gridDim.x * blockDim.x
-//            let mutable i = start
-//            while i < n do
-//                output.[i] <- (%transform) input1.[i] input2.[i]
-//                i <- i + stride @>
-//        |> defineKernelFuncWithName "transfrom2"
-//
-//    let calcLaunchParam (m:Module) (n:int) =
-//        let blockSize = 256 // TODO: more advanced calcuation due to fine tune
-//        let gridSize = min 64 (divup n blockSize)
-//        LaunchParam(gridSize, blockSize)
-//
-//    return PFunc(fun (m:Module) (input1:PArray<'T1>) (input2:PArray<'T2>) (output:PArray<'U>) ->
-//        let kernel = kernel.Apply m
-//        let calcLaunchParam = calcLaunchParam m
-//        if input1.Length > input2.Length then failwithf "transform2: input1.Length(%d) > input2.Length(%d)" input1.Length input2.Length
-//        if input1.Length > output.Length then failwithf "transform2: input1.Length(%d) > output.Length(%d)" input1.Length output.Length
-//        let n = input1.Length
-//        let lp = calcLaunchParam n
-//        kernel.Launch lp n input1.Ptr input2.Ptr output.Ptr) }
-//
-//let transform2i transform = cuda {
-//    let! kernel =
-//        <@ fun (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
-//            let start = blockIdx.x * blockDim.x + threadIdx.x
-//            let stride = gridDim.x * blockDim.x
-//            let mutable i = start
-//            while i < n do
-//                output.[i] <- (%transform) i input1.[i] input2.[i]
-//                i <- i + stride @>
-//        |> defineKernelFuncWithName "transfrom2i"
-//
-//    let calcLaunchParam (m:Module) (n:int) =
-//        let blockSize = 256 // TODO: more advanced calcuation due to fine tune
-//        let gridSize = min 64 (divup n blockSize)
-//        LaunchParam(gridSize, blockSize)
-//
-//    return PFunc(fun (m:Module) (input1:PArray<'T1>) (input2:PArray<'T2>) (output:PArray<'U>) ->
-//        let kernel = kernel.Apply m
-//        let calcLaunchParam = calcLaunchParam m
-//        if input1.Length > input2.Length then failwithf "transform2i: input1.Length(%d) > input2.Length(%d)" input1.Length input2.Length
-//        if input1.Length > output.Length then failwithf "transform2i: input1.Length(%d) > output.Length(%d)" input1.Length output.Length
-//        let n = input1.Length
-//        let lp = calcLaunchParam n
-//        kernel.Launch lp n input1.Ptr input2.Ptr output.Ptr) }
-//
+
 // a helper function to simplify the usage, it will handles the working memory malloc
 // for advanced usage, please go for reduce'
 //let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {

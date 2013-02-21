@@ -39,53 +39,123 @@ type TimingCollector() =
 
 type ITimingLogger =
     abstract Log : string -> unit
-    abstract Split : unit -> unit
+    abstract Touch : unit -> unit
     abstract Finish : unit -> unit
-    abstract Dump : unit -> unit
+
+let dummyTimingLogger = 
+    { new ITimingLogger with
+        member this.Log(msg) = ()
+        member this.Touch() = ()
+        member this.Finish() = () }
 
 type TimingLogger(name:string) =
-    let splitter = ""
-    let timings = new List<string * float>()
+    let timings = new List<string option * float>()
+    let mutable msg : string option = None
+    let mutable finished = false
     let watch = Stopwatch.StartNew()
-    let mutable oldmsg = splitter
 
-    member this.Log(newmsg:string) =
+    let stop() =
         watch.Stop()
         let timing = watch.Elapsed.TotalMilliseconds
-        timings.Add(oldmsg, timing)
-        oldmsg <- newmsg
+        timings.Add(msg, timing)
+        msg <- None
+
+    let start(msg':string option) =
+        msg <- msg'
         watch.Restart()
 
-    member this.Split() = this.Log(splitter)
+    member this.Log(msg:string) =
+        if finished then failwith "logger is finished"
+        stop()
+        start(Some msg)
+
+    member this.Touch() =
+        if finished then failwith "logger is finished"
+        stop()
+        start(None)
 
     member this.Finish() =
-        watch.Stop()
-        let timing = watch.Elapsed.TotalMilliseconds
-        timings.Add(oldmsg, timing)
-        oldmsg <- splitter
+        if not finished then
+            stop()
+            finished <- true
 
-    member this.Dump() =
-        let timings = timings |> Array.ofSeq
-        let maxMsgLength = timings |> Array.map (fun (msg, _) -> msg |> String.length) |> Array.max
-        let spaces = timings |> Array.map (fun (msg, _) -> maxMsgLength - (String.length msg) + 2)
-        let total = timings |> Array.fold (fun total (_, timing) -> total + timing) 0.0
-        let percentages = timings |> Array.map (fun (_, timing) -> timing / total)
-        let title = sprintf "***** %s *****" name
+    member this.TotalMilliseconds = timings |> Seq.sumBy snd
+    member this.TotalExplicitMilliseconds = timings |> Seq.filter (fun (msg, _) -> msg.IsSome) |> Seq.sumBy snd
+    member this.TotalImplicitMilliseconds = timings |> Seq.filter (fun (msg, _) -> msg.IsNone) |> Seq.sumBy snd
 
-        printfn "%s" title
-        for i = 0 to timings.Length - 1 do
-            printf "%s" (timings.[i] |> fst)
-            for j = 1 to spaces.[i] do printf " "
-            printfn "%15.3f ms %6.2f%%" (timings.[i] |> snd) (percentages.[i] * 100.0)
-        for i = 1 to (String.length title) do printf "*"
-        printfn ""
-        printf "TOTAL"
-        for i = 1 to maxMsgLength - 5 + 2 do printf " "
-        printfn "%15.3f ms %6.2f%%" total ((percentages |> Array.sum) * 100.0)
+    member this.Logs =
+        let total = this.TotalMilliseconds
+        let total' = this.TotalExplicitMilliseconds
+        timings
+        |> Seq.choose (fun (msg, timing) -> match msg with Some(msg) -> Some(msg, timing) | None -> None)
+        |> Seq.map (fun (msg, timing) -> msg, timing, timing / total', timing / total)
+        |> Array.ofSeq
+
+    member this.AllLogs =
+        let total = this.TotalMilliseconds
+        timings
+        |> Seq.map (fun (msg, timing) ->
+            match msg with
+            | Some(msg) -> msg, timing, timing / total, timing / total
+            | None -> "", timing, timing / total, timing / total)
+        |> Array.ofSeq
+
+    member this.Dump(logs:(string * float * float * float)[]) =
+        let totalMsg = "TOTAL"
+        let totalTiming = this.TotalMilliseconds
+        let totalPercentage = 1.0
+
+        let totalExplicitMsg = "TOTAL EXPLICIT"
+        let totalExplicitTiming = this.TotalExplicitMilliseconds
+        let totalExplicitPercentage = totalExplicitTiming / totalTiming
+
+        let totalImplicitMsg = "TOTAL IMPLICIT"
+        let totalImplicitTiming = this.TotalImplicitMilliseconds
+        let totalImplicitPercentage = totalImplicitTiming / totalTiming
+
+        let total'Msg = "summary"
+        let total'Timing = logs |> Array.map (fun (_, timing, _, _) -> timing) |> Array.sum
+        let total'Percentage' = logs |> Array.map (fun (_, _, percentage, _) -> percentage) |> Array.sum
+        let total'Percentage = logs |> Array.map (fun (_, _, _, percentage) -> percentage) |> Array.sum
+
+        let maxMsgLength = logs |> Array.map (fun (msg, _, _, _) -> msg.Length) |> Array.max
+        let maxMsgLength = max maxMsgLength totalMsg.Length
+        let maxMsgLength = max maxMsgLength totalExplicitMsg.Length
+        let maxMsgLength = max maxMsgLength totalImplicitMsg.Length
+        let maxMsgLength = max maxMsgLength total'Msg.Length
+
+        let width space = maxMsgLength + space + 15 + 4 + 6 + 1 + 1 + 6 + 1
+        let space = if (width 1 - name.Length) % 2 = 0 then 1 else 2
+        let width = width space
+        let mkmsg (msg:string) = sprintf "%s%s" msg (String.replicate (maxMsgLength - msg.Length + space) " ")
+
+        printfn "%s" (String.replicate width "=")
+        printfn "%s%s" (String.replicate ((width - name.Length) / 2) " ") name
+        printfn "%s" (String.replicate width "-")
+
+        // print logs
+        logs |> Array.iter (fun (msg, timing, percentage', percentage) ->
+            printfn "%s%15.3f ms %6.2f%% %6.2f%%" (mkmsg msg) timing (percentage' * 100.0) (percentage * 100.0))
+        printfn "%s" (String.replicate width "-")
+
+        // local total (for verify)
+        printfn "%s%15.3f ms %6.2f%% %6.2f%%" (mkmsg total'Msg) total'Timing (total'Percentage' * 100.0) (total'Percentage * 100.0)
+        printfn "%s" (String.replicate width "-")
+
+        // total of explict and implicit
+        printfn "%s%15.3f ms         %6.2f%%" (mkmsg totalExplicitMsg) totalExplicitTiming (totalExplicitPercentage * 100.0)
+        printfn "%s%15.3f ms         %6.2f%%" (mkmsg totalImplicitMsg) totalImplicitTiming (totalImplicitPercentage * 100.0)
+        printfn "%s" (String.replicate width "-")
+
+        // print total
+        printfn "%s%15.3f ms         %6.2f%%" (mkmsg totalMsg) totalTiming (totalPercentage * 100.0)
+        printfn "%s" (String.replicate width "=")
+
+    member this.DumpLogs() = this.Dump(this.Logs)
+    member this.DumpAllLogs() = this.Dump(this.AllLogs)
 
     interface ITimingLogger with
         member this.Log(msg) = this.Log(msg)
-        member this.Split() = this.Split()
+        member this.Touch() = this.Touch()
         member this.Finish() = this.Finish()
-        member this.Dump() = this.Dump()
 

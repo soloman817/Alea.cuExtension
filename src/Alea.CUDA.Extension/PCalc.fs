@@ -26,22 +26,19 @@ type BlobSlot =
 
 type Diagnoser =
     {
-        DebugBlob : bool
-        DebugResourceDispose : bool
+        DebugLevel : int
         KernelLaunchDiagnoser : Engine.Diagnoser option
     }
 
-    static member DefaultNone =
+    static member None =
         {
-            DebugBlob = false
-            DebugResourceDispose = false
+            DebugLevel = 0
             KernelLaunchDiagnoser = None
         }
 
-    static member DefaultAll =
+    static member All(level) =
         {
-            DebugBlob = true
-            DebugResourceDispose = true
+            DebugLevel = level
             KernelLaunchDiagnoser = Some Util.kldiag
         }
 
@@ -53,27 +50,19 @@ type State =
         Actions : List<Lazy<unit>>
         Resources : List<IDisposable>
         KernelTimingCollector : Timing.TimingCollector option
-        TimingLoggers : Dictionary<string, Timing.ITimingLogger> option
+        TimingLoggers : Dictionary<string, Timing.TimingLogger> option
     }
+
+    member this.DebugLevel = this.Diagnoser.DebugLevel
 
     member this.GetTimingLogger (name:string) =
         match this.TimingLoggers with
         | Some(loggers) -> 
-            match loggers.ContainsKey(name) with
-            | true -> loggers.[name]
-            | false ->
-                let logger = Timing.TimingLogger(name)
-                loggers.Add(name, logger)
-                logger :> Timing.ITimingLogger
-        | None -> 
-            { new Timing.ITimingLogger with
-                member this.Log(msg) = ()
-                member this.Split() = ()
-                member this.Finish() = ()
-                member this.Dump() = ()
-            }
+            if not (loggers.ContainsKey(name)) then loggers.Add(name, Timing.TimingLogger(name))
+            loggers.[name] :> Timing.ITimingLogger
+        | None -> Timing.dummyTimingLogger
 
-    member private this._FreezeBlob() =
+    member this.FreezeBlob() =
         let f () =
             let logger = this.GetTimingLogger("default")
 
@@ -87,16 +76,13 @@ type State =
                     let padding = Util.padding worker.Device.TextureAlignment
 
                     // calc size
-                    let slots =
-                        slots
-                        |> Array.map (fun (id, slot) ->
-                            let size = slot.Size
-                            let padding = padding size
-                            id, slot, size, padding)
+                    let slots = slots |> Array.map (fun (id, slot) ->
+                        let size = slot.Size
+                        let padding = padding size
+                        id, slot, size, padding)
 
                     // sort slots
-                    slots
-                    |> Array.sortInPlaceWith (fun (_, lslot, _, _) (_, rslot, _, _) ->
+                    slots |> Array.sortInPlaceWith (fun (_, lslot, _, _) (_, rslot, _, _) ->
                         match lslot, rslot with
                         | Extent(_, _), FromHost(_, _, _) -> 1
                         | FromHost(_, _, _), Extent(_, _) -> -1
@@ -106,10 +92,9 @@ type State =
                             else 0
                         | _ -> 0)
 
-                    if this.Diagnoser.DebugBlob then
+                    if this.DebugLevel >= 1 then
                         printfn "Freezing blob on %s:" worker.Name
-                        slots
-                        |> Array.iter (fun (id, slot, size, padding) ->
+                        slots |> Array.iter (fun (id, slot, size, padding) ->
                             printfn "==> Slot[%d] size=%d (%.3f MB) padding=%d type=%s"
                                 id
                                 size
@@ -118,10 +103,10 @@ type State =
                                 slot.Type)
 
                     // malloc blob
-                    logger.Log("malloc blob")
+                    logger.Log("malloc dblob")
                     let dmem =
                         let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
-                        if this.Diagnoser.DebugBlob then
+                        if this.DebugLevel >= 1 then
                             printfn "Malloc blob on %s: %d bytes (%.3f MB)"
                                 worker.Name
                                 total
@@ -129,14 +114,13 @@ type State =
                         let dmem = worker.Malloc<byte>(total)
                         this.Resources.Add(dmem)
                         dmem
-                    logger.Split()
+                    logger.Touch()
 
                     worker, dmem, slots)
                 |> Array.ofSeq
 
             // scatter by streams (async memcpy)
-            slots
-            |> Array.iter (fun (worker, dmem, slots) ->
+            slots |> Array.iter (fun (worker, dmem, slots) ->
                 slots
                 |> Array.filter (fun (_, slot, size, padding) ->
                     match slot with
@@ -151,8 +135,8 @@ type State =
                 |> Array.fold (fun (dblob:DevicePtr<byte>) (stream, slots) ->
                     let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
                     if total > 0 then
-                        if this.Diagnoser.DebugBlob then
-                            printfn "Scatter blob on %s.Stream[%A]: %d bytes (%.3f MB)"
+                        if this.DebugLevel >= 1 then
+                            printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
                                 worker.Name
                                 stream.Handle
                                 total
@@ -167,15 +151,14 @@ type State =
                                 offset + size + padding
                             | _ -> failwith "BUG") 0
                         |> ignore
-                        logger.Log("scatter hblob")
+                        logger.Log("memcpy hblob")
                         DevicePtrUtil.Scatter(worker, hblob, dblob, total) //TODO using stream!
-                        logger.Split()
+                        logger.Touch()
                     dblob + total) dmem.Ptr
                 |> ignore)
 
             // fill ptr
-            slots
-            |> Array.iter (fun (_, dmem, slots) ->
+            slots |> Array.iter (fun (_, dmem, slots) ->
                 slots
                 |> Array.fold (fun (ptr:DevicePtr<byte>) (id, _, size, padding) ->
                     this.Blobs.Add(id, ptr)
@@ -187,41 +170,33 @@ type State =
         if this.Blob.Count > 0 then f()
 
     member this.AddBlobSlot(slot:BlobSlot) =
-        let f () =
-            let id = this.Blobs.Count + this.Blob.Count
-            this.Blob.Add(id, slot)
-            id
-
-        lock this f
+        let id = this.Blobs.Count + this.Blob.Count
+        this.Blob.Add(id, slot)
+        id
 
     member this.GetBlobSlot(id:int) =
-        let f () =
-            let freezed = id < this.Blobs.Count
-            if not freezed then this._FreezeBlob()
-            this.Blobs.[id]
+        let freezed = id < this.Blobs.Count
+        if not freezed then this.FreezeBlob()
+        this.Blobs.[id]
 
-        lock this f
-
-    member this.Free() =
-        let f () =
-            this.Resources
-            |> Seq.iter (fun o ->
-                if this.Diagnoser.DebugResourceDispose then printfn "Disposing %A ..." o
+    member this.DisposeResources() =
+        if this.Resources.Count > 0 then
+            let logger = this.GetTimingLogger("default")
+            logger.Log("release resources")
+            this.Resources |> Seq.iter (fun o ->
+                if this.DebugLevel >= 1 then printfn "Disposing %A ..." o
                 o.Dispose())
             this.Resources.Clear()
-
-        lock this f
+            logger.Touch()
 
     member this.RunActions() =
-        let f () =
+        if this.Actions.Count > 0 then
+            this.FreezeBlob()
             let logger = this.GetTimingLogger("default")
-            this._FreezeBlob()
             logger.Log("run actions")
             this.Actions |> Seq.iter (fun f -> f.Force())
-            logger.Split()
             this.Actions.Clear()
-
-        lock this f
+            logger.Touch()
 
     member this.AddKernelDiagnoser (lp:LaunchParam) =
         match this.Diagnoser.KernelLaunchDiagnoser, this.KernelTimingCollector with
@@ -257,53 +232,60 @@ type PCalcBuilder() =
     member this.Bind(x:PCalc<'a>, res:'a -> PCalc<'b>) =
         PCalc(fun s0 -> let r, s1 = x.Invoke(s0) in res(r).Invoke(s1))
     member this.Return(x:'a) = PCalc(fun s -> x, s)
+    member this.ReturnFrom(x:'a) = x
+    member this.Zero() = PCalc(fun s -> (), s)
+    member this.For(elements:seq<'a>, forBody:'a -> PCalc<unit>) =
+        PCalc(fun s0 -> (), elements |> Seq.fold (fun s0 e -> let _, s1 = (forBody e).Invoke(s0) in s1) s0)
 
 let pcalc = PCalcBuilder()
 
 let run (calc:PCalc<'T>) =
-    let s0 = State.Create(Diagnoser.DefaultNone)
+    let s0 = State.Create(Diagnoser.None)
     let r, s1 = calc.Invoke(s0)
-    s1.Free()
+    s1.DisposeResources()
     r
 
 let runWithTiming (n:int) (calc:PCalc<'T>) =
+    if n < 1 then failwith "n must >= 1"
     let timings = Array.zeroCreate<float> n
     for i = 1 to n - 1 do
         let _, timing = Timing.tictoc (fun () -> run calc)
         timings.[i] <- timing
     let r, timing = Timing.tictoc (fun () -> run calc)
     timings.[0] <- timing
-    let timing = timings |> Array.average
-    r, timing
+    r, timings
 
 let runWithKernelTiming (n:int) (calc:PCalc<'T>) =
+    if n < 1 then failwith "n must >= 1"
+
     let tc = Timing.TimingCollector()
-    let diagnoser = Diagnoser.DefaultNone
+    let diagnoser = Diagnoser.None
 
     for i = 1 to n - 1 do
         let s0 = { State.Create(diagnoser) with KernelTimingCollector = Some(tc) }
-        let r, s1 = calc.Invoke(s0)
-        s1.Free()
+        let _, s1 = calc.Invoke(s0)
+        s1.DisposeResources()
 
     let s0 = { State.Create(diagnoser) with KernelTimingCollector = Some(tc) }
     let r, s1 = calc.Invoke(s0)
-    s1.Free()
+    s1.DisposeResources()
 
     r, tc    
     
 let runWithTimingLogger (calc:PCalc<'T>) =
-    let s0 = { State.Create(Diagnoser.DefaultNone) with TimingLoggers = Some(Dictionary<string, Timing.ITimingLogger>(16)) }
+    let loggers = Dictionary<string, Timing.TimingLogger>(16)
+    let s0 = { State.Create(Diagnoser.None) with TimingLoggers = Some(loggers) }
     let logger = s0.GetTimingLogger("default")
     let r, s1 = calc.Invoke(s0)
-    logger.Log("release resources")
-    s1.Free()
+    s1.DisposeResources()
     logger.Finish()
-    r, s0.TimingLoggers.Value
+    loggers |> Seq.iter (fun pair -> pair.Value.Finish())
+    r, loggers
 
 let runWithDiagnoser (diagnoser:Diagnoser) (calc:PCalc<'T>) =
     let s0 = State.Create(diagnoser)
     let r, s1 = calc.Invoke(s0)
-    s1.Free()
+    s1.DisposeResources()
     r
 
 let runInWorker (worker:DeviceWorker) (calc:PCalc<'T>) = worker.Eval(fun () -> run calc)
@@ -312,9 +294,12 @@ let runInWorkerWithKernelTiming (worker:DeviceWorker) (n:int) (calc:PCalc<'T>) =
 let runInWorkerWithTimingLogger (worker:DeviceWorker) (calc:PCalc<'T>) = worker.Eval(fun () -> runWithTimingLogger calc)
 let runInWorkerWithDiagnoser (worker:DeviceWorker) (diagnoser:Diagnoser) (calc:PCalc<'T>) = worker.Eval(fun () -> runWithDiagnoser diagnoser calc)
 
+let tlogger (name:string) = PCalc(fun s -> s.GetTimingLogger(name), s)
 let action (f:Lazy<unit>) = PCalc(fun s -> s.Actions.Add(f); (), s)
 
+type LPModifier = LaunchParam -> LaunchParam
 let lpmod () = PCalc(fun s -> (fun lp -> s.AddKernelDiagnoser lp), s)
+let lpmods stream = PCalc(fun s -> (fun (lp:LaunchParam) -> lp.SetStream(stream) |> s.AddKernelDiagnoser), s)
 
 type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, length:int, rawptr:Lazy<DevicePtr<byte>>) =
     let size = length * sizeof<'T>
@@ -325,15 +310,14 @@ type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, length:int, raw
     member this.RawPtr = rawptr.Value
     member this.Ptr = rawptr.Value.Reinterpret<'T>()
 
-    member this.ToHost() =
+    member this.Gather() =
         PCalc(fun s ->
             s.RunActions()
             let logger = s.GetTimingLogger("default")
-            logger.Log("prepare host for gather")
+            logger.Log("gather memory")
             let host = Array.zeroCreate<'T> length
-            logger.Log("gather")
             DevicePtrUtil.Gather(worker, this.Ptr, host, length)
-            logger.Split()
+            logger.Touch()
             host, s)
 
 type DArray private () =
@@ -344,16 +328,9 @@ type DArray private () =
             let darray = DArray<'T>(worker, n, rawptr)
             darray, s)
 
-    static member CreateInBlob(worker:DeviceWorker, array:'T[]) =
+    static member ScatterInBlob(worker:DeviceWorker, array:'T[]) =
         PCalc(fun s ->
             let id = s.AddBlobSlot(BlobSlot.FromHost(worker, Engine.defaultStream, array))
-            let rawptr = Lazy.Create(fun () -> s.GetBlobSlot(id))
-            let darray = DArray<'T>(worker, array.Length, rawptr)
-            darray, s)
-
-    static member CreateInBlob(worker:DeviceWorker, stream:Stream, array:'T[]) =
-        PCalc(fun s ->
-            let id = s.AddBlobSlot(BlobSlot.FromHost(worker, stream, array))
             let rawptr = Lazy.Create(fun () -> s.GetBlobSlot(id))
             let darray = DArray<'T>(worker, array.Length, rawptr)
             darray, s)

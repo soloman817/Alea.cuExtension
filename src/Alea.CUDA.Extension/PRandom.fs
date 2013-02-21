@@ -1,14 +1,34 @@
 ﻿module Alea.CUDA.Extension.PRandom
 
+open Microsoft.FSharp.Quotations
 open Alea.CUDA
 
-//let sobol converter = cuda {
-//    let! generator = Sobol.generator converter
-//
-//    return PFunc(fun (m:Module) dimensions vectors offset (output:PArray<'T>) ->
-//        let generator = generator.Invoke m dimensions
-//        use directions = PArray.Create(m.Worker, generator.Directions)
-//        generator.Generate vectors offset directions output) }
-//
-//let sobol' converter = Sobol.generator converter
+let sobol converter = cuda {
+    let! generator = Sobol.generator converter
 
+    return PFunc(fun (m:Module) ->
+        let generator = generator.Apply m
+        let worker = m.Worker
+        fun dimensions vectors offset ->
+            let generator = generator dimensions
+            pcalc {
+                let! directions = DArray.ScatterInBlob(worker, generator.Directions)
+                let! output = DArray.CreateInBlob(worker, dimensions * vectors)
+                let! lpmod = PCalc.lpmod()
+                do! PCalc.action (lazy (generator.Generate lpmod vectors offset directions.Ptr output.Ptr))
+                return output }) }
+
+let sobolIter converter = cuda {
+    let! generator = Sobol.generator converter
+
+    return PFunc(fun (m:Module) ->
+        let generator = generator.Apply m
+        let worker = m.Worker
+        fun dimensions ->
+            let generator = generator dimensions
+            pcalc {
+                let! directions = DArray.ScatterInBlob(worker, generator.Directions)
+                return fun vectors offset (output:DArray<'T>) ->
+                    pcalc {
+                        let! lpmod = PCalc.lpmod()
+                        do! PCalc.action (lazy (generator.Generate lpmod vectors offset directions.Ptr output.Ptr)) }}) }
