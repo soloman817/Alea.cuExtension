@@ -3,13 +3,14 @@
 open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
 open Alea.CUDA
-open Alea.CUDA.Extension.Util
+
+open Util
 
 type IReduce<'T when 'T:unmanaged> =
     abstract Ranges : int[] // Ranges is a host array of int, which will be scattered later with blob
     abstract NumRangeTotals : int // NumRangeTotals is a length of rangeTotals, which will be used to calc blob size later
-    // ranges -> rangeTotals -> values -> result
-    abstract Reduce : DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> 'T
+    // lpmod -> ranges -> rangeTotals -> values -> unit (result is rangeTotals.[0], you should create dscalar for it)
+    abstract Reduce : LPModifier -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
 
 type Plan =
     {numThreads:int; valuesPerThread:int; numThreadsReduction:int; blockPerSm:int} 
@@ -239,38 +240,40 @@ let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<in
                          (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
     let plan = if sizeof<'T> >= 8 then plan64 else plan32
 
-    let! upSweep = kernelExpr1 plan |> defineKernelFuncWithName "upSweep"
+    let! upsweep = kernelExpr1 plan |> defineKernelFuncWithName "upsweep"
     let! reduce = kernelExpr2 plan |> defineKernelFuncWithName "reduce"
 
-    return PFunc(fun (m:Module) (n:int) ->
-        let upSweep = upSweep.Apply m
+    return PFunc(fun (m:Module) ->
+        let upsweep = upsweep.Apply m
         let reduce = reduce.Apply m
+        let worker = m.Worker
+        let numSm = m.Worker.Device.NumSm
 
-        let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.blockRanges numSm n
-        let numRanges = ranges.Length - 1
-        
-        let upSweep = upSweep.Launch (LaunchParam(numRanges, plan.numThreads))
-        let reduce = reduce.Launch (LaunchParam(1, plan.numThreadsReduction))
+        // factory to create reducer (IReduce)
+        fun (n:int) ->
+            let ranges = plan.blockRanges numSm n
+            let numRanges = ranges.Length - 1
 
-        let result = Array.zeroCreate<'T> 1
-        let launch (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) () =
-            // here use CUDA Driver API to memset
-            // NOTICE: cause it is raw api call, so MUST be run with worker.Eval
-            cuSafeCall(cuMemsetD8Async(rangeTotals.Handle, 0uy, nativeint(numRanges * sizeof<'T>), 0n))
+            let lpUpsweep = LaunchParam(numRanges, plan.numThreads)
+            let lpReduce = LaunchParam(1, plan.numThreadsReduction)
+
+            let launch (lpmod:LPModifier) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) () =
+                let lpUpsweep = lpUpsweep |> lpmod
+                let lpReduce = lpReduce |> lpmod
+                let stream = lpUpsweep.Stream
+
+                // here use CUDA Driver API to memset
+                // NOTICE: cause it is raw api call, so MUST be run with worker.Eval
+                cuSafeCall(cuMemsetD8Async(rangeTotals.Handle, 0uy, nativeint(numRanges * sizeof<'T>), stream.Handle))
             
-            // Launch range reduction kernel to calculate the totals per range.
-            upSweep values ranges rangeTotals
+                // Launch range reduction kernel to calculate the totals per range.
+                upsweep.Launch lpUpsweep values ranges rangeTotals
 
-            // Need to aggregate the block sums as well.
-            if numRanges > 1 then reduce numRanges rangeTotals
+                // Need to aggregate the block sums as well.
+                if numRanges > 1 then reduce.Launch lpReduce numRanges rangeTotals
 
-            // gather result
-            DevicePtrUtil.Gather(m.Worker, rangeTotals, result, 1)
-            result.[0]
-
-        { new IReduce<'T> with
-            member this.Ranges = ranges
-            member this.NumRangeTotals = numRanges
-            member this.Reduce ranges rangeTotals values = m.Worker.Eval(launch ranges rangeTotals values)
-        } ) }
+            { new IReduce<'T> with
+                member this.Ranges = ranges
+                member this.NumRangeTotals = numRanges
+                member this.Reduce lpmod ranges rangeTotals values = worker.Eval(launch lpmod ranges rangeTotals values)
+            } ) }

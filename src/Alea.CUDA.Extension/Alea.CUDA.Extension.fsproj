@@ -60,7 +60,9 @@
   <ItemGroup>
     <Compile Include="Util.fs" />
     <Compile Include="Timing.fs" />
+    <Compile Include="PCalcBuilder.fs" />
     <Compile Include="PCalc.fs" />
+    <Compile Include="DMemory.fs" />
     <Compile Include="Transform.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />

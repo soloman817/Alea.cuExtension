@@ -12,8 +12,8 @@ let sobol converter = cuda {
         fun dimensions vectors offset ->
             let generator = generator dimensions
             pcalc {
-                let! directions = DArray.ScatterInBlob(worker, generator.Directions)
-                let! output = DArray.CreateInBlob(worker, dimensions * vectors)
+                let! directions = DArray.scatterInBlob worker generator.Directions
+                let! output = DArray.createInBlob worker (dimensions * vectors)
                 let! lpmod = PCalc.lpmod()
                 do! PCalc.action (lazy (generator.Generate lpmod vectors offset directions.Ptr output.Ptr))
                 return output }) }
@@ -27,7 +27,7 @@ let sobolIter converter = cuda {
         fun dimensions ->
             let generator = generator dimensions
             pcalc {
-                let! directions = DArray.ScatterInBlob(worker, generator.Directions)
+                let! directions = DArray.scatterInBlob worker generator.Directions
                 return fun vectors offset (output:DArray<'T>) ->
                     pcalc {
                         let! lpmod = PCalc.lpmod()

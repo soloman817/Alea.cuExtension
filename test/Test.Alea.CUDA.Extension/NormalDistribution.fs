@@ -13,13 +13,13 @@ let ``inverse normal cdf with Shaw Brickman algorithm`` () =
     let calc = pcalc {
         let x = [| 0.01..0.01..0.99 |]
         let h = x |> Array.map ShawBrickman.inverseNormalCdf
-        let! x = DArray.ScatterInBlob(worker, x)
+        let! x = DArray.scatterInBlob worker x
         let! d = map x
         let! d = d.Gather()
         (h, d) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(1e-14))) }
     
     calc |> PCalc.run
-    calc |> PCalc.runWithDiagnoser(Diagnoser.All(1))
+    calc |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = calc |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
 [<Test>]
@@ -31,7 +31,7 @@ let ``inverse normal cdf accuracy comparison`` () =
 
     let calc = pcalc {
         let x = [| 0.001..0.001..0.999 |]
-        let! x = DArray.ScatterInBlob(worker, x)
+        let! x = DArray.scatterInBlob worker x
 
         let! d1 = map1 x
         let! d2 = map2 x
@@ -59,7 +59,7 @@ let ``inverse normal cdf accuracy comparison`` () =
         Assert.Less(e3, 4.7e-6) }
 
     calc |> PCalc.run
-    calc |> PCalc.runWithDiagnoser(Diagnoser.All(1))
+    calc |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = calc |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
 [<Test>]
@@ -77,7 +77,7 @@ let ``inverse normal cdf accuracy comparison (in one module)`` () =
             let map4 = map4.Apply m
 
             let x = [| 0.001..0.001..0.999 |]
-            let! x = DArray.ScatterInBlob(worker, x)
+            let! x = DArray.scatterInBlob worker x
 
             let! d1 = map1 x
             let! d2 = map2 x
@@ -109,7 +109,7 @@ let ``inverse normal cdf accuracy comparison (in one module)`` () =
     let calc = worker.LoadPModule(pfunct).Invoke
 
     calc |> PCalc.run
-    calc |> PCalc.runWithDiagnoser(Diagnoser.All(1))
+    calc |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = calc |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
 [<Test>]
@@ -118,12 +118,12 @@ let ``normal cdf with Abramowitz Stegun algorithm`` () =
     let calc = pcalc {
         let x = [| -5.0..0.01..5.0 |]
         let h = x |> Array.map AbramowitzStegun.normalCdf
-        let! x = DArray.ScatterInBlob(worker, x)
+        let! x = DArray.scatterInBlob worker x
         let! d = map x
         let! d = d.Gather()
         (h, d) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(1e-14))) }
 
     calc |> PCalc.run
-    calc |> PCalc.runWithDiagnoser(Diagnoser.All(1))
+    calc |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = calc |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 

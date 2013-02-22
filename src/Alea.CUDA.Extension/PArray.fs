@@ -61,7 +61,7 @@ let map (f:Expr<'T -> 'U>) = cuda {
             pcalc {
                 let! lpmod = PCalc.lpmod()
                 let n = input.Length
-                let! output = DArray.CreateInBlob(worker, n)
+                let! output = DArray.createInBlob worker n
                 do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr))
                 return output } ) }
 
@@ -75,7 +75,7 @@ let map2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
             pcalc {
                 let! lpmod = PCalc.lpmod()
                 let n = input1.Length
-                let! output = DArray.CreateInBlob(worker, n)
+                let! output = DArray.createInBlob worker n
                 do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr))
                 return output } ) }
 
@@ -89,7 +89,7 @@ let mapi (f:Expr<int -> 'T -> 'U>) = cuda {
             pcalc {
                 let! lpmod = PCalc.lpmod()
                 let n = input.Length
-                let! output = DArray.CreateInBlob(worker, n)
+                let! output = DArray.createInBlob worker n
                 do! PCalc.action (lazy (pfunc lpmod n input.Ptr output.Ptr))
                 return output } ) }
 
@@ -103,39 +103,39 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
             pcalc {
                 let! lpmod = PCalc.lpmod()
                 let n = input1.Length
-                let! output = DArray.CreateInBlob(worker, n)
+                let! output = DArray.createInBlob worker n
                 do! PCalc.action (lazy (pfunc lpmod n input1.Ptr input2.Ptr output.Ptr))
                 return output } ) }
 
+let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
+    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
+                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
 
+    return PFunc(fun (m:Module) ->
+        let reducer = reducer.Apply m
+        let worker = m.Worker
+        fun (values:DArray<'T>) ->
+            let n = values.Length
+            let reducer = reducer n 
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let! ranges = DArray.scatterInBlob worker reducer.Ranges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
+                return DScalar.ofArray rangeTotals 0 } ) }
 
+let inline sum () = cuda {
+    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
 
-
-
-// a helper function to simplify the usage, it will handles the working memory malloc
-// for advanced usage, please go for reduce'
-//let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-//    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
-//                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
-//
-//    return PFunc(fun (m:Module) (values:PArray<'T>) ->
-//        let reducer = reducer.Invoke m values.Length
-//        use ranges = PArray.Create(m.Worker, reducer.Ranges)
-//        use rangeTotals = PArray.Create(m.Worker, reducer.NumRangeTotals)
-//        reducer.Reduce ranges rangeTotals values) }
-//
-//let reduce' (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
-//    Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
-//                         (Reduce.Generic.reduceRangeTotalsKernel init op)
-//
-//let inline sum () = cuda {
-//    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
-//
-//    return PFunc(fun (m:Module) (values:PArray<'T>) ->
-//        let reducer = reducer.Invoke m values.Length
-//        use ranges = PArray.Create(m.Worker, reducer.Ranges)
-//        use rangeTotals = PArray.Create<'T>(m.Worker, reducer.NumRangeTotals)
-//        reducer.Reduce ranges rangeTotals values) }
-//
-//let inline sum' () = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
-//
+    return PFunc(fun (m:Module) ->
+        let reducer = reducer.Apply m
+        let worker = m.Worker
+        fun (values:DArray<'T>) ->
+            let n = values.Length
+            let reducer = reducer n 
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let! ranges = DArray.scatterInBlob worker reducer.Ranges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
+                return DScalar.ofArray rangeTotals 0 } ) }
