@@ -61,7 +61,7 @@ type PCalcState =
         Diagnoser : PCalcDiagnoser
         Blob : List<int * BlobSlot> // blob slots in building
         Blobs : Dictionary<int, DeviceMemory * DevicePtr<byte>> // blob slots that is freezed!
-        Actions : List<Lazy<unit>>
+        Actions : List<unit -> unit>
         Resources : List<IDisposable>
         KernelTimingCollector : Timing.TimingCollector option
         TimingLoggers : Dictionary<string, Timing.TimingLogger> option
@@ -254,7 +254,7 @@ type PCalcState =
             this.FreezeBlob()
             let logger = this.GetTimingLogger("default")
             logger.Log("run actions")
-            this.Actions |> Seq.iter (fun f -> f.Force())
+            this.Actions |> Seq.iter (fun f -> f())
             this.Actions.Clear()
             logger.Touch()
 
@@ -278,7 +278,7 @@ type PCalcState =
             Diagnoser = diagnoser
             Blob = List<int * BlobSlot>(capacity)
             Blobs = Dictionary<int, DeviceMemory * DevicePtr<byte>>(capacity)
-            Actions = List<Lazy<unit>>(capacity)
+            Actions = List<unit -> unit>(capacity)
             Resources = List<IDisposable>(capacity)
             KernelTimingCollector = None
             TimingLoggers = None

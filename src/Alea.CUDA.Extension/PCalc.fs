@@ -60,7 +60,7 @@ let runInWorkerWithTimingLogger (worker:DeviceWorker) (calc:PCalc<'T>) = worker.
 let runInWorkerWithDiagnoser (worker:DeviceWorker) (diagnoser:PCalcDiagnoser) (calc:PCalc<'T>) = worker.Eval(fun () -> runWithDiagnoser diagnoser calc)
 
 let tlogger (name:string) = PCalc(fun s -> s.GetTimingLogger(name), s)
-let action (f:Lazy<unit>) = PCalc(fun s -> s.Actions.Add(f); (), s)
+let action (f:unit -> unit) = PCalc(fun s -> s.Actions.Add(f); (), s)
 
 let lpmod () = PCalc(fun s -> (fun lp -> s.AddKernelDiagnoser lp), s)
 let lpmods stream = PCalc(fun s -> (fun (lp:LaunchParam) -> lp.SetStream(stream) |> s.AddKernelDiagnoser), s)
