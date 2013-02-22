@@ -30,11 +30,11 @@ let simple() =
     let _, loggers = calc |> PCalc.runWithTimingLogger
     loggers.["default"].DumpLogs()
 
-let sobolIterUInt32 = worker.LoadPModule(PRandom.sobolIter <@ Sobol.toUInt32 @>).Invoke
-let sobolTestUInt32 verify dimensions vectors iters = pcalc {
+let rngUInt32 = worker.LoadPModule(PRandom.sobolRng <@ Sobol.toUInt32 @>).Invoke
+let testUInt32 verify dimensions vectors iters = pcalc {
     let! logger = PCalc.tlogger("verify")
-    let! sobolIter = sobolIterUInt32 dimensions
-    let sobolIter = sobolIter vectors
+    let! sobol = rngUInt32 dimensions
+    let sobolIter = sobol vectors
 
     let! dOutput = DArray.createInBlob worker (dimensions * vectors)
 
@@ -54,30 +54,30 @@ let sobolTestUInt32 verify dimensions vectors iters = pcalc {
             (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
             logger.Touch() }
 
-let [<Test>] ``UInt32: [V] 32 x 256 5`` () = sobolTestUInt32 true 32 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 256 5`` () = sobolTestUInt32 true 32 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 4096 5`` () = sobolTestUInt32 true 32 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 65536 5`` () = sobolTestUInt32 true 32 65536 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 32 x 1048576 5`` () = sobolTestUInt32 false 32 1048576 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 1024 x 256 5`` () = sobolTestUInt32 true 1024 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 1024 x 4096 5`` () = sobolTestUInt32 true 1024 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 1024 x 65536 5`` () = sobolTestUInt32 false 1024 65536 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 4096 x 256 5`` () = sobolTestUInt32 true 4096 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 4096 x 4096 5`` () = sobolTestUInt32 true 4096 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 4096 x 8192 5`` () = sobolTestUInt32 false 4096 8192 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 4096 x 16384 5`` () = sobolTestUInt32 false 4096 16384 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 32 x 256 5`` () = testUInt32 true 32 256 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 32 x 256 5`` () = testUInt32 true 32 256 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 32 x 4096 5`` () = testUInt32 true 32 4096 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 32 x 65536 5`` () = testUInt32 true 32 65536 5 |> PCalc.run
+let [<Test>] ``Uint32: [_] 32 x 1048576 5`` () = testUInt32 false 32 1048576 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 1024 x 256 5`` () = testUInt32 true 1024 256 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 1024 x 4096 5`` () = testUInt32 true 1024 4096 5 |> PCalc.run
+let [<Test>] ``Uint32: [_] 1024 x 65536 5`` () = testUInt32 false 1024 65536 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 4096 x 256 5`` () = testUInt32 true 4096 256 5 |> PCalc.run
+let [<Test>] ``Uint32: [V] 4096 x 4096 5`` () = testUInt32 true 4096 4096 5 |> PCalc.run
+let [<Test>] ``Uint32: [_] 4096 x 8192 5`` () = testUInt32 false 4096 8192 5 |> PCalc.run
+let [<Test>] ``Uint32: [_] 4096 x 16384 5`` () = testUInt32 false 4096 16384 5 |> PCalc.run
 
 let [<Test>] ``Uint32: [D] 1024 x 4096 3`` () =
-    sobolTestUInt32 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = sobolTestUInt32 true 1024 4096 3 |> PCalc.runWithTimingLogger
+    testUInt32 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = testUInt32 true 1024 4096 3 |> PCalc.runWithTimingLogger
     loggers.["default"].DumpLogs()
     loggers.["verify"].DumpLogs()
 
-let sobolIterFloat32 = worker.LoadPModule(PRandom.sobolIter <@ Sobol.toFloat32 @>).Invoke
-let sobolTestFloat32 verify dimensions vectors iters = pcalc {
+let rngFloat32 = worker.LoadPModule(PRandom.sobolRng <@ Sobol.toFloat32 @>).Invoke
+let testFloat32 verify dimensions vectors iters = pcalc {
     let! logger = PCalc.tlogger("verify")
-    let! sobolIter = sobolIterFloat32 dimensions
-    let sobolIter = sobolIter vectors
+    let! sobol = rngFloat32 dimensions
+    let sobolIter = sobol vectors
 
     let! dOutput = DArray.createInBlob worker (dimensions * vectors)
 
@@ -97,20 +97,20 @@ let sobolTestFloat32 verify dimensions vectors iters = pcalc {
             (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
             logger.Touch() }
 
-let [<Test>] ``Float32: [V] 1024 x 256 5`` () = sobolTestFloat32 true 1024 256 5 |> PCalc.run
-let [<Test>] ``Float32: [V] 1024 x 4096 5`` () = sobolTestFloat32 true 1024 4096 5 |> PCalc.run
+let [<Test>] ``Float32: [V] 1024 x 256 5`` () = testFloat32 true 1024 256 5 |> PCalc.run
+let [<Test>] ``Float32: [V] 1024 x 4096 5`` () = testFloat32 true 1024 4096 5 |> PCalc.run
 
 let [<Test>] ``Float32: [D] 1024 x 4096 3`` () =
-    sobolTestFloat32 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = sobolTestFloat32 true 1024 4096 3 |> PCalc.runWithTimingLogger
+    testFloat32 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = testFloat32 true 1024 4096 3 |> PCalc.runWithTimingLogger
     loggers.["default"].DumpLogs()
     loggers.["verify"].DumpLogs()
 
-let sobolIterFloat64 = worker.LoadPModule(PRandom.sobolIter <@ Sobol.toFloat64 @>).Invoke
-let sobolTestFloat64 verify dimensions vectors iters = pcalc {
+let rngFloat64 = worker.LoadPModule(PRandom.sobolRng <@ Sobol.toFloat64 @>).Invoke
+let testFloat64 verify dimensions vectors iters = pcalc {
     let! logger = PCalc.tlogger("verify")
-    let! sobolIter = sobolIterFloat64 dimensions
-    let sobolIter = sobolIter vectors
+    let! sobol = rngFloat64 dimensions
+    let sobolIter = sobol vectors
 
     let! dOutput = DArray.createInBlob worker (dimensions * vectors)
 
@@ -130,11 +130,11 @@ let sobolTestFloat64 verify dimensions vectors iters = pcalc {
             (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
             logger.Touch() }
 
-let [<Test>] ``Float64: [V] 1024 x 256 5`` () = sobolTestFloat64 true 1024 256 5 |> PCalc.run
-let [<Test>] ``Float64: [V] 1024 x 4096 5`` () = sobolTestFloat64 true 1024 4096 5 |> PCalc.run
+let [<Test>] ``Float64: [V] 1024 x 256 5`` () = testFloat64 true 1024 256 5 |> PCalc.run
+let [<Test>] ``Float64: [V] 1024 x 4096 5`` () = testFloat64 true 1024 4096 5 |> PCalc.run
 
 let [<Test>] ``Float64: [D] 1024 x 4096 3`` () =
-    sobolTestFloat64 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = sobolTestFloat64 true 1024 4096 3 |> PCalc.runWithTimingLogger
+    testFloat64 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = testFloat64 true 1024 4096 3 |> PCalc.runWithTimingLogger
     loggers.["default"].DumpLogs()
     loggers.["verify"].DumpLogs()

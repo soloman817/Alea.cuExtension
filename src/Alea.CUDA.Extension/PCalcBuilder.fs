@@ -2,8 +2,22 @@
 module Alea.CUDA.Extension.PCalcBuilder
 
 open System
+open System.Runtime.InteropServices
 open System.Collections.Generic
 open Alea.CUDA
+open Alea.Interop.CUDA
+
+//typedef void (CUDA_CB *CUstreamCallback)(CUstream hStream, CUresult status, void *userData);
+type CUstreamCallback = delegate of CUstream * CUresult * nativeint -> unit
+
+//CUresult CUDAAPI cuStreamAddCallback(CUstream hStream, CUstreamCallback callback, void *userData, unsigned int flags);
+[<DllImport("nvcuda.dll", EntryPoint="cuStreamAddCallback", CallingConvention=CallingConvention.StdCall)>]
+extern CUresult cuStreamAddCallback(CUstream hStream, CUstreamCallback callback, nativeint userData, uint32 flags);
+
+type PinnedArray(harray:Array) =
+    let handle = GCHandle.Alloc(harray, GCHandleType.Pinned)
+    member this.Free() = handle.Free()
+    member this.Ptr = handle.AddrOfPinnedObject()
 
 type BlobSlot =
     | Extent of DeviceWorker * int
@@ -103,7 +117,7 @@ type PCalcState =
                                 slot.Type)
 
                     // malloc blob
-                    logger.Log("malloc dblob")
+                    logger.Log("malloc blob")
                     let dmem =
                         let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
                         if this.DebugLevel >= 1 then
@@ -133,28 +147,73 @@ type PCalcState =
                 |> Seq.map (fun (stream, slots) -> stream, slots |> Array.ofSeq)
                 |> Array.ofSeq
                 |> Array.fold (fun (dblob:DevicePtr<byte>) (stream, slots) ->
-                    let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
-                    if total > 0 then
-                        if this.DebugLevel >= 1 then
-                            printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
-                                worker.Name
-                                stream.Handle
-                                total
-                                (float(total) / 1024.0 / 1024.0)
-                        logger.Log("create hblob")
-                        let hblob = Array.zeroCreate<byte> total
-                        slots
-                        |> Array.fold (fun (offset:int) (_, slot, size, padding) ->
+                    if slots.Length > 0 then
+                        logger.Log("memcpy blob")
+
+                        let dblob' = slots |> Array.fold (fun (darray:DevicePtr<byte>) (_, slot, size, padding) ->
                             match slot with
-                            | BlobSlot.FromHost(_, _, array) ->
-                                Buffer.BlockCopy(array, 0, hblob, offset, size)
-                                offset + size + padding
-                            | _ -> failwith "BUG") 0
-                        |> ignore
-                        logger.Log("memcpy hblob")
-                        DevicePtrUtil.Scatter(worker, hblob, dblob, total) //TODO using stream!
+                            | BlobSlot.FromHost(_, _, harray) ->
+                                if this.DebugLevel >= 1 then
+                                    printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
+                                        worker.Name
+                                        stream.Handle
+                                        size
+                                        (float(size) / 1024.0 / 1024.0)
+
+                                // experimental async memcpy (only with non-default stream)
+                                match stream.IsDefault with
+                                | false ->
+                                    let pinnedArray = PinnedArray(harray)
+                                    
+                                    let callback (stream:CUstream) (result:CUresult) (userdata:nativeint) =
+                                        pinnedArray.Free()
+                                    
+                                    let callback = CUstreamCallback(callback)
+                                    
+                                    fun () ->
+                                        cuSafeCall(cuMemcpyHtoDAsync(darray.Handle, pinnedArray.Ptr, nativeint(size), stream.Handle))
+                                        cuSafeCall(cuStreamAddCallback(stream.Handle, callback, 0n, 0u))
+                                    |> worker.Eval
+
+                                | true ->
+                                    let handle = GCHandle.Alloc(harray, GCHandleType.Pinned)
+                                    fun () ->
+                                        try cuSafeCall(cuMemcpyHtoD(darray.Handle, handle.AddrOfPinnedObject(), nativeint(size)))
+                                        finally handle.Free()
+                                    |> worker.Eval
+
+                            | _ -> failwith "shouldn't happen"
+
+                            darray + size + padding) dblob
+
                         logger.Touch()
-                    dblob + total) dmem.Ptr
+
+                        dblob'
+                    else dblob) dmem.Ptr
+
+//                    // make hblob first then do one copy
+//                    let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
+//                    if total > 0 then
+//                        if this.DebugLevel >= 1 then
+//                            printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
+//                                worker.Name
+//                                stream.Handle
+//                                total
+//                                (float(total) / 1024.0 / 1024.0)
+//                        logger.Log("create hblob")
+//                        let hblob = Array.zeroCreate<byte> total
+//                        slots
+//                        |> Array.fold (fun (offset:int) (_, slot, size, padding) ->
+//                            match slot with
+//                            | BlobSlot.FromHost(_, _, array) ->
+//                                Buffer.BlockCopy(array, 0, hblob, offset, size)
+//                                offset + size + padding
+//                            | _ -> failwith "BUG") 0
+//                        |> ignore
+//                        logger.Log("memcpy hblob")
+//                        DevicePtrUtil.Scatter(worker, hblob, dblob, total) //TODO using stream!
+//                        logger.Touch()
+//                    dblob + total) dmem.Ptr
                 |> ignore)
 
             // fill ptr

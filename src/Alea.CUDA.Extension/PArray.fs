@@ -124,6 +124,26 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
                 do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
                 return DScalar.ofArray rangeTotals 0 } ) }
 
+let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
+    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
+                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
+
+    return PFunc(fun (m:Module) ->
+        let reducer = reducer.Apply m
+        let worker = m.Worker
+        fun (n:int) ->
+            let reducer = reducer n
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let! ranges = DArray.scatterInBlob worker reducer.Ranges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let result = DScalar.ofArray rangeTotals 0
+                return fun (values:DArray<'T>) ->
+                    if values.Length <> n then failwith "Reducer n not match the input values.Length!"
+                    pcalc {
+                        do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
+                        return result } } ) }
+
 let inline sum () = cuda {
     let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
 
@@ -139,3 +159,24 @@ let inline sum () = cuda {
                 let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
                 do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
                 return DScalar.ofArray rangeTotals 0 } ) }
+
+let inline sumer () = cuda {
+    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
+
+    return PFunc(fun (m:Module) ->
+        let reducer = reducer.Apply m
+        let worker = m.Worker
+        fun (n:int) ->
+            let reducer = reducer n
+            pcalc {
+                let! lpmod = PCalc.lpmod()
+                let! ranges = DArray.scatterInBlob worker reducer.Ranges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let result = DScalar.ofArray rangeTotals 0
+                return fun (values:DArray<'T>) ->
+                    if values.Length <> n then failwith "Reducer n not match the input values.Length!"
+                    pcalc {
+                        do! PCalc.action (lazy (reducer.Reduce lpmod ranges.Ptr rangeTotals.Ptr values.Ptr))
+                        return result } } ) }
+
+
