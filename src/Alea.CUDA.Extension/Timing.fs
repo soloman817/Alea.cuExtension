@@ -35,6 +35,22 @@ type TimingCollector() =
 
     member this.Reset() = timings.Clear()
 
+    member this.Dump() =
+        let timings = timings |> Seq.map (fun pair -> pair.Key, pair.Value |> Seq.average, pair.Value.Count) |> Array.ofSeq
+        let totalTiming = timings |> Seq.sumBy (fun (_, timing, _) -> timing)
+        let totalCount = timings |> Seq.sumBy (fun (_, _, count) -> count)
+
+        let maxMsgLength = timings |> Array.map (fun (msg, _, _) -> msg.Length) |> Array.max
+        let space = 2
+        let width = maxMsgLength + space + 15 + 3 + 5
+        let mkmsg (msg:string) = sprintf "%s%s" msg (String.replicate (maxMsgLength - msg.Length + space) " ")
+
+        printfn "%s" (String.replicate width "=")
+        timings |> Array.iter (fun (msg, timing, count) -> printfn "%s%15.6f ms %4d" (mkmsg msg) timing count)
+        printfn "%s" (String.replicate width "-")
+        printfn "%s%15.6f ms %4d" (mkmsg "TOTAL") totalTiming totalCount
+        printfn "%s" (String.replicate width "=")
+
     override this.ToString() = this.Report
 
 type ITimingLogger =

@@ -83,6 +83,7 @@
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
     <Compile Include="Util.fs" />
+    <Compile Include="PCalc.fs" />
     <Compile Include="Transformation.fs" />
     <Compile Include="NormalDistribution.fs" />
     <Compile Include="Reduce.fs" />

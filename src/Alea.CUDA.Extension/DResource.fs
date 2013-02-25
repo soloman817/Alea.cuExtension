@@ -17,7 +17,7 @@ type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, length:int, nee
     member this.Gather() =
         PCalc(fun s ->
             s.RunActions()
-            let logger = s.GetTimingLogger("default")
+            let logger = s.TimingLogger("default")
             logger.Log("gather array")
             let host = Array.zeroCreate<'T> length
             DevicePtrUtil.Gather(worker, this.Ptr, host, length)
@@ -44,7 +44,7 @@ type DScalar<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, ne
     member this.Gather() =
         PCalc(fun s ->
             s.RunActions()
-            let logger = s.GetTimingLogger("default")
+            let logger = s.TimingLogger("default")
             logger.Log("gather scalar")
             DevicePtrUtil.Gather(worker, this.Ptr + offset, result, 1)
             logger.Touch()
@@ -98,4 +98,10 @@ module DScalar =
     let toArray (dscalar:DScalar<'T>) = new DArray<'T>(dscalar.Worker, 1, false, dscalar.DMem)
     let ofArray (darray:DArray<'T>) (idx:int) = new DScalar<'T>(darray.Worker, idx, false, darray.DMem)
 
+module DStream =
 
+    let create (worker:DeviceWorker) =
+        PCalc(fun s ->
+            let stream = worker.CreateStream()
+            s.AddResource(stream)
+            stream, s)

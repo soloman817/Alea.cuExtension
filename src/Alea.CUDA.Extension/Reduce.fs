@@ -9,8 +9,8 @@ open Util
 type IReduce<'T when 'T:unmanaged> =
     abstract Ranges : int[] // Ranges is a host array of int, which will be scattered later with blob
     abstract NumRangeTotals : int // NumRangeTotals is a length of rangeTotals, which will be used to calc blob size later
-    // lpmod -> ranges -> rangeTotals -> values -> unit (result is rangeTotals.[0], you should create dscalar for it)
-    abstract Reduce : LPModifier -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
+    // lphint -> ranges -> rangeTotals -> values -> unit (result is rangeTotals.[0], you should create dscalar for it)
+    abstract Reduce : LPHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
 
 type Plan =
     {numThreads:int; valuesPerThread:int; numThreadsReduction:int; blockPerSm:int} 
@@ -151,7 +151,7 @@ module Sum =
     let [<ReflectedDefinition>] inline multiReduce numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2
+        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
         let sharedSize = numWarps * warpStride
         let shared = __shared__<'T>(sharedSize).Ptr(0)
         let warpShared = (shared + warp * warpStride).Volatile()      
@@ -257,10 +257,10 @@ let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<in
             let lpUpsweep = LaunchParam(numRanges, plan.numThreads)
             let lpReduce = LaunchParam(1, plan.numThreadsReduction)
 
-            let launch (lpmod:LPModifier) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) () =
-                let lpUpsweep = lpUpsweep |> lpmod
-                let lpReduce = lpReduce |> lpmod
-                let stream = lpUpsweep.Stream
+            let launch (lphint:LPHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) () =
+                let stream = lphint.Stream
+                let lpUpsweep = lpUpsweep |> lphint.Modify
+                let lpReduce = lpReduce |> lphint.Modify
 
                 // here use CUDA Driver API to memset
                 // NOTICE: cause it is raw api call, so MUST be run with worker.Eval
@@ -275,5 +275,5 @@ let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<in
             { new IReduce<'T> with
                 member this.Ranges = ranges
                 member this.NumRangeTotals = numRanges
-                member this.Reduce lpmod ranges rangeTotals values = worker.Eval(launch lpmod ranges rangeTotals values)
+                member this.Reduce lphint ranges rangeTotals values = worker.Eval(launch lphint ranges rangeTotals values)
             } ) }

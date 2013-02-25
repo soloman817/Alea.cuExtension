@@ -1,6 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.Reduce
 
 open System
+open System.IO
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
@@ -19,13 +20,26 @@ let ``sum: int``() =
         let! dResult = sum dValues
         let! dResult = dResult.Gather()
         printfn "[Size %d] h(%d) d(%d)" n hResult dResult
+        if hResult <> dResult then
+            let s = new StreamWriter("MismatchData.dat")
+            s.Write(hValues.Length)
+            for i = 0 to hValues.Length - 1 do
+                s.Write(hValues.[i])
+            s.Dispose()
         Assert.AreEqual(hResult, dResult) }
 
-    sizes |> Seq.iter (fun n -> test n (fun _ -> 1) |> PCalc.run)
-    sizes |> Seq.iter (fun n -> test n (fun _ -> rng.Next(-100, 100)) |> PCalc.run)
+    let init1 i = 1
+    let init2 i = rng.Next(-100, 100)
 
-    test (1<<<22) (fun _ -> rng.Next(-100, 100)) |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = test (1<<<22) (fun _ -> rng.Next(-100, 100)) |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+//    sizes |> Seq.iter (fun n -> test n init1 |> PCalc.run)
+//    sizes |> Seq.iter (fun n -> test n init2 |> PCalc.run)
+//
+//    test (1<<<22) init2 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+//    let _, loggers = test (1<<<22) init2 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+//
+//    for i = 1 to 10 do [ 10000; 2097152; 8388608; 33554432 ] |> Seq.iter (fun n -> test n init2 |> PCalc.run)
+
+    let _, tc = test (1<<<26) init2 |> PCalc.runWithKernelTiming 10 in tc.Dump()
 
 [<Test>]
 let ``sum: int x 2``() =
@@ -48,11 +62,23 @@ let ``sum: int x 2``() =
 
         printfn "[Size %d] h(%d) d(%d)" n hResult1 dResult1
         printfn "[Size %d] h(%d) d(%d)" n hResult2 dResult2
+        if hResult1 <> dResult1 then
+            let s = new StreamWriter("MismatchData.dat")
+            s.Write(hValues1.Length)
+            for i = 0 to hValues1.Length - 1 do
+                s.Write(hValues1.[i])
+            s.Dispose()
+        if hResult2 <> dResult2 then
+            let s = new StreamWriter("MismatchData.dat")
+            s.Write(hValues2.Length)
+            for i = 0 to hValues2.Length - 1 do
+                s.Write(hValues2.[i])
+            s.Dispose()
         Assert.AreEqual(hResult1, dResult1)
         Assert.AreEqual(hResult2, dResult2) }
 
     let init1 i = 1
-    let init2 i = rng.Next(-100, 100)
+    let init2 i = rng.Next(-50, 50)
 
     sizes |> Seq.iter (fun n -> test n init1 init2 |> PCalc.run)
     test (1<<<22) init1 init2 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
@@ -105,7 +131,7 @@ let ``sumer: int x 2``() =
         Assert.AreEqual(hResult2, dResult2) }
 
     let init1 i = 1
-    let init2 i = rng.Next(-100, 100)
+    let init2 i = rng.Next(-50, 50)
 
     sizes |> Seq.iter (fun n -> test n init1 init2 |> PCalc.run)
     test (1<<<22) init1 init2 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))

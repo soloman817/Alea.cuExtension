@@ -56,33 +56,64 @@ type PCalcDiagnoser =
             KernelLaunchDiagnoser = Some Util.kldiag
         }
 
-type PCalcState =
+type LPHint =
     {
-        Diagnoser : PCalcDiagnoser
-        Blob : List<int * BlobSlot> // blob slots in building
-        Blobs : Dictionary<int, DeviceMemory * DevicePtr<byte>> // blob slots that is freezed!
-        Actions : List<unit -> unit>
-        Resources : List<IDisposable>
-        KernelTimingCollector : Timing.TimingCollector option
-        TimingLoggers : Dictionary<string, Timing.TimingLogger> option
+        Diagnose : (KernelExecutionStats -> unit) option
+        Stream : Stream
+        TotalStreams : int option
     }
 
-    member this.DebugLevel = this.Diagnoser.DebugLevel
+    member this.Modify (lp:LaunchParam) = lp.SetStream(this.Stream).SetDiagnoser(this.Diagnose)
 
-    member this.GetTimingLogger (name:string) =
-        match this.TimingLoggers with
+type PCalcStateParam =
+    {
+        Diagnoser : PCalcDiagnoser
+        TimingLoggers : Dictionary<string, Timing.TimingLogger> option
+        KernelTimingCollector : Timing.TimingCollector option
+    }
+
+type PCalcState internal (param:PCalcStateParam) =
+    let capacity = 16
+
+    let blob = List<int * BlobSlot>(capacity)
+    let blobs = Dictionary<int, DeviceMemory * DevicePtr<byte>>(capacity)
+    let actions = List<unit -> unit>(capacity)
+    let resources = List<IDisposable>(capacity)
+
+    let mutable lphint : LPHint =
+        let diagnose =
+            match param.Diagnoser.KernelLaunchDiagnoser, param.KernelTimingCollector with
+            | None, None -> None
+            | Some(diagnose), None -> Some diagnose
+            | Some(diagnose), Some(collector) ->
+                fun stats ->
+                    diagnose stats
+                    collector.Add(stats.Kernel.Name, stats.TimeSpan)
+                |> Some
+            | None, Some(collector) ->
+                fun stats ->
+                    collector.Add(stats.Kernel.Name, stats.TimeSpan)
+                |> Some
+        { Diagnose = diagnose; Stream = Engine.defaultStream; TotalStreams = None }
+
+    member this.DebugLevel = param.Diagnoser.DebugLevel
+
+    member this.LPHint with get() = lphint and set(lphint') = lphint <- lphint'
+
+    member this.TimingLogger (name:string) =
+        match param.TimingLoggers with
+        | None -> Timing.dummyTimingLogger
         | Some(loggers) -> 
             if not (loggers.ContainsKey(name)) then loggers.Add(name, Timing.TimingLogger(name))
             loggers.[name] :> Timing.ITimingLogger
-        | None -> Timing.dummyTimingLogger
 
     member this.FreezeBlob() =
         let f () =
-            let logger = this.GetTimingLogger("default")
+            let logger = this.TimingLogger("default")
 
             // freeze and malloc blob
             let slots =
-                this.Blob
+                blob
                 |> Seq.groupBy (fun (id, slot) -> slot.Worker.WorkerThreadId)
                 |> Seq.map (fun (_, slots) ->
                     let slots = slots |> Seq.toArray
@@ -126,7 +157,7 @@ type PCalcState =
                                 total
                                 (float(total) / 1024.0 / 1024.0)
                         let dmem = worker.Malloc<byte>(total)
-                        this.Resources.Add(dmem)
+                        resources.Add(dmem)
                         dmem
                     logger.Touch()
 
@@ -190,30 +221,6 @@ type PCalcState =
 
                         dblob'
                     else dblob) dmem.Ptr
-
-//                    // make hblob first then do one copy
-//                    let total = slots |> Array.fold (fun total (_, _, size, padding) -> total + size + padding) 0
-//                    if total > 0 then
-//                        if this.DebugLevel >= 1 then
-//                            printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
-//                                worker.Name
-//                                stream.Handle
-//                                total
-//                                (float(total) / 1024.0 / 1024.0)
-//                        logger.Log("create hblob")
-//                        let hblob = Array.zeroCreate<byte> total
-//                        slots
-//                        |> Array.fold (fun (offset:int) (_, slot, size, padding) ->
-//                            match slot with
-//                            | BlobSlot.FromHost(_, _, array) ->
-//                                Buffer.BlockCopy(array, 0, hblob, offset, size)
-//                                offset + size + padding
-//                            | _ -> failwith "BUG") 0
-//                        |> ignore
-//                        logger.Log("memcpy hblob")
-//                        DevicePtrUtil.Scatter(worker, hblob, dblob, total) //TODO using stream!
-//                        logger.Touch()
-//                    dblob + total) dmem.Ptr
                 |> ignore)
 
             // fill ptr
@@ -221,69 +228,48 @@ type PCalcState =
                 let dmem' = dmem :> DeviceMemory
                 slots
                 |> Array.fold (fun (ptr:DevicePtr<byte>) (id, _, size, padding) ->
-                    this.Blobs.Add(id, (dmem', ptr))
+                    blobs.Add(id, (dmem', ptr))
                     ptr + size + padding) dmem.Ptr
                 |> ignore)
 
-            this.Blob.Clear()
+            blob.Clear()
 
-        if this.Blob.Count > 0 then f()
+        if blob.Count > 0 then f()
 
     member this.AddBlobSlot(slot:BlobSlot) =
-        let id = this.Blobs.Count + this.Blob.Count
-        this.Blob.Add(id, slot)
+        let id = blobs.Count + blob.Count
+        blob.Add(id, slot)
         id
 
     member this.GetBlobSlot(id:int) =
-        let freezed = id < this.Blobs.Count
+        let freezed = id < blobs.Count
         if not freezed then this.FreezeBlob()
-        this.Blobs.[id]
+        blobs.[id]
 
     member this.DisposeResources() =
-        if this.Resources.Count > 0 then
-            let logger = this.GetTimingLogger("default")
+        if resources.Count > 0 then
+            let logger = this.TimingLogger("default")
             logger.Log("release resources")
-            this.Resources |> Seq.iter (fun o ->
+            resources |> Seq.iter (fun o ->
                 if this.DebugLevel >= 1 then printfn "Disposing %A ..." o
                 o.Dispose())
-            this.Resources.Clear()
+            resources.Clear()
             logger.Touch()
+
+    member this.AddAction(f:LPHint -> unit) =
+        actions.Add(fun () -> f this.LPHint)
 
     member this.RunActions() =
-        if this.Actions.Count > 0 then
+        if actions.Count > 0 then
             this.FreezeBlob()
-            let logger = this.GetTimingLogger("default")
-            logger.Log("run actions")
-            this.Actions |> Seq.iter (fun f -> f())
-            this.Actions.Clear()
+            let logger = this.TimingLogger("default")
+            logger.Log(sprintf "run %d actions" actions.Count)
+            actions |> Seq.iter (fun f -> f ())
+            actions.Clear()
             logger.Touch()
 
-    member this.AddKernelDiagnoser (lp:LaunchParam) =
-        match this.Diagnoser.KernelLaunchDiagnoser, this.KernelTimingCollector with
-        | None, None -> lp
-        | Some(diagnoser), Some(collector) ->
-            let diagnoser stat =
-                diagnoser stat
-                collector.Add(stat.Kernel.Name, stat.TimeSpan)
-            lp |> Engine.setDiagnoser diagnoser
-        | None, Some(collector) ->
-            let diagnoser stat =
-                collector.Add(stat.Kernel.Name, stat.TimeSpan)
-            lp |> Engine.setDiagnoser diagnoser
-        | Some(diagnoser), None -> lp |> Engine.setDiagnoser diagnoser
+    member this.AddResource(resource:IDisposable) = resources.Add(resource)
 
-    static member Create(diagnoser) =
-        let capacity = 16
-        {
-            Diagnoser = diagnoser
-            Blob = List<int * BlobSlot>(capacity)
-            Blobs = Dictionary<int, DeviceMemory * DevicePtr<byte>>(capacity)
-            Actions = List<unit -> unit>(capacity)
-            Resources = List<IDisposable>(capacity)
-            KernelTimingCollector = None
-            TimingLoggers = None
-        }
-        
 type PCalc<'T> =
     | PCalc of (PCalcState -> 'T * PCalcState)
     member this.Invoke s0 = match this with PCalc(f) -> f(s0)
@@ -297,8 +283,10 @@ type PCalcBuilder() =
     member this.Zero() = PCalc(fun s -> (), s)
     member this.For(elements:seq<'a>, forBody:'a -> PCalc<unit>) =
         PCalc(fun s0 -> (), elements |> Seq.fold (fun s0 e -> let _, s1 = (forBody e).Invoke(s0) in s1) s0)
+    member this.Combine(partOne:PCalc<unit>, partTwo:PCalc<'a>) =
+        PCalc(fun s0 -> let (), s1 = partOne.Invoke(s0) in partTwo.Invoke(s1))
+    member this.Delay(restOfComputation:unit -> PCalc<'a>) =
+        PCalc(fun s0 -> restOfComputation().Invoke(s0))
 
 let pcalc = PCalcBuilder()
-
-type LPModifier = LaunchParam -> LaunchParam
 

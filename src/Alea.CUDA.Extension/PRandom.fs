@@ -12,10 +12,9 @@ let sobol converter = cuda {
         fun dimensions vectors offset ->
             let generator = generator dimensions
             pcalc {
-                let! lpmod = PCalc.lpmod()
                 let! directions = DArray.scatterInBlob worker generator.Directions
                 let! output = DArray.createInBlob worker (dimensions * vectors)
-                do! PCalc.action (fun () -> generator.Generate lpmod vectors offset directions.Ptr output.Ptr)
+                do! PCalc.action (fun lphint -> generator.Generate lphint vectors offset directions.Ptr output.Ptr)
                 return output }) }
 
 let sobolRng converter = cuda {
@@ -27,8 +26,6 @@ let sobolRng converter = cuda {
         fun dimensions ->
             let generator = generator dimensions
             pcalc {
-                let! lpmod = PCalc.lpmod()
                 let! directions = DArray.scatterInBlob worker generator.Directions
                 return fun vectors offset (output:DArray<'T>) ->
-                    pcalc {
-                        do! PCalc.action (fun () -> generator.Generate lpmod vectors offset directions.Ptr output.Ptr) }}) }
+                    pcalc { do! PCalc.action (fun lphint -> generator.Generate lphint vectors offset directions.Ptr output.Ptr) }}) }

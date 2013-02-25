@@ -1,4 +1,4 @@
-﻿namespace Alea.CUDA.Extension.NormalDistribution
+﻿module Alea.CUDA.Extension.NormalDistribution
 
 open Alea.CUDA
 
