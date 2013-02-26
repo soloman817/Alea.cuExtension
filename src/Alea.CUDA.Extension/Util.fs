@@ -36,13 +36,14 @@ let padding alignment size =
 
 let dim3str (d:dim3) = sprintf "(%dx%dx%d)" d.x d.y d.z
 
-let kldiag (stat:Engine.KernelExecutionStats) =
+let kldiag (stats:Engine.KernelExecutionStats) =
+    let name = sprintf "%d.%X.%s.%X" stats.Kernel.Worker.WorkerThreadId stats.Kernel.Module.Handle stats.Kernel.Name stats.LaunchParam.Stream.Handle
     printfn "%s: %s %s %6.2f%% %.6f ms"
-        stat.Kernel.Name
-        (stat.LaunchParam.GridDim |> dim3str)
-        (stat.LaunchParam.BlockDim |> dim3str)
-        (stat.Occupancy * 100.0)
-        stat.TimeSpan
+        name
+        (stats.LaunchParam.GridDim |> dim3str)
+        (stats.LaunchParam.BlockDim |> dim3str)
+        (stats.Occupancy * 100.0)
+        stats.TimeSpan
 
 module NumericLiteralG =
     let [<ReflectedDefinition>] inline FromZero() = LanguagePrimitives.GenericZero

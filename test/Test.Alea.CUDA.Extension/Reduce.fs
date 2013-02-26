@@ -11,6 +11,37 @@ let rng = System.Random()
 let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608; 33554432]
 
 [<Test>]
+let ``sum: debug``() =
+    // use raw impl
+    let reducert = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
+    use reducerm = worker.LoadPModule(reducert)
+
+    let debug n = pcalc {
+        let reduce = reducerm.Invoke n
+        let hRanges = reduce.Ranges
+        let nRangeTotals = reduce.NumRangeTotals
+
+        printfn "%A" hRanges
+        printfn "%A" nRangeTotals
+
+        let! dRanges = DArray.scatterInBlob worker hRanges
+        let! dRangeTotals = DArray.createInBlob worker nRangeTotals
+
+        let hValues = Array.init n (fun i -> if i % 2 = 0 then -1 else 1)
+        let! dValues = DArray.scatterInBlob worker hValues
+
+        do! PCalc.action (fun lphint -> reduce.Reduce lphint dRanges.Ptr dRangeTotals.Ptr dValues.Ptr)
+
+        let! hRangeTotals = dRangeTotals.Gather()
+        printfn "%A" hRangeTotals
+        }
+
+    let n = 33554431
+    let debug = debug n
+
+    debug |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+
+[<Test>]
 let ``sum: int``() =
     let sum = worker.LoadPModule(PArray.sum()).Invoke
     let test n init = pcalc {
@@ -31,13 +62,13 @@ let ``sum: int``() =
     let init1 i = 1
     let init2 i = rng.Next(-100, 100)
 
-//    sizes |> Seq.iter (fun n -> test n init1 |> PCalc.run)
-//    sizes |> Seq.iter (fun n -> test n init2 |> PCalc.run)
-//
-//    test (1<<<22) init2 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-//    let _, loggers = test (1<<<22) init2 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
-//
-//    for i = 1 to 10 do [ 10000; 2097152; 8388608; 33554432 ] |> Seq.iter (fun n -> test n init2 |> PCalc.run)
+    sizes |> Seq.iter (fun n -> test n init1 |> PCalc.run)
+    sizes |> Seq.iter (fun n -> test n init2 |> PCalc.run)
+
+    test (1<<<22) init2 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = test (1<<<22) init2 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+
+    for i = 1 to 10 do [ 2097152; 8388608; 33554432; 33554431; 33554433 ] |> Seq.iter (fun n -> test n init2 |> PCalc.run)
 
     let _, tc = test (1<<<26) init2 |> PCalc.runWithKernelTiming 10 in tc.Dump()
 

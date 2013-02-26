@@ -53,11 +53,11 @@ module Generic =
     let [<ReflectedDefinition>] multiReduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2
+        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
         let sharedSize = numWarps * warpStride
-        let shared = __shared__<'T>(sharedSize).Ptr(0)
-        let warpShared = (shared + warp * warpStride).Volatile()      
-        let s = warpShared + (lane + WARP_SIZE / 2)
+        let shared = __shared__<'T>(sharedSize).Ptr(0).Volatile()
+        let warpShared = shared + warp * warpStride     
+        let s = warpShared + WARP_SIZE / 2 + lane
 
         warpShared.[lane] <- init()  
         s.[0] <- x
@@ -83,7 +83,7 @@ module Generic =
             // in the block's scanned sequence. This operation avoids bank conflicts.
             let total = totalsShared.[numWarps + tid]
             totalsShared.[tid] <- init()
-            let s = (totalsShared + numWarps + tid).Volatile()  
+            let s = totalsShared + numWarps + tid  
 
             let mutable totalsScan = total
             for i = 0 to logNumWarps - 1 do
@@ -153,9 +153,9 @@ module Sum =
         let lane = tid &&& (WARP_SIZE - 1)
         let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
         let sharedSize = numWarps * warpStride
-        let shared = __shared__<'T>(sharedSize).Ptr(0)
-        let warpShared = (shared + warp * warpStride).Volatile()      
-        let s = warpShared + (lane + WARP_SIZE / 2)
+        let shared = __shared__<'T>(sharedSize).Ptr(0).Volatile()
+        let warpShared = shared + warp * warpStride
+        let s = warpShared + WARP_SIZE / 2 + lane
 
         warpShared.[lane] <- 0G
         s.[0] <- x
@@ -180,7 +180,7 @@ module Sum =
             // in the block's scanned sequence. This operation avoids bank conflicts.
             let total = totalsShared.[numWarps + tid]
             totalsShared.[tid] <- 0G
-            let s = (totalsShared + numWarps + tid).Volatile()  
+            let s = totalsShared + numWarps + tid
 
             let mutable totalsSum = total
             for i = 0 to logNumWarps - 1 do
@@ -257,23 +257,20 @@ let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<in
             let lpUpsweep = LaunchParam(numRanges, plan.numThreads)
             let lpReduce = LaunchParam(1, plan.numThreadsReduction)
 
-            let launch (lphint:LPHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) () =
-                let stream = lphint.Stream
+            let launch (lphint:LPHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) =
                 let lpUpsweep = lpUpsweep |> lphint.Modify
                 let lpReduce = lpReduce |> lphint.Modify
 
-                // here use CUDA Driver API to memset
-                // NOTICE: cause it is raw api call, so MUST be run with worker.Eval
-                cuSafeCall(cuMemsetD8Async(rangeTotals.Handle, 0uy, nativeint(numRanges * sizeof<'T>), stream.Handle))
-            
-                // Launch range reduction kernel to calculate the totals per range.
-                upsweep.Launch lpUpsweep values ranges rangeTotals
+                fun () ->
+                    // Launch range reduction kernel to calculate the totals per range.
+                    upsweep.Launch lpUpsweep values ranges rangeTotals
 
-                // Need to aggregate the block sums as well.
-                if numRanges > 1 then reduce.Launch lpReduce numRanges rangeTotals
+                    // Need to aggregate the block sums as well.
+                    if numRanges > 1 then reduce.Launch lpReduce numRanges rangeTotals
+                |> worker.Eval // the two kernels should be launched together without interrupt.
 
             { new IReduce<'T> with
                 member this.Ranges = ranges
                 member this.NumRangeTotals = numRanges
-                member this.Reduce lphint ranges rangeTotals values = worker.Eval(launch lphint ranges rangeTotals values)
+                member this.Reduce lphint ranges rangeTotals values = launch lphint ranges rangeTotals values
             } ) }

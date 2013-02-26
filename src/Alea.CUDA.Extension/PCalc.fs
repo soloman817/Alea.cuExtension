@@ -66,9 +66,8 @@ let runInWorkerWithTimingLogger (worker:DeviceWorker) (calc:PCalc<'T>) = worker.
 let runInWorkerWithDiagnoser (worker:DeviceWorker) (diagnoser:PCalcDiagnoser) (calc:PCalc<'T>) = worker.Eval(fun () -> runWithDiagnoser diagnoser calc)
 
 let tlogger (name:string) = PCalc(fun s -> s.TimingLogger(name), s)
-
 let action (f:LPHint -> unit) = PCalc(fun s -> s.AddAction(f); (), s)
-
+let force () = PCalc(fun s -> s.RunActions(); (), s)
 let stream (stream:Stream) = PCalc(fun s -> s.LPHint <- { s.LPHint with Stream = stream }; (), s)
 let streamWithHint (stream:Stream) (totalStreams:int) = PCalc(fun s -> s.LPHint <- { s.LPHint with Stream = stream; TotalStreams = Some totalStreams }; (), s)
 

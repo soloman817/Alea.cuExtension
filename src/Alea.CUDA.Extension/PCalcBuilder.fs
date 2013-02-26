@@ -36,7 +36,7 @@ type BlobSlot =
     member this.Type =
         match this with
         | Extent(_, _) -> "Extent"
-        | FromHost(_, stream, _) -> sprintf "FromHost@%A" stream.Handle
+        | FromHost(_, stream, _) -> sprintf "FromHost@%X" stream.Handle
 
 type PCalcDiagnoser =
     {
@@ -77,7 +77,7 @@ type PCalcState internal (param:PCalcStateParam) =
 
     let blob = List<int * BlobSlot>(capacity)
     let blobs = Dictionary<int, DeviceMemory * DevicePtr<byte>>(capacity)
-    let actions = List<unit -> unit>(capacity)
+    let actions = List<LPHint * (LPHint -> unit)>(capacity)
     let resources = List<IDisposable>(capacity)
 
     let mutable lphint : LPHint =
@@ -88,11 +88,13 @@ type PCalcState internal (param:PCalcStateParam) =
             | Some(diagnose), Some(collector) ->
                 fun stats ->
                     diagnose stats
-                    collector.Add(stats.Kernel.Name, stats.TimeSpan)
+                    let name = sprintf "%d.%X.%s.%X" stats.Kernel.Worker.WorkerThreadId stats.Kernel.Module.Handle stats.Kernel.Name stats.LaunchParam.Stream.Handle
+                    collector.Add(name, stats.TimeSpan)
                 |> Some
             | None, Some(collector) ->
                 fun stats ->
-                    collector.Add(stats.Kernel.Name, stats.TimeSpan)
+                    let name = sprintf "%d.%X.%s.%X" stats.Kernel.Worker.WorkerThreadId stats.Kernel.Module.Handle stats.Kernel.Name stats.LaunchParam.Stream.Handle
+                    collector.Add(name, stats.TimeSpan)
                 |> Some
         { Diagnose = diagnose; Stream = Engine.defaultStream; TotalStreams = None }
 
@@ -185,7 +187,7 @@ type PCalcState internal (param:PCalcStateParam) =
                             match slot with
                             | BlobSlot.FromHost(_, _, harray) ->
                                 if this.DebugLevel >= 1 then
-                                    printfn "Memcpy blob on %s.Stream[%A]: %d bytes (%.3f MB)"
+                                    printfn "Memcpy blob on %s.Stream[%X]: %d bytes (%.3f MB)"
                                         worker.Name
                                         stream.Handle
                                         size
@@ -257,14 +259,14 @@ type PCalcState internal (param:PCalcStateParam) =
             logger.Touch()
 
     member this.AddAction(f:LPHint -> unit) =
-        actions.Add(fun () -> f this.LPHint)
+        actions.Add(lphint, f)
 
     member this.RunActions() =
         if actions.Count > 0 then
             this.FreezeBlob()
             let logger = this.TimingLogger("default")
             logger.Log(sprintf "run %d actions" actions.Count)
-            actions |> Seq.iter (fun f -> f ())
+            actions |> Seq.iter (fun (lphint, f) -> f lphint)
             actions.Clear()
             logger.Touch()
 
