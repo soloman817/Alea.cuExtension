@@ -53,49 +53,42 @@ module Generic =
     let [<ReflectedDefinition>] multiReduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
-        let sharedSize = numWarps * warpStride
-        let shared = __shared__<'T>(sharedSize).Ptr(0).Volatile()
-        let warpShared = shared + warp * warpStride     
-        let s = warpShared + WARP_SIZE / 2 + lane
 
-        warpShared.[lane] <- init()  
-        s.[0] <- x
+        let warpSharedStride = WARP_SIZE + WARP_SIZE / 2 + 1
+        let warpSharedSize = numWarps * warpSharedStride
+        let totalSharedSize = 2 * numWarps
 
-        // Run inclusive scan on each warp's data.
-        let mutable warpScan = x
+        let shared = __shared__<'T>(warpSharedSize + totalSharedSize).Ptr(0).Volatile()
+        let warpShared = shared + warp * warpSharedStride
+        let totalShared = shared + warpSharedSize
+
+        // inclusive scan on warps
+        warpShared.[lane] <- init() // zero set the first half warp for 0, will be used in scan
+        let s0 = warpShared + WARP_SIZE / 2 + lane
+        s0.[0] <- x
         for i = 0 to LOG_WARP_SIZE - 1 do
             let offset = 1 <<< i
-            warpScan <- op warpScan s.[-offset]   
-            if i < LOG_WARP_SIZE - 1 then s.[0] <- warpScan
-        
-        let totalsShared = __shared__<'T>(2*numWarps).Ptr(0).Volatile() 
-
-        // Last line of warp stores the warp scan.
-        if lane = WARP_SIZE - 1 then totalsShared.[numWarps + warp] <- warpScan  
+            s0.[0] <- op s0.[0] s0.[-offset]
 
         // Synchronize to make all the totals available to the reduction code.
         __syncthreads()
 
-        // Run an exclusive scan for the warp scans. 
+        // now reduce the warps totoal
         if tid < numWarps then
-            // Grab the block total for the tid'th block. This is the last element
-            // in the block's scanned sequence. This operation avoids bank conflicts.
-            let total = totalsShared.[numWarps + tid]
-            totalsShared.[tid] <- init()
-            let s = totalsShared + numWarps + tid  
+            let s1 = totalShared + numWarps + tid
+            let total = warpShared.[warpSharedStride * tid + WARP_SIZE / 2 + WARP_SIZE - 1]
+            totalShared.[tid] <- init()
+            s1.[0] <- total
 
-            let mutable totalsScan = total
             for i = 0 to logNumWarps - 1 do
                 let offset = 1 <<< i
-                totalsScan <- op totalsScan s.[-offset]
-                s.[0] <- totalsScan
+                s1.[0] <- op s1.[0] s1.[-offset]
 
         // Synchronize to make the block scan available to all warps.
         __syncthreads()
 
-        // The total is the last element.
-        totalsShared.[2 * numWarps - 1]
+        // The total is the last elements
+        totalShared.[totalSharedSize - 1]
 
     /// Reduces ranges and store reduced values in array of the range totals.         
     let reduceUpSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
@@ -151,51 +144,42 @@ module Sum =
     let [<ReflectedDefinition>] inline multiReduce numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
-        let sharedSize = numWarps * warpStride
-        let shared = __shared__<'T>(sharedSize).Ptr(0).Volatile()
-        let warpShared = shared + warp * warpStride
-        let s = warpShared + WARP_SIZE / 2 + lane
 
-        warpShared.[lane] <- 0G
-        s.[0] <- x
+        let warpSharedStride = WARP_SIZE + WARP_SIZE / 2 + 1
+        let warpSharedSize = numWarps * warpSharedStride
+        let totalSharedSize = 2 * numWarps
 
-        // Run inclusive scan on each warp's data.
-        let mutable sum = x
+        let shared = __shared__<'T>(warpSharedSize + totalSharedSize).Ptr(0).Volatile()
+        let warpShared = shared + warp * warpSharedStride
+        let totalShared = shared + warpSharedSize
+
+        // inclusive scan on warps
+        warpShared.[lane] <- 0G // zero set the first half warp for 0, will be used in scan
+        let s0 = warpShared + WARP_SIZE / 2 + lane
+        s0.[0] <- x
         for i = 0 to LOG_WARP_SIZE - 1 do
             let offset = 1 <<< i
-            sum <- sum + s.[-offset]   
-            if i < LOG_WARP_SIZE - 1 then s.[0] <- sum
-        
-        let totalsShared = __shared__<'T>(2*numWarps).Ptr(0).Volatile() 
-
-        if lane = WARP_SIZE - 1 then
-            totalsShared.[numWarps + warp] <- sum  
+            s0.[0] <- s0.[0] + s0.[-offset]
 
         // Synchronize to make all the totals available to the reduction code.
         __syncthreads()
 
+        // now reduce the warps totoal
         if tid < numWarps then
-            // Grab the block total for the tid'th block. This is the last element
-            // in the block's scanned sequence. This operation avoids bank conflicts.
-            let total = totalsShared.[numWarps + tid]
-            totalsShared.[tid] <- 0G
-            let s = totalsShared + numWarps + tid
+            let s1 = totalShared + numWarps + tid
+            let total = warpShared.[warpSharedStride * tid + WARP_SIZE / 2 + WARP_SIZE - 1]
+            totalShared.[tid] <- 0G
+            s1.[0] <- total
 
-            let mutable totalsSum = total
             for i = 0 to logNumWarps - 1 do
                 let offset = 1 <<< i
-                totalsSum <- totalsSum + s.[-offset]
-                s.[0] <- totalsSum
-
-            // Subtract total from totalsSum for an exclusive scan.
-            totalsShared.[tid] <- totalsSum - total
+                s1.[0] <- s1.[0] + s1.[-offset]
 
         // Synchronize to make the block scan available to all warps.
         __syncthreads()
 
-        // The total is the last element.
-        totalsShared.[2 * numWarps - 1]
+        // The total is the last elements
+        totalShared.[totalSharedSize - 1]
 
     /// Reduces ranges and store reduced values in array of the range totals.    
     let inline reduceUpSweepKernel (plan:Plan) =
@@ -236,8 +220,8 @@ module Sum =
             if tid = 0 then dRangeTotals.[0] <- total
         @>
 
-let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
-                         (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
+let reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+                  (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
     let plan = if sizeof<'T> >= 8 then plan64 else plan32
 
     let! upsweep = kernelExpr1 plan |> defineKernelFuncWithName "upsweep"
@@ -274,3 +258,4 @@ let inline reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<in
                 member this.NumRangeTotals = numRanges
                 member this.Reduce lphint ranges rangeTotals values = launch lphint ranges rangeTotals values
             } ) }
+
