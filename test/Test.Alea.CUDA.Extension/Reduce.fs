@@ -11,6 +11,21 @@ let rng = System.Random()
 let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608; 33554432; 33554431; 33554433]
 
 [<Test>]
+let ``[DEBUG] save data``() =
+    sizes |> Seq.iteri (fun i n ->
+        let rng = Random(2)
+        let values = Array.init n (fun _ -> rng.Next(-100, 100))
+        use file = File.OpenWrite(sprintf "TestData_%d.dat" i)
+        use writer = new BinaryWriter(file)
+        writer.Write(values.Length)
+        values |> Array.iter (fun value -> writer.Write(value))
+        printfn "Size = %d" n
+        let ranges = Reduce.plan32.blockRanges worker.Device.NumSm n
+        printfn "%A" ranges
+        //printfn "%A" values
+        )
+
+[<Test>]
 let ``[DEBUG] sum<int> with reduce int + int``() =
     let init = <@ fun () -> 0 @>
     let op = <@ (+) @>
@@ -47,6 +62,10 @@ let ``[DEBUG] sum<int> with reduce int + int``() =
         let rng = Random(2)
         let values = Array.init n (fun _ -> rng.Next(-100, 100))
         test values |> PCalc.run)
+
+    let rng = Random(2)
+    let values = Array.init 33554433 (fun _ -> rng.Next(-100, 100))
+    let _, ktc = test values |> PCalc.runWithKernelTiming 10 in ktc.Dump()
 
 [<Test>]
 let ``[DEBUG] sum<int> with reduce float + float``() =
@@ -86,6 +105,10 @@ let ``[DEBUG] sum<int> with reduce float + float``() =
         let values = Array.init n (fun _ -> rng.Next(-100, 100))
         test values |> PCalc.run)
 
+    let rng = Random(2)
+    let values = Array.init 33554433 (fun _ -> rng.Next(-100, 100))
+    let _, ktc = test values |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+
 [<Test>]
 let ``[DEBUG] sum<int> with sum``() =
     let reducert = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
@@ -118,6 +141,10 @@ let ``[DEBUG] sum<int> with sum``() =
         let rng = Random(2)
         let values = Array.init n (fun _ -> rng.Next(-100, 100))
         test values |> PCalc.run)
+
+    let rng = Random(2)
+    let values = Array.init 33554433 (fun _ -> rng.Next(-100, 100))
+    let _, ktc = test values |> PCalc.runWithKernelTiming 10 in ktc.Dump()
 
 [<Test>]
 let ``sum: debug``() =

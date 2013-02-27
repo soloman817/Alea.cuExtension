@@ -199,6 +199,7 @@ module Sum =
             while index < rangeY do              
                 sum <- sum + dValues.[index] 
                 index <- index + numThreads
+                __syncthreads()  // WHY!!!???
 
             // A full multiscan is unnecessary here - we really only need the total.
             let total = multiReduce numWarps logNumWarps tid sum 
