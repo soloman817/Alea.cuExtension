@@ -132,8 +132,8 @@ module Generic =
 
     /// Exclusive scan of range totals.        
     let inline scanReduceKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan)  =
-        let numThreads = plan.numThreadsReduction
-        let numWarps = plan.numWarpsReduction
+        let numThreads = plan.NumThreadsReduction
+        let numWarps = plan.NumWarpsReduction
         let logNumWarps = log2 numWarps
         <@ fun numRanges (dRangeTotals:DevicePtr<'T>) ->
             let init = %initExpr
@@ -148,10 +148,10 @@ module Generic =
         @>
 
     let inline scanDownSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
-        let numWarps = plan.numWarps
-        let numValues = plan.numValues
-        let valuesPerThread = plan.valuesPerThread
-        let valuesPerWarp = plan.valuesPerWarp 
+        let numWarps = plan.NumWarps
+        let numValues = plan.NumValues
+        let valuesPerThread = plan.ValuesPerThread
+        let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
         <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
@@ -278,8 +278,8 @@ module Sum =
 
     /// Exclusive scan of range totals.
     let inline scanReduceKernel (plan:Plan) =
-        let numThreads = plan.numThreadsReduction
-        let numWarps = plan.numWarpsReduction
+        let numThreads = plan.NumThreadsReduction
+        let numWarps = plan.NumWarpsReduction
         let logNumWarps = log2 numWarps
         <@ fun numRanges (dRangeTotals:DevicePtr<'T>) ->
             let tid = threadIdx.x
@@ -296,10 +296,10 @@ module Sum =
         @>
 
     let inline scanDownSweepKernel (plan:Plan) =
-        let numWarps = plan.numWarps
-        let numValues = plan.numValues
-        let valuesPerThread = plan.valuesPerThread
-        let valuesPerWarp = plan.valuesPerWarp 
+        let numWarps = plan.NumWarps
+        let numValues = plan.NumValues
+        let valuesPerThread = plan.ValuesPerThread
+        let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
         <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
@@ -370,7 +370,7 @@ module Sum =
 let scanPadding (plan:Plan) n =
     // let padding = (divup n plan.numValues) * plan.numValues
     // try with a safe value first
-    plan.numValues + 1
+    plan.NumValues + 1
 
 /// Scatter relevant data into padded array dValues.
 let scatter (m:Module) (values:'T[]) padding (dValues:DeviceMemory<'T>)=
@@ -396,7 +396,7 @@ let inline scanBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int>
 
     let launch (m:Module) numValues (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
         let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.blockRanges numSm numValues
+        let ranges = plan.BlockRanges numSm numValues
         let numRanges = ranges.Length - 1
         let inclusive = if inclusive then 1 else 0
         use dRanges = m.Worker.Malloc(ranges)
@@ -406,17 +406,17 @@ let inline scanBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int>
         printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
         //let lp = LaunchParam (numRanges-1, plan.numThreads) |> setDiagnoser (diagnose "upSweep")
-        let lp = LaunchParam (numRanges, plan.numThreads)
+        let lp = LaunchParam (numRanges, plan.NumThreads)
         kernel1.Launch m lp dValuesIn dRanges.Ptr dRangeTotals.Ptr
 
         printfn "1) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
-        let lp = LaunchParam(1, plan.numThreadsReduction)
+        let lp = LaunchParam(1, plan.NumThreadsReduction)
         kernel2.Launch m lp numRanges dRangeTotals.Ptr
 
         printfn "2) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
-        let lp = LaunchParam(numRanges, plan.numThreads)
+        let lp = LaunchParam(numRanges, plan.NumThreads)
         kernel3.Launch m lp dValuesIn dValuesOut dRangeTotals.Ptr dRanges.Ptr inclusive
 
         printfn "3) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())

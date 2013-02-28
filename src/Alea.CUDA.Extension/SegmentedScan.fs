@@ -53,7 +53,7 @@ module Sum =
     /// Test caller for reduce.
     let inline reduceTest (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) = cuda {
         let plan = if sizeof<'T> >= 8 then plan64 else plan32
-        let numWarps = plan.numWarps
+        let numWarps = plan.NumWarps
         let logNumWarps = log2 numWarps
         let! kernel = 
             <@ fun (dValues:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) ->
@@ -66,10 +66,10 @@ module Sum =
             @> |> defineKernelFunc
 
         return PFunc(fun (m:Module) (values:'T[]) ->
-            if values.Length > plan.numThreads then failwith "array size too large"
+            if values.Length > plan.NumThreads then failwith "array size too large"
             use dValues = m.Worker.Malloc(values)
             use dValuesOut = m.Worker.Malloc(1)
-            let lp = LaunchParam (1, plan.numThreads)
+            let lp = LaunchParam (1, plan.NumThreads)
             kernel.Launch m lp dValues.Ptr dValuesOut.Ptr
             dValuesOut.ToHost().[0]
          ) }
@@ -436,8 +436,8 @@ void SegScanUpsweepFlags(const uint* dValues,
 *)
 
     let inline segScanUpsweepFlagsKernel (plan:Plan) =
-        let numThreads = plan.numThreads
-        let numWarps = plan.numWarps
+        let numThreads = plan.NumThreads
+        let numWarps = plan.NumWarps
         let logNumWarps = log2 numWarps
         let upSweepValues = 4
         let numValues = upSweepValues * numThreads
@@ -594,10 +594,10 @@ void SegScanDownsweepFlags(const uint* dValues,
 *)
 
     let inline segScanDownsweepFlags (plan:Plan) =
-        let numThreads = plan.numThreads
-        let valuesPerWarp = plan.valuesPerWarp
-        let valuesPerThread = plan.valuesPerThread
-        let numWarps = plan.numWarps
+        let numThreads = plan.NumThreads
+        let valuesPerWarp = plan.ValuesPerWarp
+        let valuesPerThread = plan.ValuesPerThread
+        let numWarps = plan.NumWarps
         let logNumWarps = log2 numWarps
         let upSweepValues = 4
         let numValues = upSweepValues * numThreads
@@ -671,7 +671,7 @@ void SegScanDownsweepFlags(const uint* dValues,
 let scanPadding (plan:Plan) n =
     // let padding = (divup n plan.numValues) * plan.numValues
     // try with a safe value first
-    plan.numValues + 1
+    plan.NumValues + 1
 
 /// Scatter relevant data into padded array dValues.
 let scatter (m:Module) (values:'T[]) padding (dValues:DeviceMemory<'T>)=
@@ -698,7 +698,7 @@ let inline segScan () = cuda {
 
     let launch (m:Module) numValues (dValuesIn:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
         let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.blockRanges numSm numValues
+        let ranges = plan.BlockRanges numSm numValues
         let numRanges = ranges.Length - 1
         let inclusive = if inclusive then 1 else 0
         use dRanges = m.Worker.Malloc(ranges)
@@ -709,18 +709,18 @@ let inline segScan () = cuda {
         printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
         //let lp = LaunchParam (numRanges-1, plan.numThreads) |> setDiagnoser (diagnose "upSweep")
-        let lp = LaunchParam (numRanges, plan.numThreads)
+        let lp = LaunchParam (numRanges, plan.NumThreads)
         kernel1.Launch m lp dValuesIn dFlags dRangeTotals.Ptr dHeadFlags.Ptr dRanges.Ptr  
 
         printfn "1) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
         printfn "1) dHeadFlags = %A" (dHeadFlags.ToHost())  
 
-        let lp = LaunchParam(1, plan.numThreadsReduction)
+        let lp = LaunchParam(1, plan.NumThreadsReduction)
         kernel2.Launch m lp numRanges dRangeTotals.Ptr
 
         printfn "2) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
 
-        let lp = LaunchParam(numRanges, plan.numThreads)
+        let lp = LaunchParam(numRanges, plan.NumThreads)
         kernel3.Launch m lp dValuesIn dFlags dValuesOut dRangeTotals.Ptr dRanges.Ptr numValues inclusive
 
         printfn "3) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())

@@ -107,7 +107,7 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
             let reducer = reducer n 
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
@@ -122,7 +122,7 @@ let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
             let reducer = reducer n
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
                 let result = DScalar.ofArray rangeTotals 0
                 return fun (values:DArray<'T>) ->
                     if values.Length <> n then failwith "Reducer n not match the input values.Length!"
@@ -141,7 +141,7 @@ let inline sum () = cuda {
             let reducer = reducer n 
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
@@ -155,7 +155,7 @@ let inline sumer () = cuda {
             let reducer = reducer n
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
                 let result = DScalar.ofArray rangeTotals 0
                 return fun (values:DArray<'T>) ->
                     if values.Length <> n then failwith "Reducer n not match the input values.Length!"

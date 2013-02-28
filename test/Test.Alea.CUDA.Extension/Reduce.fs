@@ -20,7 +20,7 @@ let ``[DEBUG] save data``() =
         writer.Write(values.Length)
         values |> Array.iter (fun value -> writer.Write(value))
         printfn "Size = %d" n
-        let ranges = Reduce.plan32.blockRanges worker.Device.NumSm n
+        let ranges = Reduce.plan32.BlockRanges worker.Device.NumSm n
         printfn "%A" ranges
         //printfn "%A" values
         )
@@ -42,7 +42,7 @@ let ``[DEBUG] sum<int> with reduce int + int``() =
         let reducer = reducerm.Invoke n
         let! dValues = DArray.scatterInBlob worker hValues
         let! dRanges = DArray.scatterInBlob worker reducer.Ranges
-        let! dRangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+        let! dRangeTotals = DArray.createInBlob worker reducer.NumRanges
         let dResult = DScalar.ofArray dRangeTotals 0
 
         do! PCalc.action (fun lphint -> reducer.Reduce lphint dRanges.Ptr dRangeTotals.Ptr dValues.Ptr)
@@ -84,7 +84,7 @@ let ``[DEBUG] sum<int> with reduce float + float``() =
         let reducer = reducerm.Invoke n
         let! dValues = DArray.scatterInBlob worker hValues
         let! dRanges = DArray.scatterInBlob worker reducer.Ranges
-        let! dRangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+        let! dRangeTotals = DArray.createInBlob worker reducer.NumRanges
         let dResult = DScalar.ofArray dRangeTotals 0
 
         do! PCalc.action (fun lphint -> reducer.Reduce lphint dRanges.Ptr dRangeTotals.Ptr dValues.Ptr)
@@ -121,7 +121,7 @@ let ``[DEBUG] sum<int> with sum``() =
         let reducer = reducerm.Invoke n
         let! dValues = DArray.scatterInBlob worker hValues
         let! dRanges = DArray.scatterInBlob worker reducer.Ranges
-        let! dRangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+        let! dRangeTotals = DArray.createInBlob worker reducer.NumRanges
         let dResult = DScalar.ofArray dRangeTotals 0
 
         do! PCalc.action (fun lphint -> reducer.Reduce lphint dRanges.Ptr dRangeTotals.Ptr dValues.Ptr)
@@ -155,7 +155,7 @@ let ``sum: debug``() =
     let debug n = pcalc {
         let reduce = reducerm.Invoke n
         let hRanges = reduce.Ranges
-        let nRangeTotals = reduce.NumRangeTotals
+        let nRangeTotals = reduce.NumRanges
 
         printfn "%A" hRanges
         printfn "%A" nRangeTotals

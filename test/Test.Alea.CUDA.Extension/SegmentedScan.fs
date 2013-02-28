@@ -17,7 +17,7 @@ let ``segmented scan reduce test max<int>`` () =
     let worker = getDefaultWorker()   
     let test = worker.LoadPModule(Sum.reduceTest <@(fun () -> -10)@> <@(max)@>).Invoke
 
-    let n = plan32.numThreads
+    let n = plan32.NumThreads
     let v = Array.init n (fun _ -> rng.Next(-5, 5))
     let d = test v
     let expected = Array.max v
@@ -31,7 +31,7 @@ let ``segmented scan reduce test sum<int>`` () =
     let worker = getDefaultWorker()
     let test = worker.LoadPModule(Sum.reduceTest <@(fun () -> 0)@> <@(+)@>).Invoke
 
-    let n = plan32.numThreads
+    let n = plan32.NumThreads
     let v = Array.init n (fun _ -> rng.Next(-5, 5))
     let d = test v
     let expected = Array.sum v
