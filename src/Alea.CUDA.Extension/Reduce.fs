@@ -228,8 +228,8 @@ module Sum =
             // Have the first thread in the block set the range total.
             if tid = 0 then dRangeTotals.[0] <- total @>
 
-let reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
-                  (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
+let bldreduce (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+              (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
     let plan = if sizeof<'T> > 4 then plan64 else plan32
 
     let! upsweep = kernelExpr1 plan |> defineKernelFuncWithName "upsweep"
@@ -266,4 +266,14 @@ let reduceBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> D
                 member this.NumRanges = numRanges
                 member this.Reduce lphint ranges rangeTotals values = launch lphint ranges rangeTotals values
             } ) }
+
+let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
+    let upsweep = Generic.reduceUpSweepKernel init op transf
+    let reduce = Generic.reduceRangeTotalsKernel init op
+    bldreduce upsweep reduce
+
+let inline sum() =
+    let upsweep = Sum.reduceUpSweepKernel
+    let reduce = Sum.reduceRangeTotalsKernel
+    bldreduce upsweep reduce
 

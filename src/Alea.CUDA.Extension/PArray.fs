@@ -96,8 +96,7 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
                 return output } ) }
 
 let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
-                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
+    let! reducer = Reduce.reduce init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -112,8 +111,7 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
                 return DScalar.ofArray rangeTotals 0 } ) }
 
 let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.reduceBuilder (Reduce.Generic.reduceUpSweepKernel init op transf)
-                                        (Reduce.Generic.reduceRangeTotalsKernel init op)
+    let! reducer = Reduce.reduce init op transf
 
     return PFunc(fun (m:Module) ->
         let reducer = reducer.Apply m
@@ -131,7 +129,7 @@ let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
                         return result } } ) }
 
 let inline sum () = cuda {
-    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
+    let! reducer = Reduce.sum()
 
     return PFunc(fun (m:Module) ->
         let reducer = reducer.Apply m
@@ -146,7 +144,7 @@ let inline sum () = cuda {
                 return DScalar.ofArray rangeTotals 0 } ) }
 
 let inline sumer () = cuda {
-    let! reducer = Reduce.reduceBuilder Reduce.Sum.reduceUpSweepKernel Reduce.Sum.reduceRangeTotalsKernel
+    let! reducer = Reduce.sum()
 
     return PFunc(fun (m:Module) ->
         let reducer = reducer.Apply m
