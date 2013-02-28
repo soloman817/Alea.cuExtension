@@ -13,17 +13,17 @@ let transform name transform = cuda {
                 i <- i + stride @>
         |> defineKernelFuncWithName name
 
-    let launchParam (m:Module) (lphint:LPHint) (n:int) =
+    let launchParam (m:Module) (hint:ActionHint) (n:int) =
         let worker = m.Worker
         let blockSize = 256 // TODO: more advanced calcuation due to fine tune
         let gridSize = min worker.Device.NumSm (Util.divup n blockSize)
-        LaunchParam(gridSize, blockSize) |> lphint.Modify
+        LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
 
     return PFunc(fun (m:Module) ->
         let kernel = kernel.Apply m
         let launchParam = launchParam m
-        fun (lphint:LPHint) (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
-            let lp = launchParam lphint n
+        fun (hint:ActionHint) (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
+            let lp = launchParam hint n
             kernel.Launch lp n input output) }
 
 let transform2 name transform = cuda {
@@ -37,17 +37,17 @@ let transform2 name transform = cuda {
                 i <- i + stride @>
         |> defineKernelFuncWithName name
 
-    let launchParam (m:Module) (lphint:LPHint) (n:int) =
+    let launchParam (m:Module) (hint:ActionHint) (n:int) =
         let worker = m.Worker
         let blockSize = 256 // TODO: more advanced calcuation due to fine tune
         let gridSize = min worker.Device.NumSm (Util.divup n blockSize)
-        LaunchParam(gridSize, blockSize) |> lphint.Modify
+        LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
 
     return PFunc(fun (m:Module) ->
         let kernel = kernel.Apply m
         let launchParam = launchParam m
-        fun (lphint:LPHint) (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
-            let lp = launchParam lphint n
+        fun (hint:ActionHint) (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
+            let lp = launchParam hint n
             kernel.Launch lp n input1 input2 output) }
 
 let transformi name transform = cuda {
@@ -61,17 +61,17 @@ let transformi name transform = cuda {
                 i <- i + stride @>
         |> defineKernelFuncWithName name
 
-    let launchParam (m:Module) (lphint:LPHint) (n:int) =
+    let launchParam (m:Module) (hint:ActionHint) (n:int) =
         let worker = m.Worker
         let blockSize = 256 // TODO: more advanced calcuation due to fine tune
         let gridSize = min worker.Device.NumSm (Util.divup n blockSize)
-        LaunchParam(gridSize, blockSize) |> lphint.Modify
+        LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
 
     return PFunc(fun (m:Module) ->
         let kernel = kernel.Apply m
         let launchParam = launchParam m
-        fun (lphint:LPHint) (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
-            let lp = launchParam lphint n
+        fun (hint:ActionHint) (n:int) (input:DevicePtr<'T>) (output:DevicePtr<'U>) ->
+            let lp = launchParam hint n
             kernel.Launch lp n input output) }
 
 let transformi2 name transform = cuda {
@@ -85,15 +85,15 @@ let transformi2 name transform = cuda {
                 i <- i + stride @>
         |> defineKernelFuncWithName name
 
-    let launchParam (m:Module) (lphint:LPHint) (n:int) =
+    let launchParam (m:Module) (hint:ActionHint) (n:int) =
         let worker = m.Worker
         let blockSize = 256 // TODO: more advanced calcuation due to fine tune
         let gridSize = min worker.Device.NumSm (Util.divup n blockSize)
-        LaunchParam(gridSize, blockSize) |> lphint.Modify
+        LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
 
     return PFunc(fun (m:Module) ->
         let kernel = kernel.Apply m
         let launchParam = launchParam m
-        fun (lphint:LPHint) (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
-            let lp = launchParam lphint n
+        fun (hint:ActionHint) (n:int) (input1:DevicePtr<'T1>) (input2:DevicePtr<'T2>) (output:DevicePtr<'U>) ->
+            let lp = launchParam hint n
             kernel.Launch lp n input1 input2 output) }

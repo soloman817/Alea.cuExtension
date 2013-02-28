@@ -55,19 +55,18 @@ let testUInt32 verify dimensions vectors iters = pcalc {
             logger.Touch() }
 
 let [<Test>] ``UInt32: [V] 32 x 256 5`` () = testUInt32 true 32 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 256 5`` () = testUInt32 true 32 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 4096 5`` () = testUInt32 true 32 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 32 x 65536 5`` () = testUInt32 true 32 65536 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 32 x 1048576 5`` () = testUInt32 false 32 1048576 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 1024 x 256 5`` () = testUInt32 true 1024 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 1024 x 4096 5`` () = testUInt32 true 1024 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 1024 x 65536 5`` () = testUInt32 false 1024 65536 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 4096 x 256 5`` () = testUInt32 true 4096 256 5 |> PCalc.run
-let [<Test>] ``Uint32: [V] 4096 x 4096 5`` () = testUInt32 true 4096 4096 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 4096 x 8192 5`` () = testUInt32 false 4096 8192 5 |> PCalc.run
-let [<Test>] ``Uint32: [_] 4096 x 16384 5`` () = testUInt32 false 4096 16384 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 32 x 4096 5`` () = testUInt32 true 32 4096 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 32 x 65536 5`` () = testUInt32 true 32 65536 5 |> PCalc.run
+let [<Test>] ``UInt32: [_] 32 x 1048576 5`` () = testUInt32 false 32 1048576 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 1024 x 256 5`` () = testUInt32 true 1024 256 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 1024 x 4096 5`` () = testUInt32 true 1024 4096 5 |> PCalc.run
+let [<Test>] ``UInt32: [_] 1024 x 65536 5`` () = testUInt32 false 1024 65536 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 4096 x 256 5`` () = testUInt32 true 4096 256 5 |> PCalc.run
+let [<Test>] ``UInt32: [V] 4096 x 4096 5`` () = testUInt32 true 4096 4096 5 |> PCalc.run
+let [<Test>] ``UInt32: [_] 4096 x 8192 5`` () = testUInt32 false 4096 8192 5 |> PCalc.run
+let [<Test>] ``UInt32: [_] 4096 x 16384 5`` () = testUInt32 false 4096 16384 5 |> PCalc.run
 
-let [<Test>] ``Uint32: [D] 1024 x 4096 3`` () =
+let [<Test>] ``UInt32: [D] 1024 x 4096 3`` () =
     testUInt32 true 1024 4096 3 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = testUInt32 true 1024 4096 3 |> PCalc.runWithTimingLogger
     loggers.["default"].DumpLogs()

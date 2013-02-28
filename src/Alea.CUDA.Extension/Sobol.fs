@@ -6,8 +6,8 @@ open Alea.CUDA.Extension
 
 type ISobol<'T when 'T:unmanaged> =
     abstract Directions : uint32[]
-    // lphint -> vectors -> offset -> directions -> output -> unit
-    abstract Generate : LPHint -> int -> int -> DevicePtr<uint32> -> DevicePtr<'T> -> unit
+    // hint -> vectors -> offset -> directions -> output -> unit
+    abstract Generate : ActionHint -> int -> int -> DevicePtr<uint32> -> DevicePtr<'T> -> unit
 
 let [<ReflectedDefinition>] internal nDirections = 32
 
@@ -127,8 +127,8 @@ let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
         fun dimensions ->
             let directions = directions dimensions
 
-            let launch (lphint:LPHint) vectors offset (directions:DevicePtr<uint32>) (output:DevicePtr<'T>) =
-                let lp = launchParam dimensions vectors |> lphint.Modify
+            let launch (hint:ActionHint) vectors offset (directions:DevicePtr<uint32>) (output:DevicePtr<'T>) =
+                let lp = launchParam dimensions vectors |> hint.ModifyLaunchParam
                 let offset = offset + 1
                 kernel.Launch lp dimensions vectors offset directions output
 

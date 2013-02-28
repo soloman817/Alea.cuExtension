@@ -1,6 +1,7 @@
 ﻿module Alea.CUDA.Extension.PArray
 
 open Microsoft.FSharp.Quotations
+open Alea.Interop.CUDA
 open Alea.CUDA
 
 let transform (f:Expr<'T -> 'U>) = cuda {
@@ -96,7 +97,7 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
                 return output } ) }
 
 let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.reduce init op transf
+    let! reducer = Reduce.generic init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -106,27 +107,30 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
             let reducer = reducer n 
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
 let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.reduce init op transf
+    let! reducer = Reduce.generic init op transf
 
     return PFunc(fun (m:Module) ->
-        let reducer = reducer.Apply m
         let worker = m.Worker
+        let reducer = reducer.Apply m
         fun (n:int) ->
             let reducer = reducer n
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
-                let result = DScalar.ofArray rangeTotals 0
-                return fun (values:DArray<'T>) ->
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                return fun (values:DArray<'T>) (result:DScalar<'T>) ->
                     if values.Length <> n then failwith "Reducer n not match the input values.Length!"
                     pcalc {
-                        do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
-                        return result } } ) }
+                        let action hint =
+                            fun () ->
+                                reducer.Reduce hint ranges.Ptr rangeTotals.Ptr values.Ptr
+                                cuSafeCall(cuMemcpyDtoDAsync(result.Ptr.Handle, rangeTotals.Ptr.Handle, nativeint(sizeof<'T>), hint.Stream.Handle))
+                            |> worker.Eval
+                        do! PCalc.action action } } ) }
 
 let inline sum () = cuda {
     let! reducer = Reduce.sum()
@@ -139,7 +143,7 @@ let inline sum () = cuda {
             let reducer = reducer n 
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
@@ -147,18 +151,85 @@ let inline sumer () = cuda {
     let! reducer = Reduce.sum()
 
     return PFunc(fun (m:Module) ->
-        let reducer = reducer.Apply m
         let worker = m.Worker
+        let reducer = reducer.Apply m
         fun (n:int) ->
             let reducer = reducer n
             pcalc {
                 let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRanges
-                let result = DScalar.ofArray rangeTotals 0
-                return fun (values:DArray<'T>) ->
+                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
+                return fun (values:DArray<'T>) (result:DScalar<'T>) ->
                     if values.Length <> n then failwith "Reducer n not match the input values.Length!"
                     pcalc {
-                        do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
-                        return result } } ) }
+                        let action hint =
+                            fun () ->
+                                reducer.Reduce hint ranges.Ptr rangeTotals.Ptr values.Ptr
+                                cuSafeCall(cuMemcpyDtoDAsync(result.Ptr.Handle, rangeTotals.Ptr.Handle, nativeint(sizeof<'T>), hint.Stream.Handle))
+                            |> worker.Eval
+                        do! PCalc.action action } } ) }
+
+let scan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
+    let! scanner = Scan.generic init op transf
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (inclusive:bool) (values:DArray<'T>) ->
+            let n = values.Length
+            let scanner = scanner n 
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                let! results = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
+                return results } ) }
+
+let scanner (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
+    let! scanner = Scan.generic init op transf
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (n:int) ->
+            let scanner = scanner n
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                return fun (inclusive:bool) (values:DArray<'T>) (results:DArray<'T>) ->
+                    if values.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    if results.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
+
+let inline sumscan() = cuda {
+    let! scanner = Scan.sum()
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (inclusive:bool) (values:DArray<'T>) ->
+            let n = values.Length
+            let scanner = scanner n 
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                let! results = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
+                return results } ) }
+
+let inline sumscanner() = cuda {
+    let! scanner = Scan.sum()
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (n:int) ->
+            let scanner = scanner n
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                return fun (inclusive:bool) (values:DArray<'T>) (results:DArray<'T>) ->
+                    if values.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    if results.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
 
 

@@ -56,14 +56,14 @@ type PCalcDiagnoser =
             KernelLaunchDiagnoser = Some Util.kldiag
         }
 
-type LPHint =
+type ActionHint =
     {
         Diagnose : (KernelExecutionStats -> unit) option
         Stream : Stream
         TotalStreams : int option
     }
 
-    member this.Modify (lp:LaunchParam) = lp.SetStream(this.Stream).SetDiagnoser(this.Diagnose)
+    member this.ModifyLaunchParam (lp:LaunchParam) = lp.SetStream(this.Stream).SetDiagnoser(this.Diagnose)
 
 type PCalcStateParam =
     {
@@ -77,10 +77,10 @@ type PCalcState internal (param:PCalcStateParam) =
 
     let blob = List<int * BlobSlot>(capacity)
     let blobs = Dictionary<int, DeviceMemory * DevicePtr<byte>>(capacity)
-    let actions = List<LPHint * (LPHint -> unit)>(capacity)
+    let actions = List<ActionHint * (ActionHint -> unit)>(capacity)
     let resources = List<IDisposable>(capacity)
 
-    let mutable lphint : LPHint =
+    let mutable hint : ActionHint =
         let diagnose =
             match param.Diagnoser.KernelLaunchDiagnoser, param.KernelTimingCollector with
             | None, None -> None
@@ -100,7 +100,7 @@ type PCalcState internal (param:PCalcStateParam) =
 
     member this.DebugLevel = param.Diagnoser.DebugLevel
 
-    member this.LPHint with get() = lphint and set(lphint') = lphint <- lphint'
+    member this.ActionHint with get() = hint and set(lphint') = hint <- lphint'
 
     member this.TimingLogger (name:string) =
         match param.TimingLoggers with
@@ -258,8 +258,8 @@ type PCalcState internal (param:PCalcStateParam) =
             resources.Clear()
             logger.Touch()
 
-    member this.AddAction(f:LPHint -> unit) =
-        actions.Add(lphint, f)
+    member this.AddAction(f:ActionHint -> unit) =
+        actions.Add(hint, f)
 
     member this.RunActions() =
         if actions.Count > 0 then

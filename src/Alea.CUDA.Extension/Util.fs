@@ -7,7 +7,7 @@ let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
 
 let [<ReflectedDefinition>] identity x = x
 
-let divup num den = (num + den - 1) / den
+let [<ReflectedDefinition>] divup num den = (num + den - 1) / den
 
 let ispow2 x = x &&& x-1 = 0
   

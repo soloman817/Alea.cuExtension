@@ -128,11 +128,13 @@ let ``sumer: int (2)``() =
 
         let! dValues1 = DArray.scatterInBlob worker hValues1
         let! dValues2 = DArray.scatterInBlob worker hValues2
+        let! dResult1 = DScalar.createInBlob worker
+        let! dResult2 = DScalar.createInBlob worker
 
-        let! dResult1 = sum dValues1
+        do! sum dValues1 dResult1
+        do! sum dValues2 dResult2
+
         let! dResult1 = dResult1.Gather()
-
-        let! dResult2 = sum dValues2
         let! dResult2 = dResult2.Gather()
 
         printfn "[Size %d] h1(%d) d1(%d) h2(%d) d2(%d)" n hResult1 dResult1 hResult2 dResult2
@@ -315,8 +317,7 @@ let ``reduce: sum square<float> (2)``() =
 
         let err1 = abs (dResult1 - hResult1) / abs hResult1
         let err2 = abs (dResult2 - hResult2) / abs hResult2
-        printfn "[Size %d %d] h1(%f) d1(%f) e1(%f) h2(%f) d2(%f) e2(%f)"
-            n1 n2 hResult1 dResult1 err1 hResult2 dResult2 err2
+        printfn "[Size %d %d] h1(%f) d1(%f) e1(%f) h2(%f) d2(%f) e2(%f)" n1 n2 hResult1 dResult1 err1 hResult2 dResult2 err2
         Assert.That(err1 < eps)
         Assert.That(err2 < eps) }
 
@@ -334,7 +335,7 @@ let ``reduce: sum square<float> (2)``() =
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
 [<Test>]
-let ``reducer: sum square<float> x 2``() =
+let ``reducer: sum square<float> (2)``() =
     let reducer = worker.LoadPModule(PArray.reducer <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke
     let test eps (hValues1:float[]) (hValues2:float[]) = pcalc {
         if hValues1.Length <> hValues2.Length then failwith "input arrays should be equal length"
@@ -346,17 +347,18 @@ let ``reducer: sum square<float> x 2``() =
 
         let! dValues1 = DArray.scatterInBlob worker hValues1
         let! dValues2 = DArray.scatterInBlob worker hValues2
+        let! dResult1 = DScalar.createInBlob worker
+        let! dResult2 = DScalar.createInBlob worker
 
-        let! dResult1 = reduce dValues1
+        do! reduce dValues1 dResult1
+        do! reduce dValues2 dResult2
+
         let! dResult1 = dResult1.Gather()
-
-        let! dResult2 = reduce dValues2
         let! dResult2 = dResult2.Gather()
 
         let err1 = abs (dResult1 - hResult1) / abs hResult1
         let err2 = abs (dResult2 - hResult2) / abs hResult2
-        printfn "[Size %d] h1(%f) d1(%f) e1(%f) h2(%f) d2(%f) e2(%f)"
-            n hResult1 dResult1 err1 hResult2 dResult2 err2
+        printfn "[Size %d] h1(%f) d1(%f) e1(%f) h2(%f) d2(%f) e2(%f)" n hResult1 dResult1 err1 hResult2 dResult2 err2
         Assert.That(err1 < eps)
         Assert.That(err2 < eps) }
 

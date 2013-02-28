@@ -31,7 +31,9 @@ let stream () =
         // create working memory
         for i = 0 to ns - 1 do
             let! dmem = DArray.createInBlob worker n
+            let! dresult = DScalar.createInBlob worker
             dmems.[i] <- dmem
+            dresults.[i] <- dresult
 
         // sobol
         for i = 0 to ns - 1 do
@@ -42,8 +44,7 @@ let stream () =
         // reduce
         for i = 0 to ns - 1 do
             do! PCalc.stream streams.[i]
-            let! dresult = reduce dmems.[i]
-            dresults.[i] <- dresult
+            do! reduce dmems.[i] dresults.[i]
 
         // gather
         for i = 0 to ns - 1 do
@@ -60,8 +61,9 @@ let stream () =
         let! reduce = reducer (n * ns)
 
         let! dmem = DArray.createInBlob worker (n * ns)
+        let! dresult = DScalar.createInBlob worker
         do! sobolIter 0 dmem
-        let! dresult = reduce dmem
+        do! reduce dmem dresult
         let! hresult = dresult.Gather()
         let hresult = hresult / float(n * ns)
 

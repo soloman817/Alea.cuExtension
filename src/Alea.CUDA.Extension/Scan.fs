@@ -7,20 +7,20 @@ open Alea.CUDA.Extension.Timing
 open Alea.CUDA.Extension.Reduce
 
 type IScan<'T when 'T : unmanaged> =
-    abstract Scatter : 'T[] -> int -> DeviceMemory<'T> -> unit 
-    abstract Gather : int -> DevicePtr<'T> -> 'T[]
-    abstract Scan : int * DevicePtr<'T> * DevicePtr<'T> * bool -> unit 
-    abstract Scan : 'T[] * bool -> 'T[]
+    abstract Ranges : int[]
+    abstract NumRangeTotals : int
+    // hint -> ranges -> rangeTotals -> valuesIn -> valuesOut -> incl -> unit
+    abstract Scan : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
 
 module Generic = 
     /// Multi-scan function for all warps in the block.
-    let [<ReflectedDefinition>] inline multiScan (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) (totalRef : 'T ref) =
+    let [<ReflectedDefinition>] multiScan (init:unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) (totalRef:'T ref) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2
+        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
     
         // Allocate shared memory.
-        let shared = __shared__<'T>(numWarps * warpStride).Ptr(0)
+        let shared = __shared__<'T>(numWarps * warpStride).Ptr(0).Volatile()
         let totalsShared = __shared__<'T>(2 * numWarps).Ptr(0).Volatile() 
 
         let warpShared = (shared + warp * warpStride).Volatile()
@@ -69,15 +69,15 @@ module Generic =
         op scan totalsShared.[warp]
 
     /// Multi-scan function for all warps in the block.
-    let [<ReflectedDefinition>] inline multiScanExcl (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) (totalRef : 'T ref) =
+    let [<ReflectedDefinition>] multiScanExcl (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) (totalRef : 'T ref) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2
+        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
     
         // Allocate shared memory.
-        let shared = __shared__<'T>(numWarps * warpStride).Ptr(0)
+        let shared = __shared__<'T>(numWarps * warpStride).Ptr(0).Volatile()
         let totalsShared = __shared__<'T>(2 * numWarps).Ptr(0).Volatile() 
-        let exclScan = __shared__<'T>(numWarps * WARP_SIZE + 1).Ptr(0)
+        let exclScan = __shared__<'T>(numWarps * WARP_SIZE + 1).Ptr(0).Volatile()
 
         let warpShared = (shared + warp * warpStride).Volatile()
         let s = (warpShared + lane + WARP_SIZE / 2).Volatile()
@@ -131,7 +131,7 @@ module Generic =
         exclScan.[tid]
 
     /// Exclusive scan of range totals.        
-    let inline scanReduceKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan)  =
+    let scanReduceKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan)  =
         let numThreads = plan.NumThreadsReduction
         let numWarps = plan.NumWarpsReduction
         let logNumWarps = log2 numWarps
@@ -142,19 +142,22 @@ module Generic =
 
             let tid = threadIdx.x
             let x = if tid < numRanges then dRangeTotals.[tid] else init()
-            
             let total:ref<'T> = ref (init())
-            dRangeTotals.[tid] <- multiScanExcl init op numWarps logNumWarps tid x total
-        @>
+            let sum = multiScan init op numWarps logNumWarps tid x total
+            // Shift the value from the inclusive scan for the exclusive scan.
+            if tid < numRanges then dRangeTotals.[tid + 1] <- sum
+            // Have the first thread in the block set the scan total.
+            if tid = 0 then dRangeTotals.[0] <- init() @>
 
-    let inline scanDownSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
+
+    let scanDownSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
         let numWarps = plan.NumWarps
         let numValues = plan.NumValues
         let valuesPerThread = plan.ValuesPerThread
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (N:int) (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
             let init = %initExpr
             let op = %opExpr
             let transf = %transfExpr
@@ -183,7 +186,7 @@ module Generic =
 
                 for i = 0 to valuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
-                    let x = transf dValuesIn.[source]
+                    let x = if source < N then transf dValuesIn.[source] else (init())
                     threadShared.[i * (WARP_SIZE + 1)] <- x
 
                 // Transpose into thread order by reading from transposeValues.
@@ -211,23 +214,21 @@ module Generic =
                 for i = 0 to valuesPerThread - 1 do
                     let x = threadShared.[i * (WARP_SIZE + 1)]
                     let target = rangeX + index + i * WARP_SIZE
-                    dValuesOut.[target] <- x
+                    if target < N then dValuesOut.[target] <- x
 
                 // Grab the last element of totals_shared, which was set in Multiscan.
                 // This is the total for all the values encountered in this pass.
                 blockScan <- op blockScan !localTotal
 
-                rangeX <- rangeX + numValues
-        @>
+                rangeX <- rangeX + numValues @>
 
 /// Specialized version for sum without expression splicing and slightly more efficient implementation based on inclusive multiscan.
 module Sum =  
-
     /// Multiscan function for warps in the block.
-    let [<ReflectedDefinition>] inline multiScan numWarps logNumWarps tid (x:'T) (totalRef : 'T ref) =
+    let [<ReflectedDefinition>] inline multiScan numWarps logNumWarps tid (x:'T) (totalRef:'T ref) =
         let warp = tid / WARP_SIZE
         let lane = tid &&& (WARP_SIZE - 1)
-        let warpStride = WARP_SIZE + WARP_SIZE / 2
+        let warpStride = WARP_SIZE + WARP_SIZE / 2 + 1
 
         // Allocate shared memory
         let shared = __shared__<'T>(numWarps * warpStride).Ptr(0)
@@ -284,16 +285,12 @@ module Sum =
         <@ fun numRanges (dRangeTotals:DevicePtr<'T>) ->
             let tid = threadIdx.x
             let x = if tid < numRanges then dRangeTotals.[tid] else 0G
-            
             let total:ref<'T> = ref 0G
             let sum = multiScan numWarps logNumWarps tid x total
-
             // Shift the value from the inclusive scan for the exclusive scan.
             if tid < numRanges then dRangeTotals.[tid + 1] <- sum
-
             // Have the first thread in the block set the scan total.
-            if tid = 0 then dRangeTotals.[0] <- 0G
-        @>
+            if tid = 0 then dRangeTotals.[0] <- 0G @>
 
     let inline scanDownSweepKernel (plan:Plan) =
         let numWarps = plan.NumWarps
@@ -302,7 +299,7 @@ module Sum =
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (N:int) (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
             let block = blockIdx.x
             let tid = threadIdx.x
             let warp = tid / WARP_SIZE
@@ -327,7 +324,7 @@ module Sum =
 
                 for i = 0 to valuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
-                    let x = dValuesIn.[source]
+                    let x = if source < N then dValuesIn.[source] else 0G
                     threadShared.[i * (WARP_SIZE + 1)] <- x
 
                 // Transpose into thread order by reading from transposeValues.
@@ -355,101 +352,73 @@ module Sum =
                 for i = 0 to valuesPerThread - 1 do
                     let x = threadShared.[i * (WARP_SIZE + 1)]
                     let target = rangeX + index + i * WARP_SIZE
-                    dValuesOut.[target] <- x
+                    if target < N then dValuesOut.[target] <- x
 
                 // Grab the last element of totals_shared, which was set in Multiscan.
                 // This is the total for all the values encountered in this pass.
                 blockScan <- blockScan + !localTotal
 
-                rangeX <- rangeX + numValues
-        @>
+                rangeX <- rangeX + numValues @>
 
-
-/// The length of the arrays dValuesIn and dValuesOut must be multiply of plan.numValues,
-/// so that we  do not need to do the range checks in the kernel.
-let scanPadding (plan:Plan) n =
-    // let padding = (divup n plan.numValues) * plan.numValues
-    // try with a safe value first
-    plan.NumValues + 1
-
-/// Scatter relevant data into padded array dValues.
-let scatter (m:Module) (values:'T[]) padding (dValues:DeviceMemory<'T>)=
-    dValues.Scatter(values)
-    if padding > 0 then
-        DevicePtrUtil.Scatter(m.Worker, Array.zeroCreate<'T>(padding), dValues.Ptr + values.Length, padding)
-
-// Gather only the relevant data from GPU.
-let gather (m:Module) numValues (dValues:DevicePtr<'T>) =
-    let hValues = Array.zeroCreate numValues
-    DevicePtrUtil.Gather(m.Worker, dValues, hValues, numValues)
-    hValues
-    
 /// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
-let inline scanBuilder (kernelExpr1:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
-                       (kernelExpr2:Plan -> Expr<int -> DevicePtr<'T> -> unit>)
-                       (kernelExpr3:Plan -> Expr<DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit>) = cuda {
-    let plan = if sizeof<'T> >= 8 then plan64 else plan32
+let bldScan (upsweep:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
+            (reduce:Plan -> Expr<int -> DevicePtr<'T> -> unit>)
+            (downsweep:Plan -> Expr<int -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit>) = cuda {
+    let plan = if sizeof<'T> > 4 then plan64 else plan32
 
-    let! kernel1 = kernelExpr1 plan |> defineKernelFunc
-    let! kernel2 = kernelExpr2 plan |> defineKernelFunc
-    let! kernel3 = kernelExpr3 plan |> defineKernelFunc
-
-    let launch (m:Module) numValues (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (inclusive:bool) =
-        let numSm = m.Worker.Device.Attribute(DeviceAttribute.CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
-        let ranges = plan.BlockRanges numSm numValues
-        let numRanges = ranges.Length - 1
-        let inclusive = if inclusive then 1 else 0
-        use dRanges = m.Worker.Malloc(ranges)
-        use dRangeTotals = m.Worker.Malloc<'T>(Array.zeroCreate (numRanges + 1))  
-
-        printfn "====> ranges = %A" ranges
-        printfn "0) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        //let lp = LaunchParam (numRanges-1, plan.numThreads) |> setDiagnoser (diagnose "upSweep")
-        let lp = LaunchParam (numRanges, plan.NumThreads)
-        kernel1.Launch m lp dValuesIn dRanges.Ptr dRangeTotals.Ptr
-
-        printfn "1) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        let lp = LaunchParam(1, plan.NumThreadsReduction)
-        kernel2.Launch m lp numRanges dRangeTotals.Ptr
-
-        printfn "2) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
-
-        let lp = LaunchParam(numRanges, plan.NumThreads)
-        kernel3.Launch m lp dValuesIn dValuesOut dRangeTotals.Ptr dRanges.Ptr inclusive
-
-        printfn "3) dRangeTotals = %A dRanges = %A" (dRangeTotals.ToHost()) (dRanges.ToHost())
+    let! upsweep = upsweep plan |> defineKernelFuncWithName "scan_upsweep"
+    let! reduce = reduce plan |> defineKernelFuncWithName "scan_reduce"
+    let! downsweep = downsweep plan |> defineKernelFuncWithName "scan_downsweep"
 
     return PFunc(fun (m:Module) ->
-        let launch = launch m
-        { new IScan<'T> with
-            member this.Scatter values padding dValues = scatter m values padding dValues
-            member this.Gather numValues dValuesOut = gather m numValues dValuesOut 
-            member this.Scan(values, inclusive) =
-                let padding = scanPadding plan values.Length
-                let size = values.Length + padding
-                use dValuesIn = m.Worker.Malloc<'T>(size)
-                use dValuesOut = m.Worker.Malloc<'T>(size)                 
-                this.Scatter values padding dValuesIn
-                launch values.Length dValuesIn.Ptr dValuesOut.Ptr inclusive
-                this.Gather values.Length dValuesOut.Ptr
-            member this.Scan(numValues, dValuesIn, dValuesOut, inclusive) =
-                launch numValues dValuesIn dValuesOut inclusive
-        } ) }
+        let worker = m.Worker
+        let upsweep = upsweep.Apply m
+        let reduce = reduce.Apply m
+        let downsweep = downsweep.Apply m
+        let numSm = m.Worker.Device.NumSm
+
+        // factory to create scanner (IScan)
+        fun (n:int) ->
+            let ranges = plan.BlockRanges numSm n
+            let numRanges = ranges.Length - 1
+
+            let lpUpsweep = LaunchParam(numRanges, plan.NumThreads)
+            let lpReduce = LaunchParam(1, plan.NumThreadsReduction)
+            let lpDownsweep = LaunchParam(numRanges, plan.NumThreads)
+
+            let launch (hint:ActionHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (input:DevicePtr<'T>) (output:DevicePtr<'T>) (inclusive:bool) =
+                let inclusive = if inclusive then 1 else 0
+                let lpUpsweep = lpUpsweep |> hint.ModifyLaunchParam
+                let lpReduce = lpReduce |> hint.ModifyLaunchParam
+                let lpDownsweep = lpDownsweep |> hint.ModifyLaunchParam
+
+                fun () ->
+                    upsweep.Launch lpUpsweep input ranges rangeTotals
+                    reduce.Launch lpReduce numRanges rangeTotals
+                    downsweep.Launch lpDownsweep n input output rangeTotals ranges inclusive
+                |> worker.Eval // the three kernels should be launched together without interrupt.
+
+            { new IScan<'T> with
+                member this.Ranges = ranges
+                member this.NumRangeTotals = numRanges + 1
+                member this.Scan lphint ranges rangeTotals input output inclusive = launch lphint ranges rangeTotals input output inclusive
+            } ) }
 
 /// <summary>
 /// Global scan algorithm template. 
 /// </summary>
-let inline scan () = 
-    //scanBuilder plan Sum.reduceUpSweepKernel Sum.scanReduceKernel Sum.scanDownSweepKernel
-    scanBuilder Sum.reduceUpSweepKernel Sum.scanReduceKernel Sum.scanDownSweepKernel
+let generic (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
+    let upsweep = Generic.reduceUpSweepKernel init op transf
+    let reduce = Generic.scanReduceKernel init op transf
+    let downsweep = Generic.scanDownSweepKernel init op transf
+    bldScan upsweep reduce downsweep
 
 /// <summary>
 /// Global scan algorithm template. 
 /// </summary>
-let inline genericScan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>)  =
-    scanBuilder (Generic.reduceUpSweepKernel init op transf) 
-                (Generic.scanReduceKernel init op transf) 
-                (Generic.scanDownSweepKernel init op transf)
+let inline sum () = 
+    let upsweep = Sum.reduceUpSweepKernel
+    let reduce = Sum.scanReduceKernel
+    let downsweep = Sum.scanDownSweepKernel
+    bldScan upsweep reduce downsweep
 
