@@ -6,10 +6,16 @@ open Alea.CUDA
 
 open Util
 
+// IReduce represents a reducer. It is created by given the number of reducing values.
+// Then it calcuate the ranges, which is an integer array of size numRanges + 1.
+// The member NumRangeTotals gives you a hint on the minumal size requirement on rangeTotals.
+// The member Reduce takes this signature:
+// Reduce : hint -> ranges -> rangeTotals -> values -> unit
+// After calling this function, the result is stored in rangeTotals[0], you should decide
+// a way to extract that value, because it will dispear one you run Reduce for another input.
 type IReduce<'T when 'T:unmanaged> =
-    abstract Ranges : int[] // Ranges is a host array of int, which will be scattered later with blob
-    abstract NumRangeTotals : int // NumRangeTotals is a length of rangeTotals, which will be used to calc blob size later
-    // hint -> ranges -> rangeTotals -> values -> unit (result is rangeTotals.[0], you should create dscalar for it)
+    abstract Ranges : int[]
+    abstract NumRangeTotals : int
     abstract Reduce : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
 
 type Plan =
@@ -144,7 +150,6 @@ module Generic =
 
 /// Specialized version for sum without expression splicing to check performance impact.
 module Sum =   
-        
     /// Multi-reduce function for a warps in the block.
     let [<ReflectedDefinition>] inline multiReduce numWarps logNumWarps tid (x:'T) =
         let warp = tid / WARP_SIZE
@@ -231,10 +236,13 @@ module Sum =
             // Have the first thread in the block set the range total.
             if tid = 0 then dRangeTotals.[0] <- total @>
 
-let bldReduce (upsweep:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
-              (reduce:Plan -> Expr<int -> DevicePtr<'T> -> unit>) = cuda {
-    let plan = if sizeof<'T> > 4 then plan64 else plan32
+// UpsweepKernel values ranges rangeTotals
+type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit
+// ReduceKernel numRanges rangeTotals
+type ReduceKernel<'T> = int -> DevicePtr<'T> -> unit
 
+let build (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) = cuda {
+    let plan = if sizeof<'T> > 4 then plan64 else plan32
     let! upsweep = upsweep plan |> defineKernelFuncWithName "reduce_upsweep"
     let! reduce = reduce plan |> defineKernelFuncWithName "reduce_reduce"
 
@@ -273,10 +281,10 @@ let bldReduce (upsweep:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr
 let generic (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
     let upsweep = Generic.reduceUpSweepKernel init op transf
     let reduce = Generic.reduceRangeTotalsKernel init op
-    bldReduce upsweep reduce
+    build upsweep reduce
 
 let inline sum() =
     let upsweep = Sum.reduceUpSweepKernel
     let reduce = Sum.reduceRangeTotalsKernel
-    bldReduce upsweep reduce
+    build upsweep reduce
 

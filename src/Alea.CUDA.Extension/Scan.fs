@@ -6,10 +6,14 @@ open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.Timing
 open Alea.CUDA.Extension.Reduce
 
+// IScan represents a scanner. It is created by given the number of scanning values.
+// Then it calcuate the ranges, which is an integer array of size numRanges + 1.
+// The member NumRangeTotals gives you a hint on the minumal size requirement on rangeTotals.
+// The member Scan takes this signature:
+// Scan : hint -> ranges -> rangeTotals -> values -> results -> inclusive -> unit
 type IScan<'T when 'T : unmanaged> =
     abstract Ranges : int[]
     abstract NumRangeTotals : int
-    // hint -> ranges -> rangeTotals -> valuesIn -> valuesOut -> incl -> unit
     abstract Scan : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
 
 module Generic = 
@@ -148,7 +152,6 @@ module Generic =
             if tid < numRanges then dRangeTotals.[tid + 1] <- sum
             // Have the first thread in the block set the scan total.
             if tid = 0 then dRangeTotals.[0] <- init() @>
-
 
     let scanDownSweepKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (transfExpr:Expr<'T -> 'T>) (plan:Plan) =
         let numWarps = plan.NumWarps
@@ -360,12 +363,16 @@ module Sum =
 
                 rangeX <- rangeX + numValues @>
 
-/// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
-let bldScan (upsweep:Plan -> Expr<DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit>)
-            (reduce:Plan -> Expr<int -> DevicePtr<'T> -> unit>)
-            (downsweep:Plan -> Expr<int -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit>) = cuda {
-    let plan = if sizeof<'T> > 4 then plan64 else plan32
+// UpsweepKernel values ranges rangeTotals
+type UpsweepKernel<'T> = Reduce.UpsweepKernel<'T>
+// ReduceKernel numRanges rangeTotals
+type ReduceKernel<'T> = Reduce.ReduceKernel<'T>
+// DownsweepKernel numValues -> values -> results -> rangeTotals -> ranges -> inclusive
+type DownsweepKernel<'T> = int -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
 
+/// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
+let build (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) (downsweep:Plan -> Expr<DownsweepKernel<'T>>) = cuda {
+    let plan = if sizeof<'T> > 4 then plan64 else plan32
     let! upsweep = upsweep plan |> defineKernelFuncWithName "scan_upsweep"
     let! reduce = reduce plan |> defineKernelFuncWithName "scan_reduce"
     let! downsweep = downsweep plan |> defineKernelFuncWithName "scan_downsweep"
@@ -411,7 +418,7 @@ let generic (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
     let upsweep = Generic.reduceUpSweepKernel init op transf
     let reduce = Generic.scanReduceKernel init op transf
     let downsweep = Generic.scanDownSweepKernel init op transf
-    bldScan upsweep reduce downsweep
+    build upsweep reduce downsweep
 
 /// <summary>
 /// Global scan algorithm template. 
@@ -420,5 +427,5 @@ let inline sum () =
     let upsweep = Sum.reduceUpSweepKernel
     let reduce = Sum.scanReduceKernel
     let downsweep = Sum.scanDownSweepKernel
-    bldScan upsweep reduce downsweep
+    build upsweep reduce downsweep
 
