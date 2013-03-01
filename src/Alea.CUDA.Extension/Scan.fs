@@ -336,8 +336,7 @@ module Sum =
                 let mutable sum = 0G
                 for i = 0 to valuesPerThread - 1 do 
                     let x = warpShared.[offset + i]
-                    scan.[i] <- sum
-                    if (inclusive <> 0) then scan.[i] <- scan.[i] + x
+                    scan.[i] <- if inclusive <> 0 then sum + x else sum
                     sum <- sum + x               
  
                 // Multiscan for each thread's scan offset within the block. 

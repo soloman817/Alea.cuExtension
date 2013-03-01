@@ -324,6 +324,7 @@ let ``reduce: sum square<float> (2)``() =
     let eps = 1e-10
     let values1 n = Array.init n (fun _ -> 1.0)
     let values2 n = let rng = Random(2) in Array.init n (fun _ -> rng.NextDouble() - 0.5)
+    let sizes = sizes |> List.filter (fun n -> n <5000000) // to avoid out of memory exception when x86
 
     sizes |> Seq.iter (fun n -> (values1 n, values2 n) ||> test eps |> PCalc.run)
 
