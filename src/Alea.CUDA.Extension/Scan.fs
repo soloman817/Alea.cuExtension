@@ -2,9 +2,9 @@
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
-open Alea.CUDA.Extension.Util
-open Alea.CUDA.Extension.Timing
-open Alea.CUDA.Extension.Reduce
+
+open Util
+open Reduce
 
 // IScan represents a scanner. It is created by given the number of scanning values.
 // Then it calcuate the ranges, which is an integer array of size numRanges + 1.
@@ -160,7 +160,7 @@ module Generic =
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (N:int) (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
             let init = %initExpr
             let op = %opExpr
             let transf = %transfExpr
@@ -189,7 +189,7 @@ module Generic =
 
                 for i = 0 to valuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
-                    let x = if source < N then transf dValuesIn.[source] else (init())
+                    let x = if source < rangeY then transf dValuesIn.[source] else (init())
                     threadShared.[i * (WARP_SIZE + 1)] <- x
 
                 // Transpose into thread order by reading from transposeValues.
@@ -217,7 +217,7 @@ module Generic =
                 for i = 0 to valuesPerThread - 1 do
                     let x = threadShared.[i * (WARP_SIZE + 1)]
                     let target = rangeX + index + i * WARP_SIZE
-                    if target < N then dValuesOut.[target] <- x
+                    if target < rangeY then dValuesOut.[target] <- x
 
                 // Grab the last element of totals_shared, which was set in Multiscan.
                 // This is the total for all the values encountered in this pass.
@@ -302,7 +302,7 @@ module Sum =
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (N:int) (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
             let block = blockIdx.x
             let tid = threadIdx.x
             let warp = tid / WARP_SIZE
@@ -327,7 +327,7 @@ module Sum =
 
                 for i = 0 to valuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
-                    let x = if source < N then dValuesIn.[source] else 0G
+                    let x = if source < rangeY then dValuesIn.[source] else 0G
                     threadShared.[i * (WARP_SIZE + 1)] <- x
 
                 // Transpose into thread order by reading from transposeValues.
@@ -354,7 +354,7 @@ module Sum =
                 for i = 0 to valuesPerThread - 1 do
                     let x = threadShared.[i * (WARP_SIZE + 1)]
                     let target = rangeX + index + i * WARP_SIZE
-                    if target < N then dValuesOut.[target] <- x
+                    if target < rangeY then dValuesOut.[target] <- x
 
                 // Grab the last element of totals_shared, which was set in Multiscan.
                 // This is the total for all the values encountered in this pass.
@@ -366,8 +366,8 @@ module Sum =
 type UpsweepKernel<'T> = Reduce.UpsweepKernel<'T>
 // ReduceKernel numRanges rangeTotals
 type ReduceKernel<'T> = Reduce.ReduceKernel<'T>
-// DownsweepKernel numValues -> values -> results -> rangeTotals -> ranges -> inclusive
-type DownsweepKernel<'T> = int -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
+// DownsweepKernel values -> results -> rangeTotals -> ranges -> inclusive
+type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
 
 /// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
 let build (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) (downsweep:Plan -> Expr<DownsweepKernel<'T>>) = cuda {
@@ -401,7 +401,7 @@ let build (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceK
                 fun () ->
                     upsweep.Launch lpUpsweep input ranges rangeTotals
                     reduce.Launch lpReduce numRanges rangeTotals
-                    downsweep.Launch lpDownsweep n input output rangeTotals ranges inclusive
+                    downsweep.Launch lpDownsweep input output rangeTotals ranges inclusive
                 |> worker.Eval // the three kernels should be launched together without interrupt.
 
             { new IScan<'T> with

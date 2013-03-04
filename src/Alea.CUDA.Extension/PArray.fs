@@ -4,6 +4,64 @@ open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
 open Alea.CUDA
 
+open Util
+
+let fill (f:Expr<'T>) = cuda {
+    let! pfunc = Transform.fill "fill" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+
+let filli (f:Expr<int -> 'T>) = cuda {
+    let! pfunc = Transform.filli "filli" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+
+let init (f:Expr<int -> 'T>) = cuda {
+    let! pfunc = Transform.filli "init" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
+                return data } ) }
+
+let create (f:Expr<'T>) = cuda {
+    let! pfunc = Transform.fill "create" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
+                return data } ) }
+
+let inline zeroCreate() = cuda {
+    let! pfunc = Transform.fill "zeroCreate" <@ 0G @>
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
+                return data } ) }
+
 let transform (f:Expr<'T -> 'U>) = cuda {
     let! pfunc = Transform.transform "transform" f
 
@@ -12,7 +70,7 @@ let transform (f:Expr<'T -> 'U>) = cuda {
         let pfunc = pfunc.Apply m
         fun (input:DArray<'T>) (output:DArray<'U>) ->
             let n = input.Length
-            pcalc { do! PCalc.action (fun lphint -> pfunc lphint n input.Ptr output.Ptr) } ) }
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n input.Ptr output.Ptr) } ) }
 
 let transform2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
     let! pfunc = Transform.transform2 "transform2" f
@@ -22,7 +80,7 @@ let transform2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
         let pfunc = pfunc.Apply m
         fun (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
             let n = input1.Length
-            pcalc { do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr) } ) }
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n input1.Ptr input2.Ptr output.Ptr) } ) }
 
 let transformi (f:Expr<int -> 'T -> 'U>) = cuda {
     let! pfunc = Transform.transformi "transformi" f
@@ -32,7 +90,7 @@ let transformi (f:Expr<int -> 'T -> 'U>) = cuda {
         let pfunc = pfunc.Apply m
         fun (input:DArray<'T>) (output:DArray<'U>) ->
             let n = input.Length
-            pcalc { do! PCalc.action (fun lphint -> pfunc lphint n input.Ptr output.Ptr) } ) }
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n input.Ptr output.Ptr) } ) }
 
 let transformi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
     let! pfunc = Transform.transformi2 "transformi2" f
@@ -231,5 +289,22 @@ let inline sumscanner() = cuda {
                     if values.Length <> n then failwith "Scanner input and output should all equals to n!"
                     if results.Length <> n then failwith "Scanner input and output should all equals to n!"
                     pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
+
+let inline sumsegscan() = cuda {
+    let! scanner = SegmentedScan.sum()
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (inclusive:bool) (values:DArray<'T>) (flags:DArray<int>) ->
+            let n = values.Length
+            let scanner = scanner n 
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                let! headFlags = DArray.createInBlob worker scanner.NumHeadFlags
+                let! results = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr values.Ptr flags.Ptr results.Ptr inclusive)
+                return results } ) }
 
 

@@ -3,128 +3,143 @@
 open System
 open Microsoft.FSharp.Quotations
 open NUnit.Framework
-open Alea.Interop.LLVM
+open Alea.Interop.CUDA
 open Alea.CUDA
-open Alea.CUDA.IRBuilderUtil
 open Alea.CUDA.Extension
 
 let worker = getDefaultWorker()
+let sizes = [12; 2597152; 128; 4002931; 511; 1024; 8191; 1200; 4096; 5000; 8192; 12; 8193; 9000; 10000; 2097152]
 
-let deviceOnly () = failwith "Device only!"
+let zeroCreate : int -> PCalc<DArray<int>> = worker.LoadPModule(PArray.zeroCreate()).Invoke
 
-let [<LLVMFunctionBuilder>] bfi(x:uint32, y:uint32, bit:uint32, numBits:uint32):uint32 = deviceOnly()
-let ``bfi [BUILDER]``(ctx:LLVMFunctionBuilderContext) =
-    let args = ctx.LLVMValueArgs
-    let funct = LLVMFunctionTypeEx(ctx.LLVMHelper.i32_t, [| ctx.LLVMHelper.i32_t; ctx.LLVMHelper.i32_t; ctx.LLVMHelper.i32_t; ctx.LLVMHelper.i32_t |], 0)
-    let funcp = LLVMConstInlineAsm(funct, "bfi.b32 \t$0, $2, $1, $3, $4;", "=r,r,r,r,r", 0, 0)
-    Value(LLVMBuildCallEx(ctx.Builder, funcp, args, ""))
-
-let [<LLVMFunctionBuilder>] __ballot(a:int):uint32 = deviceOnly()
-let ``__ballot [BUILDER]``(ctx:LLVMFunctionBuilderContext) =
-    let args = ctx.LLVMValueArgs
-    let funct = LLVMFunctionTypeEx(ctx.LLVMHelper.i32_t, [| ctx.LLVMHelper.i32_t |], 0)
-    let cmdstr = "{ \n\t\
-                  .reg .pred \t%p1; \n\t\
-                  setp.ne.u32 \t%p1, $1, 0; \n\t\
-                  vote.ballot.b32 \t$0, %p1; \n\t\
-                  }"
-    let funcp = LLVMConstInlineAsm(funct, cmdstr, "=r,r", 1, 0)
-    Value(LLVMBuildCallEx(ctx.Builder, funcp, [| args.[0] |], ""))
-
-let [<LLVMFunctionBuilder>] __clz(x:uint32):int = deviceOnly()
-let ``__clz [BUILDER]``(ctx:LLVMFunctionBuilderContext) =
-    let args = ctx.LLVMValueArgs
-    let funct = LLVMFunctionTypeEx(ctx.LLVMHelper.i32_t, [| ctx.LLVMHelper.i32_t |], 0)
-    let funcp = LLVMConstInlineAsm(funct, "clz.b32 \t$0, $1;", "=r,r", 0, 0)
-    Value(LLVMBuildCallEx(ctx.Builder, funcp, args, ""))
-    
-let [<ReflectedDefinition>] segscanWarp (input:DevicePtr<int>) (output:DevicePtr<int>) (debug:DevicePtr<int>) =
-    let tid = threadIdx.x
-    let packed = input.[tid]
-
-    // the start flag is in the high bit
-    let flag = 0x80000000 &&& packed
-
-    // get the start flags for each thread in the warp
-    let mutable flags = __ballot(flag)
-
-    // mask out the bits above the current thread
-    flags <- flags &&& bfi(0u, 0xffffffffu, 0u, uint32(tid + 1))
-
-    // find the distance from the current thread to the thread at the start of
-    // the segment
-    let distance = DeviceFunction.__clz(int(flags)) + tid - 31
-
-    let shared = __shared__<int>(Util.WARP_SIZE).Ptr(0).Volatile()
-
-    let x0 = 0x7fffffff &&& packed
-    let mutable x = x0
-    shared.[tid] <- x
-
-    // perform the parallel scan. Note the conditional if(offset < distance)
-    // replaces the ordinary scan conditional if(offset <= tid)
-    for i = 0 to Util.LOG_WARP_SIZE - 1 do
-        let offset = 1 <<< i
-        if offset <= distance then x <- x + shared.[tid - offset]
-        shared.[tid] <- x
-
-    // turn inclusive scan into exclusive scan
-    x <- x - x0
-
-    output.[tid] <- x
-    debug.[tid] <- distance
+let createFlags (n:int) (headIndices:int[]) = pcalc {
+    let! flags = zeroCreate n
+    let setIndices (hint:ActionHint) =
+        fun () ->
+            for i = 0 to headIndices.Length - 2 do // bypass the last one becuase it is the cpu scan algorithm
+                let ptr = flags.Ptr + headIndices.[i]
+                cuSafeCall(cuMemsetD32Async(ptr.Handle, 1u, 1n, hint.Stream.Handle))
+        |> worker.Eval
+    do! PCalc.action setIndices
+    return flags }
 
 [<Test>]
-let test() =
-    let blockSize = 256
-    let numWarps = blockSize / Util.WARP_SIZE
+let ``sumsegscan: int``() =
+    let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke
+    let test verify (hValuess:int[][]) = pcalc {
+        let headIndices = hValuess |> Array.map (fun x -> x.Length) |> Array.scan (+) 0
 
-    let pfunct = cuda {
-        let s x = x ||| (1 <<< 31)
-        let! segscanWarp = <@ segscanWarp @> |> defineKernelFunc
-
-        return PFunc(fun (m:Module) ->
-            let worker = m.Worker
-            let segscanWarp = segscanWarp.Apply m
-            pcalc {
-                let hInput =
-                    [|
-                        s 3;   0;   3;   3;   0; s 1;   2;   0;   3;   3;   3;   2;   3;   0;   3;   1;
-                          0;   0;   2;   3;   2; s 3;   1;   0;   2;   1;   2;   1;   1;   0;   1; s 3;
-                    |]
-
-                let! dInput = DArray.scatterInBlob worker hInput
-                let! dOutput = DArray.createInBlob worker hInput.Length
-                let! dDebug = DArray.createInBlob worker hInput.Length
-
-                do! PCalc.action (fun hint ->
-                    let lp = LaunchParam(1, Util.WARP_SIZE) |> hint.ModifyLaunchParam
-                    segscanWarp.Launch lp dInput.Ptr dOutput.Ptr dDebug.Ptr)
-
-                let! hOutput = dOutput.Gather()
-                let! hDebug = dDebug.Gather()
-                for i =  0 to 15 do printf "%2d; " hOutput.[i]
-                printfn ""
-                for i = 16 to 31 do printf "%2d; " hOutput.[i]
-                printfn ""
-                for i =  0 to 15 do printf "%2d; " hDebug.[i]
-                printfn ""
-                for i = 16 to 31 do printf "%2d; " hDebug.[i]
-                printfn "" } ) }
-                
-    let pfunc, irm = genirm pfunct
-    let pfunc, ptxm = genptxm (2, 0) (pfunc, irm)
-    //ptxm.Dump()
-    let calc = worker.LoadPModule(pfunc, ptxm).Invoke
-
-    calc |> PCalc.run
-
+        let hValues = hValuess |> Array.concat
+        let! dValues = DArray.scatterInBlob worker hValues
+        let! dFlags = createFlags dValues.Length headIndices
+        let! dResultsIncl = scan true dValues dFlags
+        let! dResultsExcl = scan false dValues dFlags
         
+        match verify with
+        | true ->
+            let hResultss = hValuess |> Array.map (fun x -> x |> Array.scan (+) 0)
+
+            // check inclusive
+            let hResults = hResultss |> Array.map (fun x -> Array.sub x 1 (x.Length - 1)) |> Array.concat
+            let! dResults = dResultsIncl.Gather()
+            (hResults, dResults) ||> Array.iteri2 (fun i h d -> Assert.AreEqual(d, h))
+
+            // check exclusive
+            let hResults = hResultss |> Array.map (fun x -> Array.sub x 0 (x.Length - 1)) |> Array.concat
+            let! dResults = dResultsExcl.Gather()
+            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.AreEqual(d, h))
+        | false -> do! PCalc.force() }
+
+    let valuess1() = sizes |> Seq.map (fun n -> Array.init n (fun _ -> 1)) |> Array.ofSeq
+    let valuess2() = let rng = Random(2) in sizes |> Seq.map (fun n -> Array.init n (fun _ -> rng.Next(-100, 100))) |> Array.ofSeq
+
+    test true (valuess1()) |> PCalc.run
+    test true (valuess2()) |> PCalc.run
+
+    let test = test false (valuess2())
+    let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+    test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+
+[<Test>]
+let ``sumsegscan: float32``() =
+    let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke
+    let test (verify:float option) (hValuess:float32[][]) = pcalc {
+        let headIndices = hValuess |> Array.map (fun x -> x.Length) |> Array.scan (+) 0
+
+        let hValues = hValuess |> Array.concat
+        let! dValues = DArray.scatterInBlob worker hValues
+        let! dFlags = createFlags dValues.Length headIndices
+        let! dResultsIncl = scan true dValues dFlags
+        let! dResultsExcl = scan false dValues dFlags
+        
+        match verify with
+        | Some(eps) ->
+            let hResultss = hValuess |> Array.map (fun x -> x |> Array.scan (+) 0.0f)
+
+            // check inclusive
+            let hResults = hResultss |> Array.map (fun x -> Array.sub x 1 (x.Length - 1)) |> Array.concat
+            let! dResults = dResultsIncl.Gather()
+            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+
+            // check exclusive
+            let hResults = hResultss |> Array.map (fun x -> Array.sub x 0 (x.Length - 1)) |> Array.concat
+            let! dResults = dResultsExcl.Gather()
+            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+        | None -> do! PCalc.force() }
+
+    let eps = Some 1e-1
+    let valuess1() = sizes |> Seq.map (fun n -> Array.init n (fun _ -> 1.0f)) |> Array.ofSeq
+    let valuess2() = let rng = Random(2) in sizes |> Seq.map (fun n -> Array.init n (fun _ -> (rng.NextDouble() - 0.5) |> float32)) |> Array.ofSeq
+
+    test eps (valuess1()) |> PCalc.run
+    test eps (valuess2()) |> PCalc.run
+
+    let test = test None (valuess2())
+    let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+    test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+
+[<Test>]
+let ``sumsegscan: float``() =
+    let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke
+    let test (verify:float option) (hValuess:float[][]) = pcalc {
+        let headIndices = hValuess |> Array.map (fun x -> x.Length) |> Array.scan (+) 0
+
+        let hValues = hValuess |> Array.concat
+        let! dValues = DArray.scatterInBlob worker hValues
+        let! dFlags = createFlags dValues.Length headIndices
+        let! dResultsIncl = scan true dValues dFlags
+        let! dResultsExcl = scan false dValues dFlags
+        
+        match verify with
+        | Some(eps) ->
+            let hResultss = hValuess |> Array.map (fun x -> x |> Array.scan (+) 0.0)
+
+            // check inclusive
+            let hResults = hResultss |> Array.map (fun x -> Array.sub x 1 (x.Length - 1)) |> Array.concat
+            let! dResults = dResultsIncl.Gather()
+            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+
+//            // check exclusive
+//            let hResults = hResultss |> Array.map (fun x -> Array.sub x 0 (x.Length - 1)) |> Array.concat
+//            let! dResults = dResultsExcl.Gather()
+//            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+        | None -> do! PCalc.force() }
+
+    let eps = Some 1e-10
+    let valuess1() = sizes |> Seq.map (fun n -> Array.init n (fun _ -> 1.0)) |> Array.ofSeq
+    let valuess2() = let rng = Random(2) in sizes |> Seq.map (fun n -> Array.init n (fun _ -> rng.NextDouble() - 0.5)) |> Array.ofSeq
+
+    test eps (valuess1()) |> PCalc.run
+    test eps (valuess2()) |> PCalc.run
+
+    let test = test None (valuess2())
+    let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+    test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
 
-//let rng = System.Random()
-//
-//let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608; 33554432]
 //
 //[<Test>]  
 //let ``segmented scan reduce test max<int>`` () =
@@ -174,12 +189,18 @@ let test() =
 //[<Test>]
 //let ``segmented scan upsweep`` () =
 //    let worker = getDefaultWorker()
-//    let scan = worker.LoadPModule(segScan ()).Invoke
+//    let pfunc, irm = genirm (SegmentedScan.segScan())
+//    let pfunc, ptxm = genptxm (2, 0) (pfunc, irm)
+//    //ptxm.Dump()
+//    //let scan = worker.LoadPModule(SegmentedScan.segScan()).Invoke
+//    let scan = worker.LoadPModule(pfunc, ptxm).Invoke
 //
-//    let n = 20*1024
-//    let values = Array.init n (fun _ -> 1)
+//    let n = 20*1024 + 1
+//    let values = Array.init n (fun _ -> 1.0f)
 //    let flags = Array.zeroCreate n
 //    flags.[0] <- 1
+//    flags.[10] <- 1
+//    flags.[22] <- 1
 //    flags.[512] <- 1
 //    flags.[1024] <- 1
 //    flags.[2000] <- 1
@@ -190,7 +211,7 @@ let test() =
 //    let segScan = scan values flags false
 //
 //    printfn "segScan = %A" segScan
-//
-//
-//
+
+
+
 
