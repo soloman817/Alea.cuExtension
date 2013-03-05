@@ -61,6 +61,7 @@ type ActionHint =
         Diagnose : (KernelExecutionStats -> unit) option
         Stream : Stream
         TotalStreams : int option
+        DebugLevel : int
     }
 
     member this.ModifyLaunchParam (lp:LaunchParam) = lp.SetStream(this.Stream).SetDiagnoser(this.Diagnose)
@@ -96,7 +97,7 @@ type PCalcState internal (param:PCalcStateParam) =
                     let name = sprintf "%d.%X.%s.%X" stats.Kernel.Worker.WorkerThreadId stats.Kernel.Module.Handle stats.Kernel.Name stats.LaunchParam.Stream.Handle
                     collector.Add(name, stats.TimeSpan)
                 |> Some
-        { Diagnose = diagnose; Stream = Engine.defaultStream; TotalStreams = None }
+        { Diagnose = diagnose; Stream = Engine.defaultStream; TotalStreams = None; DebugLevel = param.Diagnoser.DebugLevel }
 
     member this.DebugLevel = param.Diagnoser.DebugLevel
 

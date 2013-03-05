@@ -59,7 +59,7 @@ type DScalar<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, ne
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DArray =
-    let createInBlob (worker:DeviceWorker) (n:int) =
+    let createInBlob<'T when 'T:unmanaged> (worker:DeviceWorker) (n:int) =
         PCalc(fun s -> 
             let id = s.AddBlobSlot(BlobSlot.Extent(worker, n * sizeof<'T>))
             let dmem = Lazy.Create(fun () -> let mem, ptr = s.GetBlobSlot(id) in Some mem, ptr)
@@ -80,8 +80,7 @@ module DArray =
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DScalar =
-
-    let createInBlob (worker:DeviceWorker) =
+    let createInBlob<'T when 'T:unmanaged> (worker:DeviceWorker) =
         PCalc(fun s ->
             let id = s.AddBlobSlot(BlobSlot.Extent(worker, sizeof<'T>))
             let dmem = Lazy.Create(fun () -> let mem, ptr = s.GetBlobSlot(id) in Some mem, ptr)

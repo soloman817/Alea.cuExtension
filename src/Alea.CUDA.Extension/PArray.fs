@@ -155,7 +155,7 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
                 return output } ) }
 
 let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.generic init op transf
+    let! reducer = Reduce.generic None init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -170,7 +170,7 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
                 return DScalar.ofArray rangeTotals 0 } ) }
 
 let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.generic init op transf
+    let! reducer = Reduce.generic None init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -191,7 +191,7 @@ let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
                         do! PCalc.action action } } ) }
 
 let inline sum () = cuda {
-    let! reducer = Reduce.sum()
+    let! reducer = Reduce.sum None
 
     return PFunc(fun (m:Module) ->
         let reducer = reducer.Apply m
@@ -206,7 +206,7 @@ let inline sum () = cuda {
                 return DScalar.ofArray rangeTotals 0 } ) }
 
 let inline sumer () = cuda {
-    let! reducer = Reduce.sum()
+    let! reducer = Reduce.sum None
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -227,7 +227,7 @@ let inline sumer () = cuda {
                         do! PCalc.action action } } ) }
 
 let scan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! scanner = Scan.generic init op transf
+    let! scanner = Scan.generic None init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -243,7 +243,7 @@ let scan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T
                 return results } ) }
 
 let scanner (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! scanner = Scan.generic init op transf
+    let! scanner = Scan.generic None init op transf
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -259,7 +259,7 @@ let scanner (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
                     pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
 
 let inline sumscan() = cuda {
-    let! scanner = Scan.sum()
+    let! scanner = Scan.sum None
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -275,7 +275,7 @@ let inline sumscan() = cuda {
                 return results } ) }
 
 let inline sumscanner() = cuda {
-    let! scanner = Scan.sum()
+    let! scanner = Scan.sum None
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -291,7 +291,7 @@ let inline sumscanner() = cuda {
                     pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
 
 let inline sumsegscan() = cuda {
-    let! scanner = SegmentedScan.sum()
+    let! scanner = SegmentedScan.sum None
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
