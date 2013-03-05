@@ -48,6 +48,11 @@ type Plan =
            
         ranges
 
+type Planner =
+    | Default
+    | Specific of Plan
+    | ByWorker of DeviceWorker
+
 module Generic = 
     /// Multi-reduce function for all warps in the block.
     let [<ReflectedDefinition>] multiReduce (init: unit -> 'T) (op:'T -> 'T -> 'T) numWarps logNumWarps tid (x:'T) =
@@ -235,7 +240,16 @@ type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> uni
 // ReduceKernel numRanges rangeTotals
 type ReduceKernel<'T> = int -> DevicePtr<'T> -> unit
 
-let buildEx (plan:Plan) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) = cuda {
+let plan32 : Plan = { NumThreads = 1024; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
+let plan64 : Plan = { NumThreads = 512; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
+
+let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) = cuda {
+    let plan =
+        match planner with
+        | Planner.Default -> if sizeof<'T> > 4 then plan64 else plan32
+        | Planner.Specific(plan) -> plan
+        | Planner.ByWorker(worker) -> failwith "TODO"
+
     let! upsweep = upsweep plan |> defineKernelFuncWithName "reduce_upsweep"
     let! reduce = reduce plan |> defineKernelFuncWithName "reduce_reduce"
 
@@ -271,20 +285,13 @@ let buildEx (plan:Plan) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -
                 member this.Reduce lphint ranges rangeTotals values = launch lphint ranges rangeTotals values
             } ) }
 
-let plan32 : Plan = { NumThreads = 1024; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
-let plan64 : Plan = { NumThreads = 512; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
-
-let build (arch:(int * int) option) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) =
-    let plan = if sizeof<'T> > 4 then plan64 else plan32
-    buildEx plan upsweep reduce
-
-let generic (arch:(int * int) option) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
+let generic planner init op transf =
     let upsweep = Generic.reduceUpSweepKernel init op transf
     let reduce = Generic.reduceRangeTotalsKernel init op
-    build arch upsweep reduce
+    build planner upsweep reduce
 
-let inline sum (arch:(int * int) option) =
+let inline sum planner =
     let upsweep = Sum.reduceUpSweepKernel
     let reduce = Sum.reduceRangeTotalsKernel
-    build arch upsweep reduce
+    build planner upsweep reduce
 

@@ -154,8 +154,8 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
                 do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr)
                 return output } ) }
 
-let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.generic None init op transf
+let reduce' (reducer:PTemplate<PFunc<int -> Reduce.IReduce<'T>>>) = cuda {
+    let! reducer = reducer
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -169,8 +169,8 @@ let reduce (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
-let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! reducer = Reduce.generic None init op transf
+let reducer' (reducer:PTemplate<PFunc<int -> Reduce.IReduce<'T>>>) = cuda {
+    let! reducer = reducer
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -190,44 +190,13 @@ let reducer (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
                             |> worker.Eval
                         do! PCalc.action action } } ) }
 
-let inline sum () = cuda {
-    let! reducer = Reduce.sum None
+let reduce init op transf = Reduce.generic Reduce.Planner.Default init op transf |> reduce'
+let reducer init op transf = Reduce.generic Reduce.Planner.Default init op transf |> reducer'
+let inline sum() = Reduce.sum Reduce.Planner.Default |> reduce'
+let inline sumer() = Reduce.sum Reduce.Planner.Default |> reducer'
 
-    return PFunc(fun (m:Module) ->
-        let reducer = reducer.Apply m
-        let worker = m.Worker
-        fun (values:DArray<'T>) ->
-            let n = values.Length
-            let reducer = reducer n 
-            pcalc {
-                let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
-                do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
-                return DScalar.ofArray rangeTotals 0 } ) }
-
-let inline sumer () = cuda {
-    let! reducer = Reduce.sum None
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let reducer = reducer.Apply m
-        fun (n:int) ->
-            let reducer = reducer n
-            pcalc {
-                let! ranges = DArray.scatterInBlob worker reducer.Ranges
-                let! rangeTotals = DArray.createInBlob worker reducer.NumRangeTotals
-                return fun (values:DArray<'T>) (result:DScalar<'T>) ->
-                    if values.Length <> n then failwith "Reducer n not match the input values.Length!"
-                    pcalc {
-                        let action hint =
-                            fun () ->
-                                reducer.Reduce hint ranges.Ptr rangeTotals.Ptr values.Ptr
-                                cuSafeCall(cuMemcpyDtoDAsync(result.Ptr.Handle, rangeTotals.Ptr.Handle, nativeint(sizeof<'T>), hint.Stream.Handle))
-                            |> worker.Eval
-                        do! PCalc.action action } } ) }
-
-let scan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! scanner = Scan.generic None init op transf
+let scan' (scanner:PTemplate<PFunc<int -> Scan.IScan<'T>>>) = cuda {
+    let! scanner = scanner
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -242,8 +211,8 @@ let scan (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T
                 do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
                 return results } ) }
 
-let scanner (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) = cuda {
-    let! scanner = Scan.generic None init op transf
+let scanner' (scanner:PTemplate<PFunc<int -> Scan.IScan<'T>>>) = cuda {
+    let! scanner = scanner
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -258,40 +227,13 @@ let scanner (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T ->
                     if results.Length <> n then failwith "Scanner input and output should all equals to n!"
                     pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
 
-let inline sumscan() = cuda {
-    let! scanner = Scan.sum None
+let scan init op transf = Scan.generic Scan.Planner.Default init op transf |> scan'
+let scanner init op transf = Scan.generic Scan.Planner.Default init op transf |> scanner'
+let inline sumscan() = Scan.sum Scan.Planner.Default |> scan'
+let inline sumscanner() = Scan.sum Scan.Planner.Default |> scanner'
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let scanner = scanner.Apply m
-        fun (inclusive:bool) (values:DArray<'T>) ->
-            let n = values.Length
-            let scanner = scanner n 
-            pcalc {
-                let! ranges = DArray.scatterInBlob worker scanner.Ranges
-                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
-                let! results = DArray.createInBlob worker n
-                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
-                return results } ) }
-
-let inline sumscanner() = cuda {
-    let! scanner = Scan.sum None
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let scanner = scanner.Apply m
-        fun (n:int) ->
-            let scanner = scanner n
-            pcalc {
-                let! ranges = DArray.scatterInBlob worker scanner.Ranges
-                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
-                return fun (inclusive:bool) (values:DArray<'T>) (results:DArray<'T>) ->
-                    if values.Length <> n then failwith "Scanner input and output should all equals to n!"
-                    if results.Length <> n then failwith "Scanner input and output should all equals to n!"
-                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive) } } ) }
-
-let inline sumsegscan() = cuda {
-    let! scanner = SegmentedScan.sum None
+let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>) = cuda {
+    let! scanner = scanner
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -307,4 +249,26 @@ let inline sumsegscan() = cuda {
                 do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr values.Ptr flags.Ptr results.Ptr inclusive)
                 return results } ) }
 
+let segscanner' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>) = cuda {
+    let! scanner = scanner
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let scanner = scanner.Apply m
+        fun (n:int) ->
+            let scanner = scanner n
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                let! headFlags = DArray.createInBlob worker scanner.NumHeadFlags
+                return fun (inclusive:bool) (values:DArray<'T>) (flags:DArray<int>) (results:DArray<'T>) ->
+                    if values.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    if flags.Length <> n then failwith "Scanner flag should be equal to n!"
+                    if results.Length <> n then failwith "Scanner input and output should all equals to n!"
+                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr values.Ptr flags.Ptr results.Ptr inclusive) } } ) }
+                    
+let segscan init op transf = SegmentedScan.generic SegmentedScan.Planner.Default init op transf |> segscan'
+let segscanner init op transf = SegmentedScan.generic SegmentedScan.Planner.Default init op transf |> segscanner'
+let inline sumsegscan() = SegmentedScan.sum SegmentedScan.Planner.Default |> segscan'
+let inline sumsegscanner() = SegmentedScan.sum SegmentedScan.Planner.Default |> segscanner'
 

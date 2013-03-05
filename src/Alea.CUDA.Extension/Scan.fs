@@ -16,6 +16,7 @@ type IScan<'T when 'T : unmanaged> =
     abstract Scan : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
 
 type Plan = Reduce.Plan
+type Planner = Reduce.Planner
 
 module Generic = 
     /// Multi-scan function for all warps in the block.
@@ -370,8 +371,17 @@ type ReduceKernel<'T> = Reduce.ReduceKernel<'T>
 // DownsweepKernel values -> results -> rangeTotals -> ranges -> inclusive
 type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
 
+let plan32 : Plan = { NumThreads = 1024; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
+let plan64 : Plan = { NumThreads = 512; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
+
 /// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
-let buildEx (plan:Plan) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) (downsweep:Plan -> Expr<DownsweepKernel<'T>>) = cuda {
+let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) (downsweep:Plan -> Expr<DownsweepKernel<'T>>) = cuda {
+    let plan =
+        match planner with
+        | Planner.Default -> if sizeof<'T> > 4 then plan64 else plan32
+        | Planner.Specific(plan) -> plan
+        | Planner.ByWorker(worker) -> failwith "TODO"
+
     let! upsweep = upsweep plan |> defineKernelFuncWithName "scan_upsweep"
     let! reduce = reduce plan |> defineKernelFuncWithName "scan_reduce"
     let! downsweep = downsweep plan |> defineKernelFuncWithName "scan_downsweep"
@@ -410,29 +420,21 @@ let buildEx (plan:Plan) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -
                 member this.Scan lphint ranges rangeTotals input output inclusive = launch lphint ranges rangeTotals input output inclusive
             } ) }
 
-let plan32 : Plan = { NumThreads = 1024; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
-let plan64 : Plan = { NumThreads = 512; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
-
-/// Scan builder to unify scan cuda monad with a function taking the kernel1, kernel2, kernel3 as args.
-let build (arch:(int * int) option) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Plan -> Expr<ReduceKernel<'T>>) (downsweep:Plan -> Expr<DownsweepKernel<'T>>) =
-    let plan = if sizeof<'T> > 4 then plan64 else plan32
-    buildEx plan upsweep reduce downsweep
-
 /// <summary>
 /// Global scan algorithm template. 
 /// </summary>
-let generic (arch:(int * int) option) (init:Expr<unit -> 'T>) (op:Expr<'T -> 'T -> 'T>) (transf:Expr<'T -> 'T>) =
+let generic planner init op transf =
     let upsweep = Reduce.Generic.reduceUpSweepKernel init op transf
     let reduce = Generic.scanReduceKernel init op transf
     let downsweep = Generic.scanDownSweepKernel init op transf
-    build arch upsweep reduce downsweep
+    build planner upsweep reduce downsweep
 
 /// <summary>
 /// Global scan algorithm template. 
 /// </summary>
-let inline sum (arch:(int * int) option)  = 
+let inline sum planner = 
     let upsweep = Reduce.Sum.reduceUpSweepKernel
     let reduce = Sum.scanReduceKernel
     let downsweep = Sum.scanDownSweepKernel
-    build arch upsweep reduce downsweep
+    build planner upsweep reduce downsweep
 

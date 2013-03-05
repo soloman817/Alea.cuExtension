@@ -10,7 +10,7 @@ let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000
 
 //[<Test>]
 let ``debug sum`` () =
-    let scanner = worker.LoadPModule(Scan.sum None).Invoke
+    let scanner = worker.LoadPModule(Scan.sum Scan.Planner.Default).Invoke
     let test verify eps (hValues:int[]) = pcalc {
         let n = hValues.Length
         printfn "Testing size %d..." n
