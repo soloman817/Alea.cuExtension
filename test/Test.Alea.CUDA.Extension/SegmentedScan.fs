@@ -214,3 +214,43 @@ let [<Test>] ``segscanner: min<float>``() = let scan = worker.LoadPModule(PArray
 let [<Test>] ``segscanner: max<float>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-14 Double.NegativeInfinity max Util.identity
 let [<Test>] ``segscanner: sum<square<float>>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScannerFloat64 scan 1e-7 0.0 (+) (fun x -> x * x)
 
+[<Test>]
+let ``performance: compare with mgpu``() =
+    let test count =
+        // use same plan as mgpu
+        let plan : SegmentedScan.Plan = { NumThreads = 256; ValuesPerThread = 16; NumThreadsReduction = 256; BlockPerSm = 2 }
+        let planner = SegmentedScan.Planner.Specific(plan)
+        let scanner = SegmentedScan.sum planner |> PArray.segscanner'
+        let scanner = worker.LoadPModule(scanner).Invoke
+
+        let hValues = Array.zeroCreate count
+        let hFlags = Array.zeroCreate count
+        let hReference = Array.zeroCreate count
+
+        for i = 0 to count - 1 do
+            hValues.[i] <- i % 9
+            hFlags.[i] <- if i % 3989 = 0 then 1 else 0
+            // inclusive scan
+            hReference.[i] <- if hFlags.[i] = 1 then hValues.[i] else hReference.[i-1] + hValues.[i]
+
+        let calc = pcalc {
+            let! scan = scanner count
+            let! dValues = DArray.scatterInBlob worker hValues
+            let! dFlags = DArray.scatterInBlob worker hFlags
+            let! dResults = DArray.createInBlob worker count
+
+            for i = 1 to 100 do
+                do! scan true dValues dFlags dResults
+
+            return! dResults.Gather() }
+
+        let hResults = calc |> PCalc.run
+
+        let mutable err = 0
+        for i = 0 to count - 1 do
+            if hResults.[i] <> hReference.[i] then
+                printfn "error %d: result = %d, reference = %d" i hResults.[i] hReference.[i]
+                err <- err + 1
+        printfn "number of errors = %d" err
+
+    test (1 <<< 24)

@@ -29,6 +29,16 @@ type ISegmentedScan<'T when 'T : unmanaged> =
 type Plan = Reduce.Plan
 type Planner = Reduce.Planner
 
+let boxflag = function
+    | 4 ->            <@ fun (threadShared:SharedPtr<'T>) i flag -> let ptr = threadShared.Reinterpret<int>() in ptr.[i * (WARP_SIZE + 1)] <- flag @>
+    | n when n > 4 -> <@ fun (threadShared:SharedPtr<'T>) i flag -> let ptr = (threadShared + i * (WARP_SIZE + 1)).Reinterpret<int>() in ptr.[0] <- flag @>
+    | _ ->            <@ fun (threadShared:SharedPtr<'T>) i flag -> let ptr = (threadShared + i * (WARP_SIZE + 1)).Reinterpret<int8>() in ptr.[0] <- if flag = 1 then 1y else 0y @> // TODO: int8(flag) @>
+
+let unboxflag = function
+    | 4 ->            <@ fun (warpShared:SharedPtr<'T>) offset i -> let ptr = warpShared.Reinterpret<int>() in ptr.[offset + i] @>
+    | n when n > 4 -> <@ fun (warpShared:SharedPtr<'T>) offset i -> let ptr = (warpShared + offset + i).Reinterpret<int>() in int(ptr.[0]) @>
+    | _ ->            <@ fun (warpShared:SharedPtr<'T>) offset i -> let ptr = (warpShared + offset + i).Reinterpret<int8>() in int(ptr.[0]) @>
+
 module Generic =
 
     /// Reduction function for upsweep pass. 
@@ -255,12 +265,11 @@ module Generic =
 
         if tid < numWarps then
             // Pull out the sum and flags for each warp.
-            let sv = blockSharedValues + numWarps + tid
-            let sf = blockSharedFlags + tid
+            let s = blockSharedValues + numWarps + tid
 
-            let mutable warpLast = sv.[0]
-            let flag = sf.[0]
-            sv.[-numWarps] <- init()
+            let mutable warpLast = s.[0]
+            let flag = blockSharedFlags.[tid]
+            s.[-numWarps] <- init()
 
             let mutable blockFlags = __ballot flag
 
@@ -277,8 +286,8 @@ module Generic =
 
             for i = 0 to logNumWarps - 1 do
                 let offset = 1 <<< i
-                if distance > offset then warpSum <- op warpSum sv.[-offset]
-                if i < logNumWarps - 1 then sv.[0] <- op warpSum warpLast;
+                if distance > offset then warpSum <- op warpSum s.[-offset]
+                if i < logNumWarps - 1 then s.[0] <- op warpSum warpLast
             
             // Subtract warpLast to make exclusive and add first to grab the fragment sum of the preceding warp.
             warpSum <- op warpSum warpFirst
@@ -336,7 +345,7 @@ module Generic =
         // Reduction pass: run a prefix sum scan over last to compute for each lane the sum of all
         // values in the segmented preceding the current lane, up to that point.
         // This is added back into the thread-local exclusive scan for the continued segment in each thread.
-        let shifted = (threadShared + 1).Volatile()
+        let shifted = threadShared + 1
         shifted.[-1] <- init()
         shifted.[0] <- last 
         let first = warpShared.[1 + preceding]
@@ -351,8 +360,7 @@ module Generic =
         sum <- op sum first
 
         // Call BlockScan for inter-warp scan on the reductions of the last segment in each warp.
-        let mutable lastSegLength = last
-        if hasHeadFlag = 0 then lastSegLength <- op lastSegLength sum
+        let lastSegLength = if hasHeadFlag = 0 then op last sum else last
 
         let blockScan = blockScan init op numWarps logNumWarps tid warp lane lastSegLength warpFlags mask blockOffsetShared
         if warpFlagsMask = 0 then sum <- op sum blockScan
@@ -369,10 +377,12 @@ module Generic =
         let ValuesPerWarp = plan.ValuesPerWarp
         let NumValues = NumThreads * ValuesPerThread
 
-        //let SharedSize = NumWarps * ValuesPerThread * (WARP_SIZE + 1) * (max sizeof<int> sizeof<'T>)
-        //printfn "shared unit = %d" (SharedSize / (NumWarps * ValuesPerThread * (WARP_SIZE + 1)))
-
+        let boxflag = boxflag sizeof<'T>
+        let unboxflag = unboxflag sizeof<'T>
+            
         <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+            let boxflag = %boxflag
+            let unboxflag = %unboxflag
             let init = %init
             let op = %op
             let transf = %transf
@@ -386,18 +396,11 @@ module Generic =
             let rangeY = dRanges.[block + 1]
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
-            // this byte shared memory reuse seems has problem
-            //let _shared = __shared__<byte>(SharedSize).Ptr(0).Volatile()
-            //let sharedValues = _shared.Reinterpret<'T>().Volatile()
-            //let sharedFlags = _shared.Reinterpret<int>().Volatile()
-            let sharedValues = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
-            let sharedFlags = __shared__<int>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
+            let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
 
             // Use a stride of 33 slots per warp per value to allow conflict-free transposes from strided to thread order.
-            let warpSharedValues = sharedValues + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedValues = warpSharedValues + lane
-            let warpSharedFlags = sharedFlags + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedFlags = warpSharedFlags + lane
+            let warpShared = shared + warp * ValuesPerThread * (WARP_SIZE + 1)
+            let threadShared = warpShared + lane
 
             // Transpose values into thread order.
             let mutable offset = ValuesPerThread * lane
@@ -415,31 +418,31 @@ module Generic =
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let flag = if source < rangeY then dFlags.[source] else 0
-                    threadSharedFlags.[i * (WARP_SIZE + 1)] <- flag
+                    boxflag threadShared i flag
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    flags.[i] <- warpSharedFlags.[offset + i]
+                    flags.[i] <- unboxflag warpShared offset i
         
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let value = if source < rangeY then dValues.[source] else init()
-                    threadSharedValues.[i * (WARP_SIZE + 1)] <- transf value
+                    threadShared.[i * (WARP_SIZE + 1)] <- transf value
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    x.[i] <- warpSharedValues.[offset + i]
+                    x.[i] <- warpShared.[offset + i]
             
                 // Run downsweep function on values and head flags.
-                segScanDownsweep init op NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpSharedValues threadSharedValues blockOffsetShared inclusive
+                segScanDownsweep init op NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpShared threadShared blockOffsetShared inclusive
 
                 // Transpose and store scanned values.
                 for i = 0 to ValuesPerThread - 1 do
-                    warpSharedValues.[offset + i] <- x.[i]
+                    warpShared.[offset + i] <- x.[i]
 
                 for i = 0 to ValuesPerThread - 1 do
                     let target = rangeX + index + i * WARP_SIZE
-                    let value = threadSharedValues.[i * (WARP_SIZE + 1)]
+                    let value = threadShared.[i * (WARP_SIZE + 1)]
                     if target < rangeY then dValuesOut.[target] <- value
 
                 rangeX <- rangeX + NumValues @>
@@ -725,12 +728,11 @@ module Sum =
 
         if tid < numWarps then
             // Pull out the sum and flags for each warp.
-            let sv = blockSharedValues + numWarps + tid
-            let sf = blockSharedFlags + tid
+            let s = blockSharedValues + numWarps + tid
 
-            let mutable warpLast = sv.[0]
-            let flag = sf.[0]
-            sv.[-numWarps] <- 0G
+            let mutable warpLast = s.[0]
+            let flag = blockSharedFlags.[tid]
+            s.[-numWarps] <- 0G
 
             let mutable blockFlags = __ballot flag
 
@@ -747,8 +749,8 @@ module Sum =
 
             for i = 0 to logNumWarps - 1 do
                 let offset = 1 <<< i
-                if distance > offset then warpSum <- warpSum + sv.[-offset]
-                if i < logNumWarps - 1 then sv.[0] <- warpSum;
+                if distance > offset then warpSum <- warpSum + s.[-offset]
+                if i < logNumWarps - 1 then s.[0] <- warpSum
             
             // Subtract warpLast to make exclusive and add first to grab the fragment sum of the preceding warp.
             warpSum <- warpSum + warpFirst - warpLast
@@ -780,12 +782,11 @@ module Sum =
 
         if tid < numWarps then
             // Pull out the sum and flags for each warp.
-            let sv = blockSharedValues + numWarps + tid
-            let sf = blockSharedFlags + tid
+            let s = blockSharedValues + numWarps + tid
 
-            let mutable warpLast = sv.[0]
-            let flag = sf.[0]
-            sv.[-numWarps] <- 0G
+            let mutable warpLast = s.[0]
+            let flag = blockSharedFlags.[tid]
+            s.[-numWarps] <- 0G
 
             let mutable blockFlags = __ballot flag
 
@@ -802,8 +803,8 @@ module Sum =
 
             for i = 0 to logNumWarps - 1 do
                 let offset = 1 <<< i
-                if distance > offset then warpSum <- warpSum + sv.[-offset]
-                if i < logNumWarps - 1 then sv.[0] <- warpSum + warpLast;
+                if distance > offset then warpSum <- warpSum + s.[-offset]
+                if i < logNumWarps - 1 then s.[0] <- warpSum + warpLast
             
             // Subtract warpLast to make exclusive and add first to grab the fragment sum of the preceding warp.
             warpSum <- warpSum + warpFirst
@@ -862,9 +863,9 @@ module Sum =
         // Reduction pass: run a prefix sum scan over last to compute for each lane the sum of all
         // values in the segmented preceding the current lane, up to that point.
         // This is added back into the thread-local exclusive scan for the continued segment in each thread.
-        let shifted = (threadShared + 1).Volatile()
+        let shifted = threadShared + 1
         shifted.[-1] <- 0G
-        shifted.[0] <- last + 0G
+        shifted.[0] <- last
         let first = warpShared.[1 + preceding]
 
         let mutable sum = last
@@ -877,8 +878,7 @@ module Sum =
         sum <- sum + first - last
 
         // Call BlockScan for inter-warp scan on the reductions of the last segment in each warp.
-        let mutable lastSegLength = last
-        if hasHeadFlag = 0 then lastSegLength <- lastSegLength + sum
+        let lastSegLength = if hasHeadFlag = 0 then last + sum else last
 
         let blockScan = blockScan numWarps logNumWarps tid warp lane lastSegLength warpFlags mask blockOffsetShared
         if warpFlagsMask = 0 then sum <- sum + blockScan
@@ -928,9 +928,9 @@ module Sum =
         // Reduction pass: run a prefix sum scan over last to compute for each lane the sum of all
         // values in the segmented preceding the current lane, up to that point.
         // This is added back into the thread-local exclusive scan for the continued segment in each thread.
-        let shifted = (threadShared + 1).Volatile()
+        let shifted = threadShared + 1
         shifted.[-1] <- 0G
-        shifted.[0] <- last + 0G
+        shifted.[0] <- last
         let first = warpShared.[1 + preceding]
 
         let mutable sum = 0G
@@ -943,8 +943,7 @@ module Sum =
         sum <- sum + first
 
         // Call BlockScan for inter-warp scan on the reductions of the last segment in each warp.
-        let mutable lastSegLength = last
-        if hasHeadFlag = 0 then lastSegLength <- lastSegLength + sum
+        let lastSegLength = if hasHeadFlag = 0 then last + sum else last
 
         let blockScan = blockScan' numWarps logNumWarps tid warp lane lastSegLength warpFlags mask blockOffsetShared
         if warpFlagsMask = 0 then sum <- sum + blockScan
@@ -961,10 +960,13 @@ module Sum =
         let ValuesPerWarp = plan.ValuesPerWarp
         let NumValues = NumThreads * ValuesPerThread
 
-        //let SharedSize = NumWarps * ValuesPerThread * (WARP_SIZE + 1) * (max sizeof<int> sizeof<'T>)
-        //printfn "shared unit = %d" (SharedSize / (NumWarps * ValuesPerThread * (WARP_SIZE + 1)))
-
+        let boxflag = boxflag sizeof<'T>
+        let unboxflag = unboxflag sizeof<'T>
+            
         <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+            let boxflag = %boxflag
+            let unboxflag = %unboxflag
+
             let tid = threadIdx.x
             let warp = tid / WARP_SIZE
             let lane = tid &&& (WARP_SIZE - 1)
@@ -974,18 +976,11 @@ module Sum =
             let rangeY = dRanges.[block + 1]
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
-            // this byte shared memory reuse seems has problem
-            //let _shared = __shared__<byte>(SharedSize).Ptr(0).Volatile()
-            //let sharedValues = _shared.Reinterpret<'T>().Volatile()
-            //let sharedFlags = _shared.Reinterpret<int>().Volatile()
-            let sharedValues = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
-            let sharedFlags = __shared__<int>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
+            let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
 
             // Use a stride of 33 slots per warp per value to allow conflict-free transposes from strided to thread order.
-            let warpSharedValues = sharedValues + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedValues = warpSharedValues + lane
-            let warpSharedFlags = sharedFlags + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedFlags = warpSharedFlags + lane
+            let warpShared = shared + warp * ValuesPerThread * (WARP_SIZE + 1)
+            let threadShared = warpShared + lane
 
             // Transpose values into thread order.
             let mutable offset = ValuesPerThread * lane
@@ -1003,31 +998,31 @@ module Sum =
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let flag = if source < rangeY then dFlags.[source] else 0
-                    threadSharedFlags.[i * (WARP_SIZE + 1)] <- flag
+                    boxflag threadShared i flag
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    flags.[i] <- warpSharedFlags.[offset + i]
+                    flags.[i] <- unboxflag warpShared offset i
         
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let value = if source < rangeY then dValues.[source] else 0G
-                    threadSharedValues.[i * (WARP_SIZE + 1)] <- value
+                    threadShared.[i * (WARP_SIZE + 1)] <- value
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    x.[i] <- warpSharedValues.[offset + i]
+                    x.[i] <- warpShared.[offset + i]
             
                 // Run downsweep function on values and head flags.
-                segScanDownsweep NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpSharedValues threadSharedValues blockOffsetShared inclusive
+                segScanDownsweep NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpShared threadShared blockOffsetShared inclusive
 
                 // Transpose and store scanned values.
                 for i = 0 to ValuesPerThread - 1 do
-                    warpSharedValues.[offset + i] <- x.[i]
+                    warpShared.[offset + i] <- x.[i]
 
                 for i = 0 to ValuesPerThread - 1 do
                     let target = rangeX + index + i * WARP_SIZE
-                    let value = threadSharedValues.[i * (WARP_SIZE + 1)]
+                    let value = threadShared.[i * (WARP_SIZE + 1)]
                     if target < rangeY then dValuesOut.[target] <- value
 
                 rangeX <- rangeX + NumValues @>
@@ -1041,10 +1036,13 @@ module Sum =
         let ValuesPerWarp = plan.ValuesPerWarp
         let NumValues = NumThreads * ValuesPerThread
 
-        //let SharedSize = NumWarps * ValuesPerThread * (WARP_SIZE + 1) * (max sizeof<int> sizeof<'T>)
-        //printfn "shared unit = %d" (SharedSize / (NumWarps * ValuesPerThread * (WARP_SIZE + 1)))
-
+        let boxflag = boxflag sizeof<'T>
+        let unboxflag = unboxflag sizeof<'T>
+            
         <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+            let boxflag = %boxflag
+            let unboxflag = %unboxflag
+
             let tid = threadIdx.x
             let warp = tid / WARP_SIZE
             let lane = tid &&& (WARP_SIZE - 1)
@@ -1054,18 +1052,11 @@ module Sum =
             let rangeY = dRanges.[block + 1]
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
-            // this byte shared memory reuse seems has problem
-            //let _shared = __shared__<byte>(SharedSize).Ptr(0).Volatile()
-            //let sharedValues = _shared.Reinterpret<'T>().Volatile()
-            //let sharedFlags = _shared.Reinterpret<int>().Volatile()
-            let sharedValues = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
-            let sharedFlags = __shared__<int>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
+            let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
 
             // Use a stride of 33 slots per warp per value to allow conflict-free transposes from strided to thread order.
-            let warpSharedValues = sharedValues + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedValues = warpSharedValues + lane
-            let warpSharedFlags = sharedFlags + warp * ValuesPerThread * (WARP_SIZE + 1)
-            let threadSharedFlags = warpSharedFlags + lane
+            let warpShared = shared + warp * ValuesPerThread * (WARP_SIZE + 1)
+            let threadShared = warpShared + lane
 
             // Transpose values into thread order.
             let mutable offset = ValuesPerThread * lane
@@ -1083,31 +1074,31 @@ module Sum =
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let flag = if source < rangeY then dFlags.[source] else 0
-                    threadSharedFlags.[i * (WARP_SIZE + 1)] <- flag
+                    boxflag threadShared i flag
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    flags.[i] <- warpSharedFlags.[offset + i]
+                    flags.[i] <- unboxflag warpShared offset i
         
                 for i = 0 to ValuesPerThread - 1 do
                     let source = rangeX + index + i * WARP_SIZE
                     let value = if source < rangeY then dValues.[source] else 0G
-                    threadSharedValues.[i * (WARP_SIZE + 1)] <- value
+                    threadShared.[i * (WARP_SIZE + 1)] <- value
 
                 // Transpose into thread order and separate values from head flags.
                 for i = 0 to ValuesPerThread - 1 do
-                    x.[i] <- warpSharedValues.[offset + i]
+                    x.[i] <- warpShared.[offset + i]
             
                 // Run downsweep function on values and head flags.
-                segScanDownsweep' NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpSharedValues threadSharedValues blockOffsetShared inclusive
+                segScanDownsweep' NumWarps LogNumWarps ValuesPerThread tid lane warp x flags warpShared threadShared blockOffsetShared inclusive
 
                 // Transpose and store scanned values.
                 for i = 0 to ValuesPerThread - 1 do
-                    warpSharedValues.[offset + i] <- x.[i]
+                    warpShared.[offset + i] <- x.[i]
 
                 for i = 0 to ValuesPerThread - 1 do
                     let target = rangeX + index + i * WARP_SIZE
-                    let value = threadSharedValues.[i * (WARP_SIZE + 1)]
+                    let value = threadShared.[i * (WARP_SIZE + 1)]
                     if target < rangeY then dValuesOut.[target] <- value
 
                 rangeX <- rangeX + NumValues @>
@@ -1139,6 +1130,7 @@ let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Pl
         let reduce = reduce.Apply m
         let downsweep = downsweep.Apply m
         let numSm = m.Worker.Device.NumSm
+        //let sharedSize = plan.NumWarps * plan.ValuesPerThread * (WARP_SIZE + 1) * (max sizeof<int> sizeof<'T>)
 
         fun (n:int) ->
             let ranges = plan.BlockRanges numSm n
