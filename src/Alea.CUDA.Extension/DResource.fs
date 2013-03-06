@@ -1,6 +1,11 @@
 ﻿namespace Alea.CUDA.Extension
 
+open System
+open Alea.Interop.CUDA
 open Alea.CUDA
+
+#nowarn "9"
+#nowarn "51"
 
 type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, length:int, needDispose:bool, dmem:Lazy<DeviceMemory option * DevicePtr<byte>>) =
     inherit DisposableObject()
@@ -56,6 +61,101 @@ type DScalar<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, ne
         if needDispose && disposing && dmem.IsValueCreated && this.Memory.IsSome then
             this.Memory.Value.Dispose()
         base.Dispose(disposing)
+
+// this type should be moved into cubase
+type internal Event (worker:DeviceWorker, handle:nativeint) =
+    inherit DisposableObject()
+
+    let name = sprintf "%s.Event[%X]" worker.Name handle
+    let mutable handle = handle
+
+    member this.SafeCall (f:unit -> 'T) =
+        lock this (fun () ->
+            match handle with
+            | 0n -> raise (ObjectDisposedException(name))
+            | _ -> f())
+
+    member this.Worker = worker
+    member this.Handle = this.SafeCall (fun () -> handle)
+    member this.Name = name
+
+    override this.ToString() = name
+
+    override this.Dispose(disposing) =
+        let dispose() =
+            if handle <> 0n then 
+                //if not disposing && (Environment.getConfig().DebugImplicitResource) then
+                //    printfn "WARNING: You are implicitly disposing %s" name
+                let dt() = if disposing then "explicitly" else "implicitly"
+                try
+                    worker.Eval (fun () -> cuSafeCall(cuEventDestroy(handle)))
+                    //if debug then printfn "%s %s disposed!" name (dt())
+                with ex ->
+                    //if debug then printfn "%s %s disposed! [%s]" name (dt()) (ex.GetType().FullName)
+                handle <- 0n
+
+        if disposing then lock this dispose else dispose()
+        base.Dispose(disposing)
+
+type DStopwatch internal (worker:DeviceWorker, stream:Stream option, start:Event, stop:Event) =
+    
+    let mutable stream = stream
+    let mutable elapsed : float32 option = None
+    let mutable stopped = true
+
+    member internal this.Start() = pcalc {
+        if not stopped then failwith "this stopwatch already started!"
+        if elapsed.IsSome then failwith "this stopwatch already finished!"
+        stopped <- false
+        let action (hint:ActionHint) =
+            let _stream = if stream.IsSome then stream.Value else hint.Stream
+            stream <- Some _stream
+            fun () -> cuSafeCall(cuEventRecord(start.Handle, _stream.Handle))
+            |> worker.Eval
+        do! PCalc.action action }
+
+    member this.Stop() = pcalc {
+        if stopped then failwith "this stopwatch already finished!"
+        if elapsed.IsSome then failwith "this stopwatch already finished!"
+        stopped <- true
+        let action (hint:ActionHint) =
+            fun () ->
+                cuSafeCall(cuEventRecord(stop.Handle, stream.Value.Handle))
+                cuSafeCall(cuEventSynchronize(stop.Handle))
+                let mutable _elapsed = 0.0f
+                cuSafeCall(cuEventElapsedTime(&&_elapsed, start.Handle, stop.Handle))
+                elapsed <- Some _elapsed
+            |> worker.Eval
+        do! PCalc.action action }
+
+    member this.ElapsedMilliseconds =
+        PCalc(fun s ->
+            match elapsed with
+            | Some(elapsed) -> elapsed, s
+            | None ->
+                let s = if not stopped then let _, s = this.Stop().Invoke(s) in s else s
+                s.RunActions()
+                elapsed.Value, s)
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module DStopwatch =
+    let startNew (worker:DeviceWorker) =
+        PCalc(fun s ->
+            let start, stop =
+                fun () ->
+                    let mutable start = 0n
+                    let mutable stop = 0n
+                    cuSafeCall(cuEventCreate(&&start, 0u))
+                    cuSafeCall(cuEventCreate(&&stop, 0u))
+                    start, stop
+                |> worker.Eval
+            let start = new Event(worker, start)
+            let stop = new Event(worker, stop)
+            let stopwatch = DStopwatch(worker, None, start, stop)
+            let _, s = stopwatch.Start().Invoke(s)
+            s.AddResource(start)
+            s.AddResource(stop)
+            stopwatch, s)
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DArray =

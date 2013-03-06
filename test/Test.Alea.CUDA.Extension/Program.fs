@@ -1,1 +1,1 @@
-﻿Test.Alea.CUDA.Extension.SegmentedScan.``performance: compare with mgpu``()
+﻿Test.Alea.CUDA.Extension.SegmentedScan.``performance: compare with thrust``()

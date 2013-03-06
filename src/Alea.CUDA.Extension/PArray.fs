@@ -238,7 +238,7 @@ let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>)
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let scanner = scanner.Apply m
-        fun (inclusive:bool) (values:DArray<'T>) (flags:DArray<int>) ->
+        fun (inclusive:bool) (flags:DArray<int>) (values:DArray<'T>) ->
             let n = values.Length
             let scanner = scanner n 
             pcalc {
@@ -261,7 +261,7 @@ let segscanner' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>
                 let! ranges = DArray.scatterInBlob worker scanner.Ranges
                 let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
                 let! headFlags = DArray.createInBlob worker scanner.NumHeadFlags
-                return fun (inclusive:bool) (values:DArray<'T>) (flags:DArray<int>) (results:DArray<'T>) ->
+                return fun (inclusive:bool) (flags:DArray<int>) (values:DArray<'T>) (results:DArray<'T>) ->
                     if values.Length <> n then failwith "Scanner input and output should all equals to n!"
                     if flags.Length <> n then failwith "Scanner flag should be equal to n!"
                     if results.Length <> n then failwith "Scanner input and output should all equals to n!"

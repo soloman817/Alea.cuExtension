@@ -33,8 +33,8 @@ let testSegScanInt32 (scan:bool -> DArray<int> -> DArray<int> -> PCalc<DArray<in
     let test verify (hValuess:int[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
         let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dValues dFlags
-        let! dResultsExcl = scan false dValues dFlags
+        let! dResultsIncl = scan true dFlags dValues
+        let! dResultsExcl = scan false dFlags dValues
 
         match verify with
         | true ->
@@ -62,12 +62,12 @@ let testSegScanInt32 (scan:bool -> DArray<int> -> DArray<int> -> PCalc<DArray<in
     let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
-let testSegScanFloat32 (scan:bool -> DArray<float32> -> DArray<int> -> PCalc<DArray<float32>>) (eps:float) (init:float32) (op:float32 -> float32 -> float32) (transf:float32 -> float32) =
+let testSegScanFloat32 (scan:bool -> DArray<int> -> DArray<float32> -> PCalc<DArray<float32>>) (eps:float) (init:float32) (op:float32 -> float32 -> float32) (transf:float32 -> float32) =
     let test (verify:float option) (hValuess:float32[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
         let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dValues dFlags
-        let! dResultsExcl = scan false dValues dFlags
+        let! dResultsIncl = scan true dFlags dValues
+        let! dResultsExcl = scan false dFlags dValues
         
         match verify with
         | Some(eps) ->
@@ -96,12 +96,12 @@ let testSegScanFloat32 (scan:bool -> DArray<float32> -> DArray<int> -> PCalc<DAr
     let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
-let testSegScanFloat64 (scan:bool -> DArray<float> -> DArray<int> -> PCalc<DArray<float>>) (eps:float) (init:float) (op:float -> float -> float) (transf:float -> float) =
+let testSegScanFloat64 (scan:bool -> DArray<int> -> DArray<float> -> PCalc<DArray<float>>) (eps:float) (init:float) (op:float -> float -> float) (transf:float -> float) =
     let test (verify:float option) (hValuess:float[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
         let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dValues dFlags
-        let! dResultsExcl = scan false dValues dFlags
+        let! dResultsIncl = scan true dFlags dValues
+        let! dResultsExcl = scan false dFlags dValues
         
         match verify with
         | Some(eps) ->
@@ -130,7 +130,7 @@ let testSegScanFloat64 (scan:bool -> DArray<float> -> DArray<int> -> PCalc<DArra
     let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
-let testSegScannerFloat64 (scanner:int -> PCalc<bool -> DArray<float> -> DArray<int> -> DArray<float> -> PCalc<unit>>) (eps:float) (init:float) (op:float -> float -> float) (transf:float -> float) =
+let testSegScannerFloat64 (scanner:int -> PCalc<bool -> DArray<int> -> DArray<float> -> DArray<float> -> PCalc<unit>>) (eps:float) (init:float) (op:float -> float -> float) (transf:float -> float) =
     let test (verify:float option) (hValuess1:float[][]) (hValuess2:float[][]) = pcalc {
         let n1 = hValuess1 |> Array.map (fun hValues -> hValues.Length) |> Array.sum
         let n2 = hValuess2 |> Array.map (fun hValues -> hValues.Length) |> Array.sum
@@ -142,15 +142,15 @@ let testSegScannerFloat64 (scanner:int -> PCalc<bool -> DArray<float> -> DArray<
         let! dFlags1 = createFlags hValuess1
         let! dResultsIncl1 = DArray.createInBlob worker n
         let! dResultsExcl1 = DArray.createInBlob worker n
-        do! scan true dValues1 dFlags1 dResultsIncl1
-        do! scan false dValues1 dFlags1 dResultsExcl1
+        do! scan true dFlags1 dValues1 dResultsIncl1
+        do! scan false dFlags1 dValues1 dResultsExcl1
         
         let! dValues2 = DArray.scatterInBlob worker (hValuess2 |> Array.concat)
         let! dFlags2 = createFlags hValuess2
         let! dResultsIncl2 = DArray.createInBlob worker n
         let! dResultsExcl2 = DArray.createInBlob worker n
-        do! scan true dValues2 dFlags2 dResultsIncl2
-        do! scan false dValues2 dFlags2 dResultsExcl2
+        do! scan true dFlags2 dValues2 dResultsIncl2
+        do! scan false dFlags2 dValues2 dResultsExcl2
 
         match verify with
         | Some(eps) ->
@@ -240,7 +240,7 @@ let ``performance: compare with mgpu``() =
             let! dResults = DArray.createInBlob worker count
 
             for i = 1 to 100 do
-                do! scan true dValues dFlags dResults
+                do! scan true dFlags dValues dResults
 
             return! dResults.Gather() }
 
@@ -254,3 +254,59 @@ let ``performance: compare with mgpu``() =
         printfn "number of errors = %d" err
 
     test (1 <<< 24)
+
+type Scanner<'T when 'T:unmanaged> = int -> PCalc<bool -> DArray<int> -> DArray<'T> -> DArray<'T> -> PCalc<unit>>
+
+let inline performance (name:string) (scanner:Scanner<'T>) (transf:int -> 'T) count =
+    let hValues = Array.zeroCreate<'T> count
+    let hFlags = Array.zeroCreate<int> count
+    let hReference = Array.zeroCreate<'T> count
+
+    for i = 0 to count - 1 do
+        hValues.[i] <- i % 9 |> transf
+        hFlags.[i] <- if i % 3989 = 0 then 1 else 0
+        // inclusive scan
+        hReference.[i] <- if hFlags.[i] = 1 then hValues.[i] else hReference.[i-1] + hValues.[i]
+
+    let calc = pcalc {
+        let! scan = scanner count
+        let! dValues = DArray.scatterInBlob worker hValues
+        let! dFlags = DArray.scatterInBlob worker hFlags
+        let! dResults = DArray.createInBlob worker count
+
+        let! stopwatch = DStopwatch.startNew worker
+        for i = 1 to 1000 do
+            do! scan true dFlags dValues dResults
+        do! stopwatch.Stop()
+
+        let! results = dResults.Gather()
+        let! timing = stopwatch.ElapsedMilliseconds
+
+        return results, timing / 1000.0f }
+
+    let hResults, timing = calc |> PCalc.run
+    //let hResults, timing = calc |> PCalc.runInWorker worker
+    //let hResults, timing = calc |> PCalc.runWithDiagnoser({PCalcDiagnoser.None with DebugLevel = 1})
+    //let hResults, timing = let x, ktc = calc |> PCalc.runWithKernelTiming 1 in ktc.Dump(); x
+    //let hResults, timing = let x, loggers = calc |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs(); x
+
+    let mutable err = 0
+    for i = 0 to count - 1 do
+        if hResults.[i] <> hReference.[i] then
+            printfn "error %d: result = %A, reference = %A" i hResults.[i] hReference.[i]
+            err <- err + 1
+    if err <> 0 then printfn "number of errors = %d" err
+
+    printfn "====> alea segscan %s  \t%8d\t[%9.6f ms]" name count timing
+
+[<Test>]
+let ``performance: compare with thrust``() =
+    let scannerInt32 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
+    let scannerFloat32 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
+    let scannerFloat64 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
+
+    let sizes = [| 2097152; 1 <<< 23; 1 <<< 24; 1 <<< 25 |]
+
+    sizes |> Array.iter (fun count -> performance "sum<int32>  " scannerInt32 int count)
+    sizes |> Array.iter (fun count -> performance "sum<float32>" scannerFloat32 float32 count)
+    sizes |> Array.iter (fun count -> performance "sum<float64>" scannerFloat64 float count)
