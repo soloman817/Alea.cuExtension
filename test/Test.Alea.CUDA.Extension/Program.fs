@@ -1,2 +1,15 @@
-﻿//Test.Alea.CUDA.Extension.Sobol.``32 x 256 1``()
-printfn "for test"
+﻿let segscanPerformance() =
+    printfn "====> Segmented Scan By Flag"
+    Test.Alea.CUDA.Extension.SegmentedScanByFlag.``performance: compare with thrust``()
+    printfn "====> Segmented Scan By Key"
+    Test.Alea.CUDA.Extension.SegmentedScanByKey.``performance: compare with thrust``()
+
+let segscanVsMGPUByFlags() =
+    Test.Alea.CUDA.Extension.SegmentedScanByFlag.``performance: compare with mgpu``()
+
+let segscanVsMGPUByKeys() =
+    Test.Alea.CUDA.Extension.SegmentedScanByKey.``performance: compare with mgpu``()
+
+for i = 1 to 3 do
+    segscanPerformance()
+    printfn ""

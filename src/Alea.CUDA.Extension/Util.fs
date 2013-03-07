@@ -1,9 +1,13 @@
 ﻿module Alea.CUDA.Extension.Util
 
+open Alea.CUDA
+
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
 
-let divup num den = (num + den - 1) / den
+let [<ReflectedDefinition>] identity x = x
+
+let [<ReflectedDefinition>] divup num den = (num + den - 1) / den
 
 let ispow2 x = x &&& x-1 = 0
   
@@ -28,7 +32,18 @@ let log2 (arg:int) =
 let padding alignment size =
     match alignment with
     | 0 -> 0
-    | alignment -> int(ceil(float(size) / float(alignment))) * alignment - size
+    | alignment -> (divup size alignment) * alignment - size
+
+let dim3str (d:dim3) = sprintf "(%dx%dx%d)" d.x d.y d.z
+
+let kldiag (stats:Engine.KernelExecutionStats) =
+    let name = sprintf "%d.%X.%s.%X" stats.Kernel.Worker.WorkerThreadId stats.Kernel.Module.Handle stats.Kernel.Name stats.LaunchParam.Stream.Handle
+    printfn "%s: %s %s %6.2f%% %.6f ms"
+        name
+        (stats.LaunchParam.GridDim |> dim3str)
+        (stats.LaunchParam.BlockDim |> dim3str)
+        (stats.Occupancy * 100.0)
+        stats.TimeSpan
 
 module NumericLiteralG =
     let [<ReflectedDefinition>] inline FromZero() = LanguagePrimitives.GenericZero

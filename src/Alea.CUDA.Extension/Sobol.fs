@@ -5,10 +5,9 @@ open Alea.CUDA
 open Alea.CUDA.Extension
 
 type ISobol<'T when 'T:unmanaged> =
-    abstract NumDimensions : int
     abstract Directions : uint32[]
-    // vectors -> offset -> directions -> output -> unit
-    abstract Generate : int -> int -> PArray<uint32> -> PArray<'T> -> unit
+    // hint -> vectors -> offset -> directions -> output -> unit
+    abstract Generate : ActionHint -> int -> int -> DevicePtr<uint32> -> DevicePtr<'T> -> unit
 
 let [<ReflectedDefinition>] internal nDirections = 32
 
@@ -122,18 +121,18 @@ let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
 
         LaunchParam(dimGrid, dimBlock)
 
-    return PFunc(fun (m:Module) dimensions ->
+    return PFunc(fun (m:Module) ->
         let kernel = kernel.Apply m
-        let directions = directions dimensions
 
-        let launch vectors offset (directions:PArray<uint32>) (output:PArray<'T>) () =
-            let lp = launchParam dimensions vectors
-            let offset = offset + 1
-            if output.Length < dimensions * vectors then failwith "output length should >= dimensions * vectors"
-            kernel.Launch lp dimensions vectors offset directions.Ptr output.Ptr
+        fun dimensions ->
+            let directions = directions dimensions
 
-        { new ISobol<'T> with
-            member this.NumDimensions = dimensions
-            member this.Directions = directions
-            member this.Generate vectors offset directions output = m.Worker.Eval(launch vectors offset directions output)
-        } ) }
+            let launch (hint:ActionHint) vectors offset (directions:DevicePtr<uint32>) (output:DevicePtr<'T>) =
+                let lp = launchParam dimensions vectors |> hint.ModifyLaunchParam
+                let offset = offset + 1
+                kernel.Launch lp dimensions vectors offset directions output
+
+            { new ISobol<'T> with
+                member this.Directions = directions
+                member this.Generate lphint vectors offset directions output = launch lphint vectors offset directions output
+            } ) }
