@@ -162,7 +162,7 @@ module Generic =
             for i = 0 to valuesPerThread - 1 do              
                 if flags.[i] <> 0 then last <- init()
                 if flags.[i] <> 0 then hasHeadFlag <- hasHeadFlag ||| flags.[i]
-                let incLast = op last (init()) // the bug, must add 0G
+                let incLast = last
                 last <- op last x.[i]
                 x.[i] <- incLast
 
@@ -778,7 +778,7 @@ module Sum =
             for i = 0 to valuesPerThread - 1 do              
                 if flags.[i] <> 0 then last <- 0G
                 if flags.[i] <> 0 then hasHeadFlag <- hasHeadFlag ||| flags.[i]
-                let incLast = last + 0G // the bug, must add 0G
+                let incLast = last
                 last <- last + x.[i]
                 x.[i] <- incLast
 
@@ -843,7 +843,7 @@ module Sum =
             for i = 0 to valuesPerThread - 1 do              
                 if flags.[i] <> 0 then last <- 0G
                 if flags.[i] <> 0 then hasHeadFlag <- hasHeadFlag ||| flags.[i]
-                let incLast = last + 0G // the bug, must add 0G
+                let incLast = last
                 last <- last + x.[i]
                 x.[i] <- incLast
 
