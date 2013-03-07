@@ -1,4 +1,4 @@
-﻿module Test.Alea.CUDA.Extension.SegmentedScan
+﻿module Test.Alea.CUDA.Extension.SegmentedScanByKey
 
 open System
 open Microsoft.FSharp.Quotations
@@ -9,32 +9,20 @@ open Alea.CUDA.Extension
 
 let worker = getDefaultWorker()
 
+let createKeys (sizes:int[]) =
+    let n = sizes |> Array.sum
+    let ranges = sizes |> Array.scan (+) 0 
+    Array.init n (fun i -> ranges |> Seq.pairwise |> Seq.findIndex (fun (start, stop) -> i >= start && i < stop))
+
 let sizes = [| 12; 2597152; 128; 4002931; 511; 1024; 8191; 1200; 4096; 5000; 8192; 12; 8193; 9000; 10000; 2097152 |]
-
-let zeroCreate : int -> PCalc<DArray<int>> = worker.LoadPModule(PArray.zeroCreate()).Invoke
-
-let createFlags (valuess:'T[][]) = pcalc {
-    let ns = valuess |> Array.map (fun x -> x.Length)
-    let n = ns |> Array.sum
-    let headIndices = ns |> Array.scan (+) 0
-
-    let! flags = zeroCreate n
-    let setIndices (hint:ActionHint) =
-        fun () ->
-            for i = 0 to headIndices.Length - 2 do // bypass the last one becuase it is the cpu scan algorithm
-                let ptr = flags.Ptr + headIndices.[i]
-                cuSafeCall(cuMemsetD32Async(ptr.Handle, 1u, 1n, hint.Stream.Handle))
-        |> worker.Eval
-    do! PCalc.action setIndices
-
-    return flags }
+let keys = createKeys sizes
 
 let testSegScanInt32 (scan:bool -> DArray<int> -> DArray<int> -> PCalc<DArray<int>>) (init:int) (op:int -> int -> int) (transf:int -> int) =
     let test verify (hValuess:int[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
-        let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dFlags dValues
-        let! dResultsExcl = scan false dFlags dValues
+        let! dKeys = DArray.scatterInBlob worker keys
+        let! dResultsIncl = scan true dKeys dValues
+        let! dResultsExcl = scan false dKeys dValues
 
         match verify with
         | true ->
@@ -65,9 +53,9 @@ let testSegScanInt32 (scan:bool -> DArray<int> -> DArray<int> -> PCalc<DArray<in
 let testSegScanFloat32 (scan:bool -> DArray<int> -> DArray<float32> -> PCalc<DArray<float32>>) (eps:float) (init:float32) (op:float32 -> float32 -> float32) (transf:float32 -> float32) =
     let test (verify:float option) (hValuess:float32[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
-        let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dFlags dValues
-        let! dResultsExcl = scan false dFlags dValues
+        let! dKeys = DArray.scatterInBlob worker keys
+        let! dResultsIncl = scan true dKeys dValues
+        let! dResultsExcl = scan false dKeys dValues
         
         match verify with
         | Some(eps) ->
@@ -99,9 +87,9 @@ let testSegScanFloat32 (scan:bool -> DArray<int> -> DArray<float32> -> PCalc<DAr
 let testSegScanFloat64 (scan:bool -> DArray<int> -> DArray<float> -> PCalc<DArray<float>>) (eps:float) (init:float) (op:float -> float -> float) (transf:float -> float) =
     let test (verify:float option) (hValuess:float[][]) = pcalc {
         let! dValues = DArray.scatterInBlob worker (hValuess |> Array.concat)
-        let! dFlags = createFlags hValuess
-        let! dResultsIncl = scan true dFlags dValues
-        let! dResultsExcl = scan false dFlags dValues
+        let! dKeys = DArray.scatterInBlob worker keys
+        let! dResultsIncl = scan true dKeys dValues
+        let! dResultsExcl = scan false dKeys dValues
         
         match verify with
         | Some(eps) ->
@@ -138,19 +126,20 @@ let testSegScannerFloat64 (scanner:int -> PCalc<bool -> DArray<int> -> DArray<fl
         let n = n1
         let! scan = scanner n
 
+        // calc keys on cpu cost lot of times, so we use same size
+        let! dKeys = DArray.scatterInBlob worker keys
+
         let! dValues1 = DArray.scatterInBlob worker (hValuess1 |> Array.concat)
-        let! dFlags1 = createFlags hValuess1
         let! dResultsIncl1 = DArray.createInBlob worker n
         let! dResultsExcl1 = DArray.createInBlob worker n
-        do! scan true dFlags1 dValues1 dResultsIncl1
-        do! scan false dFlags1 dValues1 dResultsExcl1
+        do! scan true dKeys dValues1 dResultsIncl1
+        do! scan false dKeys dValues1 dResultsExcl1
         
         let! dValues2 = DArray.scatterInBlob worker (hValuess2 |> Array.concat)
-        let! dFlags2 = createFlags hValuess2
         let! dResultsIncl2 = DArray.createInBlob worker n
         let! dResultsExcl2 = DArray.createInBlob worker n
-        do! scan true dFlags2 dValues2 dResultsIncl2
-        do! scan false dFlags2 dValues2 dResultsExcl2
+        do! scan true dKeys dValues2 dResultsIncl2
+        do! scan false dKeys dValues2 dResultsExcl2
 
         match verify with
         | Some(eps) ->
@@ -190,29 +179,29 @@ let testSegScannerFloat64 (scanner:int -> PCalc<bool -> DArray<int> -> DArray<fl
     let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
-let [<Test>] ``sumsegscan: int``() = let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke in testSegScanInt32 scan 0 (+) Util.identity
-let [<Test>] ``segscan: sum<int>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanInt32 scan 0 (+) Util.identity
-let [<Test>] ``segscan: min<int>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Int32.MaxValue @> <@ min @> <@ Util.identity @>).Invoke in testSegScanInt32 scan Int32.MaxValue min Util.identity
-let [<Test>] ``segscan: max<int>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Int32.MinValue @> <@ max @> <@ Util.identity @>).Invoke in testSegScanInt32 scan Int32.MinValue max Util.identity
-let [<Test>] ``segscan: sum<square<int>>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanInt32 scan 0 (+) (fun x -> x * x)
+let [<Test>] ``sumsegscan: int``() = let scan = worker.LoadPModule(PArray.sumksegscan()).Invoke in testSegScanInt32 scan 0 (+) Util.identity
+let [<Test>] ``segscan: sum<int>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanInt32 scan 0 (+) Util.identity
+let [<Test>] ``segscan: min<int>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Int32.MaxValue @> <@ min @> <@ Util.identity @>).Invoke in testSegScanInt32 scan Int32.MaxValue min Util.identity
+let [<Test>] ``segscan: max<int>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Int32.MinValue @> <@ max @> <@ Util.identity @>).Invoke in testSegScanInt32 scan Int32.MinValue max Util.identity
+let [<Test>] ``segscan: sum<square<int>>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanInt32 scan 0 (+) (fun x -> x * x)
 
-let [<Test>] ``sumsegscan: float32``() = let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke in testSegScanFloat32 scan 1e-1 0.0f (+) Util.identity
-let [<Test>] ``segscan: sum<float32>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0.0f @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-1 0.0f (+) Util.identity
-let [<Test>] ``segscan: min<float32>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Single.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-14 Single.PositiveInfinity min Util.identity
-let [<Test>] ``segscan: max<float32>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Single.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-14 Single.NegativeInfinity max Util.identity
-let [<Test>] ``segscan: sum<square<float32>>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0.0f @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanFloat32 scan 1e3 0.0f (+) (fun x -> x * x)
+let [<Test>] ``sumsegscan: float32``() = let scan = worker.LoadPModule(PArray.sumksegscan()).Invoke in testSegScanFloat32 scan 1e-1 0.0f (+) Util.identity
+let [<Test>] ``segscan: sum<float32>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0.0f @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-1 0.0f (+) Util.identity
+let [<Test>] ``segscan: min<float32>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Single.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-14 Single.PositiveInfinity min Util.identity
+let [<Test>] ``segscan: max<float32>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Single.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScanFloat32 scan 1e-14 Single.NegativeInfinity max Util.identity
+let [<Test>] ``segscan: sum<square<float32>>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0.0f @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanFloat32 scan 1e3 0.0f (+) (fun x -> x * x)
 
-let [<Test>] ``sumsegscan: float``() = let scan = worker.LoadPModule(PArray.sumsegscan()).Invoke in testSegScanFloat64 scan 1e-10 0.0 (+) Util.identity
-let [<Test>] ``segscan: sum<float>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0.0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-10 0.0 (+) Util.identity
-let [<Test>] ``segscan: min<float>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-14 Double.PositiveInfinity min Util.identity
-let [<Test>] ``segscan: max<float>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-14 Double.NegativeInfinity max Util.identity
-let [<Test>] ``segscan: sum<square<float>>``() = let scan = worker.LoadPModule(PArray.segscan <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanFloat64 scan 1e-7 0.0 (+) (fun x -> x * x)
+let [<Test>] ``sumsegscan: float``() = let scan = worker.LoadPModule(PArray.sumksegscan()).Invoke in testSegScanFloat64 scan 1e-10 0.0 (+) Util.identity
+let [<Test>] ``segscan: sum<float>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0.0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-10 0.0 (+) Util.identity
+let [<Test>] ``segscan: min<float>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-14 Double.PositiveInfinity min Util.identity
+let [<Test>] ``segscan: max<float>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScanFloat64 scan 1e-14 Double.NegativeInfinity max Util.identity
+let [<Test>] ``segscan: sum<square<float>>``() = let scan = worker.LoadPModule(PArray.ksegscan <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScanFloat64 scan 1e-7 0.0 (+) (fun x -> x * x)
 
-let [<Test>] ``sumsegscanner: float``() = let scan = worker.LoadPModule(PArray.sumsegscanner()).Invoke in testSegScannerFloat64 scan 1e-10 0.0 (+) Util.identity
-let [<Test>] ``segscanner: sum<float>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> 0.0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-10 0.0 (+) Util.identity
-let [<Test>] ``segscanner: min<float>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-14 Double.PositiveInfinity min Util.identity
-let [<Test>] ``segscanner: max<float>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-14 Double.NegativeInfinity max Util.identity
-let [<Test>] ``segscanner: sum<square<float>>``() = let scan = worker.LoadPModule(PArray.segscanner <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScannerFloat64 scan 1e-7 0.0 (+) (fun x -> x * x)
+let [<Test>] ``sumsegscanner: float``() = let scan = worker.LoadPModule(PArray.sumksegscanner()).Invoke in testSegScannerFloat64 scan 1e-10 0.0 (+) Util.identity
+let [<Test>] ``segscanner: sum<float>``() = let scan = worker.LoadPModule(PArray.ksegscanner <@ fun () -> 0.0 @> <@ (+) @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-10 0.0 (+) Util.identity
+let [<Test>] ``segscanner: min<float>``() = let scan = worker.LoadPModule(PArray.ksegscanner <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-14 Double.PositiveInfinity min Util.identity
+let [<Test>] ``segscanner: max<float>``() = let scan = worker.LoadPModule(PArray.ksegscanner <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>).Invoke in testSegScannerFloat64 scan 1e-14 Double.NegativeInfinity max Util.identity
+let [<Test>] ``segscanner: sum<square<float>>``() = let scan = worker.LoadPModule(PArray.ksegscanner <@ fun () -> 0.0 @> <@ (+) @> <@ fun x -> x * x @>).Invoke in testSegScannerFloat64 scan 1e-7 0.0 (+) (fun x -> x * x)
 
 [<Test>]
 let ``performance: compare with mgpu``() =
@@ -220,27 +209,30 @@ let ``performance: compare with mgpu``() =
         // use same plan as mgpu
         let plan : SegmentedScan.Plan = { NumThreads = 256; ValuesPerThread = 16; NumThreadsReduction = 256; BlockPerSm = 2 }
         let planner = SegmentedScan.Planner.Specific(plan)
-        let scanner = SegmentedScan.sum planner |> PArray.segscanner'
+        let scanner = SegmentedScan.sumk planner |> PArray.segscanner'
         let scanner = worker.LoadPModule(scanner).Invoke
 
         let hValues = Array.zeroCreate count
-        let hFlags = Array.zeroCreate count
+        let hKeys = Array.zeroCreate count
         let hReference = Array.zeroCreate count
 
+        let mutable key = 0
         for i = 0 to count - 1 do
             hValues.[i] <- i % 9
-            hFlags.[i] <- if i % 3989 = 0 then 1 else 0
+            let head = i % 3989 = 0
+            if head then key <- key + 1
+            hKeys.[i] <- key
             // inclusive scan
-            hReference.[i] <- if hFlags.[i] = 1 then hValues.[i] else hReference.[i-1] + hValues.[i]
+            hReference.[i] <- if head then hValues.[i] else hReference.[i-1] + hValues.[i]
 
         let calc = pcalc {
             let! scan = scanner count
             let! dValues = DArray.scatterInBlob worker hValues
-            let! dFlags = DArray.scatterInBlob worker hFlags
+            let! dKeys = DArray.scatterInBlob worker hKeys
             let! dResults = DArray.createInBlob worker count
 
             for i = 1 to 100 do
-                do! scan true dFlags dValues dResults
+                do! scan true dKeys dValues dResults
 
             return! dResults.Gather() }
 
@@ -259,24 +251,27 @@ type Scanner<'T when 'T:unmanaged> = int -> PCalc<bool -> DArray<int> -> DArray<
 
 let inline performance (name:string) (scanner:Scanner<'T>) (transf:int -> 'T) count =
     let hValues = Array.zeroCreate<'T> count
-    let hFlags = Array.zeroCreate<int> count
+    let hKeys = Array.zeroCreate<int> count
     let hReference = Array.zeroCreate<'T> count
 
+    let mutable key = 0
     for i = 0 to count - 1 do
         hValues.[i] <- i % 9 |> transf
-        hFlags.[i] <- if i % 3989 = 0 then 1 else 0
+        let head = i % 3989 = 0
+        if head then key <- key + 1
+        hKeys.[i] <- key
         // inclusive scan
-        hReference.[i] <- if hFlags.[i] = 1 then hValues.[i] else hReference.[i-1] + hValues.[i]
+        hReference.[i] <- if head then hValues.[i] else hReference.[i-1] + hValues.[i]
 
     let calc = pcalc {
         let! scan = scanner count
         let! dValues = DArray.scatterInBlob worker hValues
-        let! dFlags = DArray.scatterInBlob worker hFlags
+        let! dKeys = DArray.scatterInBlob worker hKeys
         let! dResults = DArray.createInBlob worker count
 
         let! stopwatch = DStopwatch.startNew worker
         for i = 1 to 1000 do
-            do! scan true dFlags dValues dResults
+            do! scan true dKeys dValues dResults
         do! stopwatch.Stop()
 
         let! results = dResults.Gather()
@@ -297,13 +292,13 @@ let inline performance (name:string) (scanner:Scanner<'T>) (transf:int -> 'T) co
             err <- err + 1
     if err <> 0 then printfn "number of errors = %d" err
 
-    printfn "====> alea segscan %s  \t%8d\t[%9.6f ms]" name count timing
+    printfn "====> alea ksegscan %s  \t%8d\t[%9.6f ms]" name count timing
 
 [<Test>]
 let ``performance: compare with thrust``() =
-    let scannerInt32 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
-    let scannerFloat32 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
-    let scannerFloat64 = worker.LoadPModule(PArray.sumsegscanner()).Invoke
+    let scannerInt32 = worker.LoadPModule(PArray.sumksegscanner()).Invoke
+    let scannerFloat32 = worker.LoadPModule(PArray.sumksegscanner()).Invoke
+    let scannerFloat64 = worker.LoadPModule(PArray.sumksegscanner()).Invoke
 
     let sizes = [| 2097152; 1 <<< 23; 1 <<< 24; 1 <<< 25 |]
 

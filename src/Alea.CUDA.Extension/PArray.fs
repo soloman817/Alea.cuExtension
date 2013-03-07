@@ -238,7 +238,7 @@ let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>)
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let scanner = scanner.Apply m
-        fun (inclusive:bool) (flags:DArray<int>) (values:DArray<'T>) ->
+        fun (inclusive:bool) (marks:DArray<int>) (values:DArray<'T>) ->
             let n = values.Length
             let scanner = scanner n 
             pcalc {
@@ -246,7 +246,7 @@ let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>)
                 let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
                 let! headFlags = DArray.createInBlob worker scanner.NumHeadFlags
                 let! results = DArray.createInBlob worker n
-                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr values.Ptr flags.Ptr results.Ptr inclusive)
+                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr marks.Ptr values.Ptr results.Ptr inclusive)
                 return results } ) }
 
 let segscanner' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>) = cuda {
@@ -261,14 +261,19 @@ let segscanner' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>
                 let! ranges = DArray.scatterInBlob worker scanner.Ranges
                 let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
                 let! headFlags = DArray.createInBlob worker scanner.NumHeadFlags
-                return fun (inclusive:bool) (flags:DArray<int>) (values:DArray<'T>) (results:DArray<'T>) ->
+                return fun (inclusive:bool) (marks:DArray<int>) (values:DArray<'T>) (results:DArray<'T>) ->
                     if values.Length <> n then failwith "Scanner input and output should all equals to n!"
-                    if flags.Length <> n then failwith "Scanner flag should be equal to n!"
+                    if marks.Length <> n then failwith "Scanner marks should be equal to n!"
                     if results.Length <> n then failwith "Scanner input and output should all equals to n!"
-                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr values.Ptr flags.Ptr results.Ptr inclusive) } } ) }
+                    pcalc { do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr marks.Ptr values.Ptr results.Ptr inclusive) } } ) }
                     
-let segscan init op transf = SegmentedScan.generic SegmentedScan.Planner.Default init op transf |> segscan'
-let segscanner init op transf = SegmentedScan.generic SegmentedScan.Planner.Default init op transf |> segscanner'
-let inline sumsegscan() = SegmentedScan.sum SegmentedScan.Planner.Default |> segscan'
-let inline sumsegscanner() = SegmentedScan.sum SegmentedScan.Planner.Default |> segscanner'
+let fsegscan init op transf = SegmentedScan.genericf SegmentedScan.Planner.Default init op transf |> segscan'
+let fsegscanner init op transf = SegmentedScan.genericf SegmentedScan.Planner.Default init op transf |> segscanner'
+let inline sumfsegscan() = SegmentedScan.sumf SegmentedScan.Planner.Default |> segscan'
+let inline sumfsegscanner() = SegmentedScan.sumf SegmentedScan.Planner.Default |> segscanner'
+
+let ksegscan init op transf = SegmentedScan.generick SegmentedScan.Planner.Default init op transf |> segscan'
+let ksegscanner init op transf = SegmentedScan.generick SegmentedScan.Planner.Default init op transf |> segscanner'
+let inline sumksegscan() = SegmentedScan.sumk SegmentedScan.Planner.Default |> segscan'
+let inline sumksegscanner() = SegmentedScan.sumk SegmentedScan.Planner.Default |> segscanner'
 
