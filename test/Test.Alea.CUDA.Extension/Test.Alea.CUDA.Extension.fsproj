@@ -91,7 +91,7 @@
     <Compile Include="SegmentedScanByFlag.fs" />
     <Compile Include="SegmentedScanByKey.fs" />
     <Compile Include="Sobol.fs" />
-    <Compile Include="Program.fs" />
+    <Compile Include="TriDiag.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

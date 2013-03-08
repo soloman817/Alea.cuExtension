@@ -73,6 +73,7 @@
     <Compile Include="SobolGold.fs" />
     <Compile Include="PRandom.fs" />
     <Compile Include="NormalDistribution.fs" />
+    <Compile Include="TriDiag.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
