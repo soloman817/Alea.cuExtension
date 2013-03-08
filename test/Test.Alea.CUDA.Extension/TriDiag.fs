@@ -95,15 +95,15 @@ let ``tridiag pcr single block gpu`` () =
         let bErrCpu = maxErr b b1
         let bErrGpu = maxErr b b1'
 
-        printfn "n = %d, xErr = %e, bErrGpu = %e, bErrCpu = %e" n xErr bErrGpu bErrCpu 
+        //printfn "n = %d, xErr = %e, bErrGpu = %e, bErrCpu = %e" n xErr bErrGpu bErrCpu 
         
-        //Assert.IsTrue(err < tol)
-
-        //printfn "dim = %d, err = %f" n err
+        Assert.IsTrue(xErr < tol)
+        Assert.IsTrue(bErrCpu < tol)
+        Assert.IsTrue(bErrGpu < tol)
 
         ()
 
-    [32; 64; 128; 512; 1024] |> List.iter (fun n -> test n 0.005)
+    [32; 64; 128; 512; 1024] |> List.iter (fun n -> test n 1e-10)
 
 
 

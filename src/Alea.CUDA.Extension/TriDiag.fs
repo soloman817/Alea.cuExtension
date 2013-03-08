@@ -11,9 +11,6 @@ open Util
 ///     http://www.cse.uiuc.edu/courses/cs554/notes/09_tridiagonal.pdf
 ///
 /// Optimized version for n <= max number of threads per block.
-///
-/// again with multiple if (or loops). 
-/// Note that one might need then one temporary variable ltemp, utemp, Htemp, per thread block of size 'size'. 
 ///   
 ///     n      the dimension of the tridiagonal system, must fit into one block
 ///     l      lower diagonal
@@ -21,29 +18,8 @@ open Util
 ///     u      upper diagonal
 ///     h      right hand side and solution at exit
 ///
-//let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (dl:DevicePtr<'T>) (dd:DevicePtr<'T>) (du:DevicePtr<'T>) (dh:DevicePtr<'T>) =
-let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (l:DevicePtr<'T>) (d:DevicePtr<'T>) (u:DevicePtr<'T>) (h:DevicePtr<'T>) =
+let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (l:SharedPtr<'T>) (d:SharedPtr<'T>) (u:SharedPtr<'T>) (h:SharedPtr<'T>) =
         let rank = threadIdx.x
-
-        // this breaks, why?
-        // let shared = __shared__<'T>(4*n)
-        // let l = shared.Ptr(0)
-        // let d = shared.Ptr(n)
-        // let u = shared.Ptr(2*n)
-        // let h = shared.Ptr(3*n)
-
-        // let shared = __extern_shared__()
-        // let l = shared.Reinterpret<'T>()
-        // let d = l + n
-        // let u = d + n
-        // let h = u + n
-        // 
-        // l.[rank] <- dl.[rank]
-        // d.[rank] <- dd.[rank]
-        // u.[rank] <- du.[rank]
-        // h.[rank] <- dh.[rank]
-        // 
-        //__syncthreads()
 
         let mutable ltemp = 0G
         let mutable utemp = 0G
@@ -90,14 +66,31 @@ let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (l:DevicePtr<'T>) (d:
         if rank < n then
             h.[rank] <- h.[rank] / d.[rank]
 
-        __syncthreads()  
-
 
 let inline triDiag () = cuda {
 
     let! kernel =     
-        <@ fun n (l:DevicePtr<'T>) (d:DevicePtr<'T>) (u:DevicePtr<'T>) (h:DevicePtr<'T>) ->          
-            triDiagPcrSingleBlock n l d u h @> |> defineKernelFunc
+        <@ fun n (dl:DevicePtr<'T>) (dd:DevicePtr<'T>) (du:DevicePtr<'T>) (dh:DevicePtr<'T>) ->  
+            let rank = threadIdx.x
+            
+            let shared = __extern_shared__()
+            let l = shared.Reinterpret<'T>()
+            let d = l + n
+            let u = d + n
+            let h = u + n
+        
+            l.[rank] <- dl.[rank]
+            d.[rank] <- dd.[rank]
+            u.[rank] <- du.[rank]
+            h.[rank] <- dh.[rank]
+        
+            __syncthreads()       
+                
+            triDiagPcrSingleBlock n l d u h 
+            
+            __syncthreads() 
+        
+            dh.[rank] <- h.[rank] @> |> defineKernelFunc
 
     return PFunc(fun (m:Module) (l:'T[]) (d:'T[]) (u:'T[]) (h:'T[])->
         let n = d.Length

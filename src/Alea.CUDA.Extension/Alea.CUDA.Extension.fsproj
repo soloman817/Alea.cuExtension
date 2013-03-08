@@ -74,6 +74,7 @@
     <Compile Include="PRandom.fs" />
     <Compile Include="NormalDistribution.fs" />
     <Compile Include="TriDiag.fs" />
+    <Compile Include="Heat2dAdi.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

@@ -92,6 +92,7 @@
     <Compile Include="SegmentedScanByKey.fs" />
     <Compile Include="Sobol.fs" />
     <Compile Include="TriDiag.fs" />
+    <Compile Include="Heat2dAdi.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
