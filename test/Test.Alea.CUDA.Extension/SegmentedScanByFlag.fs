@@ -282,7 +282,7 @@ let inline performance (name:string) (scanner:Scanner<'T>) (transf:int -> 'T) co
         let! results = dResults.Gather()
         let! timing = stopwatch.ElapsedMilliseconds
 
-        return results, timing / 1000.0f }
+        return results, timing / 1000.0 }
 
     let hResults, timing = calc |> PCalc.run
     //let hResults, timing = calc |> PCalc.runInWorker worker
