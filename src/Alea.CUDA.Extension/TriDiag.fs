@@ -43,7 +43,7 @@ let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (l:DevicePtr<'T>) (d:
         // u.[rank] <- du.[rank]
         // h.[rank] <- dh.[rank]
         // 
-        __syncthreads()
+        //__syncthreads()
 
         let mutable ltemp = 0G
         let mutable utemp = 0G
