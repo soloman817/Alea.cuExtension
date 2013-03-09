@@ -10,10 +10,12 @@ open Util
 
 let [<ReflectedDefinition>] pi = System.Math.PI
 
-let [<ReflectedDefinition>] xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
-                                   nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
+[<ReflectedDefinition>]
+let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
+           nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
     let shared = __extern_shared__()
-    let h = shared.Reinterpret<'T>()
+    let h = shared.Reinterpret<float>()
+    //let h = shared.Reinterpret<'T>()
     let d = h + (nx+1)
     let l = d + (nx+1)
     let u = l + (nx+1)
@@ -74,10 +76,12 @@ let [<ReflectedDefinition>] xSweep (boundary:float -> float -> float -> float) (
 
         i <- i + gridDim.x
 
-let [<ReflectedDefinition>] ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
-                                   nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
+[<ReflectedDefinition>]
+let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
+           nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
     let shared = __extern_shared__()
-    let h = shared.Reinterpret<'T>()
+    //let h = shared.Reinterpret<'T>()
+    let h = shared.Reinterpret<float>()
     let d = h + (nx+1)
     let l = d + (nx+1)
     let u = l + (nx+1)
@@ -137,7 +141,7 @@ let [<ReflectedDefinition>] ySweep (boundary:float -> float -> float -> float) (
 
             __syncthreads()
 
-    j <- j + gridDim.x
+        j <- j + gridDim.x
 
 /// Exact solution of heat equation 
 ///
@@ -145,7 +149,7 @@ let [<ReflectedDefinition>] ySweep (boundary:float -> float -> float -> float) (
 ///
 /// with boundary condition b(t, x, y) and source function f(t, x, y)
 ///
-let inline adiSolver (initCondExpr:Expr<float -> float -> float -> float>) 
+let adiSolver (initCondExpr:Expr<float -> float -> float -> float>) 
                      (boundaryExpr:Expr<float -> float -> float -> float>) 
                      (sourceExpr:Expr<float -> float -> float -> float>) = cuda {
 
@@ -155,12 +159,13 @@ let inline adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
             let i = blockIdx.x*blockDim.x + threadIdx.x
             let j = blockIdx.y*blockDim.y + threadIdx.y
             let mstride = ny+1
+            //if i <= nx && j <= ny then u.[i*mstride+j] <- 1.0 @> |> defineKernelFunc
             if i <= nx && j <= ny then u.[i*mstride+j] <- initCond t x.[i] y.[j] @> |> defineKernelFunc
 
     let! xSweepKernel =     
         <@ fun nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) ->     
             let boundary = %boundaryExpr
-            let source = % sourceExpr     
+            let source = %sourceExpr     
             xSweep boundary source nx ny x y Cx Cy dt t0 t1 u0 u1 @> |> defineKernelFunc
 
     let! ySweepKernel =     
@@ -185,9 +190,13 @@ let inline adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
         use du0 = m.Worker.Malloc<float>(usize)
         use du1 = m.Worker.Malloc<float>(usize)
 
-        let lp = LaunchParam(dim3(divup (nx+1) 256, divup (ny+1) 256), dim3(256, 256))
+        //let lp = LaunchParam(dim3(divup (nx+1) 256, divup (ny+1) 256), dim3(256, 256))
+        let lp = LaunchParam(dim3(divup (nx+1) 16, divup (ny+1) 16), dim3(16, 16))
         let lpx = LaunchParam(ny+1, nx+1, 4*(nx+1)*sizeof<float>)
         let lpy = LaunchParam(nx+1, ny+1, 4*(ny+1)*sizeof<float>)
+
+        printfn "(%dx%dx%d) (%dx%dx%d)" lp.GridDim.x lp.GridDim.y lp.GridDim.z lp.BlockDim.x lp.BlockDim.y lp.BlockDim.z
+        printfn "nx=%d ny=%d tstart=%f dx.l=%d dy.l=%d du0.l=%d" nx ny tstart dx.Length dy.Length du0.Length
 
         let initCondKernelFunc = initCondKernel.Launch m lp 
         let xSweepKernelFunc = xSweepKernel.Launch m lpx
