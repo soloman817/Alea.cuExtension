@@ -64,7 +64,6 @@ let [<ReflectedDefinition>] xSweep (boundary:float -> float -> float -> float) (
             __syncthreads()
 
             triDiagPcrSingleBlock (nx+1) l d u h
-            //linalg::cuda::triDiagonalSystemSolveOpt<RealType>(threadIdx.x, blockDim.x, nx+1, l, d, u, H)
 
             j <- threadIdx.x
             while j <= nx do  
@@ -172,6 +171,7 @@ let inline adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
 
     return PFunc(fun (m:Module) k tstart tstop Lx Ly nx ny dt  ->
         let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
+        printfn "************ PFunc1"
         let dx = Lx / float(nx)
         let dy = Ly / float(ny)
         let Cx = k * dt / (dx*dx)
@@ -193,29 +193,27 @@ let inline adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
         let xSweepKernelFunc = xSweepKernel.Launch m lpx
         let ySweepKernelFunc = ySweepKernel.Launch m lpx
 
+        printfn "setting initial conditions"  
+
         initCondKernelFunc nx ny tstart dx.Ptr dy.Ptr du0.Ptr
 
+        printfn "start looping with tstart = %f tstop = %f" tstart tstop
+
         let mutable t0 = tstart
-        let mutable t1 = tstart
-        while t1 <= tstop do
+        let mutable t1 = tstart      
+        while t1 < tstop do
             t0 <- t1
             t1 <- t1 + 0.5 * dt
 
             printfn "xSweep t = %f (dt = %f)" t0 dt
-
-            // x-direction sweep
             xSweepKernelFunc nx ny dx.Ptr dy.Ptr Cx Cy dt t0 t1 du0.Ptr du1.Ptr
-
             printfn "done xSweep t = %f" t0
 
             t0 <- t1
             t1 <- t1 + 0.5 * dt
 
             printfn "ySweep t = %f" t0
-
-            // y-direction sweep
             ySweepKernelFunc nx ny dx.Ptr dy.Ptr Cx Cy dt t0 t1 du1.Ptr du0.Ptr
-
             printfn "done ySweep t = %f" t0
 
         x, y, du0.ToHost()) }
