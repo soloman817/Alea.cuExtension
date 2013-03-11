@@ -96,6 +96,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <Reference Include="Accessibility" />
     <Reference Include="Alea.CUDA">
       <HintPath>..\..\packages\Alea.cuBase.1.0.431\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
@@ -103,6 +104,15 @@
     <Reference Include="Alea.Interop">
       <HintPath>..\..\packages\Alea.cuBase.1.0.431\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
+    </Reference>
+    <Reference Include="Alea.Matlab">
+      <HintPath>Alea.Matlab.dll</HintPath>
+    </Reference>
+    <Reference Include="FSharp.PowerPack">
+      <HintPath>FSharp.PowerPack.dll</HintPath>
+    </Reference>
+    <Reference Include="MatlabWrapper">
+      <HintPath>MatlabWrapper.dll</HintPath>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
