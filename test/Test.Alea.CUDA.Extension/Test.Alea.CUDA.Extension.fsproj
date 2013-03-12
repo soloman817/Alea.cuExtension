@@ -90,6 +90,7 @@
     <Compile Include="Scan.fs" />
     <Compile Include="SegmentedScanByFlag.fs" />
     <Compile Include="SegmentedScanByKey.fs" />
+    <Compile Include="MovingAverage.fs" />
     <Compile Include="Sobol.fs" />
     <Compile Include="TriDiag.fs" />
     <Compile Include="Heat2dAdi.fs" />
