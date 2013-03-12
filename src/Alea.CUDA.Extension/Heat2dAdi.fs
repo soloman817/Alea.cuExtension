@@ -10,29 +10,29 @@ open Util
 
 let [<ReflectedDefinition>] pi = System.Math.PI
 
-/// Solves ny-1 systems of dimension nx+1 in the x-coordinate direction 
+/// Solves ny-2 systems of dimension nx in the x-coordinate direction 
 [<ReflectedDefinition>]
 let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
            nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
     let shared = __extern_shared__()
     let h = shared.Reinterpret<float>()
-    let d = h + (nx+1)
-    let l = d + (nx+1)
-    let u = l + (nx+1)
+    let d = h + nx
+    let l = d + nx
+    let u = l + nx
 
     let mutable xi = 0.0
     let mutable yj = 0.0
 
-    let mstride = ny+1
+    let mstride = ny
 
     let mutable j = blockIdx.x
-    while j <= ny do  
+    while j < ny do  
         yj <- y.[j]
 
-        if j = 0 || j = ny then
+        if j = 0 || j = ny-1 then
 
             let mutable i = threadIdx.x
-            while i <= nx do  
+            while i < nx do  
                 xi <- x.[i]
                 u1.[i*mstride+j] <- boundary t1 xi yj 
                 i <- i + blockDim.x
@@ -42,14 +42,14 @@ let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
         else
 
             let mutable i = threadIdx.x
-            while i <= nx do
+            while i < nx do
                 xi <- x.[i]
 
                 if i = 0 then
                     d.[i] <- 1.0
                     u.[i] <- 0.0
                     h.[i] <- boundary t1 xi yj
-                else if i = nx then
+                else if i = nx-1 then
                     l.[i] <- 0.0
                     d.[i] <- 1.0
                     h.[i] <- boundary t1 xi yj
@@ -65,10 +65,10 @@ let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
 
             __syncthreads()
 
-            triDiagPcrSingleBlock (nx+1) l d u h
+            triDiagPcrSingleBlock nx l d u h
 
             i <- threadIdx.x
-            while i <= nx do  
+            while i < nx do  
                 u1.[i*mstride+j] <- h.[i]
                 i <- i + blockDim.x
 
@@ -76,30 +76,30 @@ let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
 
         j <- j + gridDim.x
 
-/// Solves nx-1 systems of dimension ny+1 in the y-coordinate direction 
+/// Solves nx-2 systems of dimension ny in the y-coordinate direction 
 [<ReflectedDefinition>]
 let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
            nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
     let shared = __extern_shared__()
     let h = shared.Reinterpret<float>()
-    let d = h + (nx+1)
-    let l = d + (nx+1)
-    let u = l + (nx+1)
+    let d = h + ny
+    let l = d + ny
+    let u = l + ny
 
     let mutable xi = 0.0
     let mutable yj = 0.0
 
-    let mstride = ny+1
+    let mstride = ny
 
     let mutable i = blockIdx.x
-    while i <= nx do
+    while i < nx do
 
         xi <- x.[i]
 
-        if i = 0 || i = nx then
+        if i = 0 || i = nx-1 then
 
             let mutable j = threadIdx.x
-            while j <= ny do
+            while j < ny do
                 yj <- y.[j]
                 u1.[i*mstride+j] <- boundary t1 xi yj
                 j <- j + blockDim.x
@@ -109,14 +109,14 @@ let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
         else
 
             let mutable j = threadIdx.x
-            while j <= ny do  
+            while j < ny do  
                 yj <- y.[j]
 
                 if j = 0 then
                     d.[j] <- 1.0
                     u.[j] <- 0.0
                     h.[j] <- boundary t1 xi yj
-                else if j = ny then
+                else if j = ny-1 then
                     l.[j] <- 0.0
                     d.[j] <- 1.0
                     h.[j] <- boundary t1 xi yj
@@ -132,10 +132,10 @@ let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
 
             __syncthreads()
 
-            triDiagPcrSingleBlock (ny+1) l d u h
+            triDiagPcrSingleBlock ny l d u h
 
             j <- threadIdx.x
-            while j <= ny do 
+            while j < ny do 
                 u1.[i*mstride+j] <- h.[j]
                 j <- j + blockDim.x
 
@@ -160,8 +160,8 @@ let adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
             let initCond = %initCondExpr
             let i = blockIdx.x*blockDim.x + threadIdx.x
             let j = blockIdx.y*blockDim.y + threadIdx.y
-            let mstride = ny+1
-            if i <= nx && j <= ny then u.[i*mstride+j] <- initCond t x.[i] y.[j] @> |> defineKernelFunc
+            let mstride = ny
+            if i < nx && j < ny then u.[i*mstride+j] <- initCond t x.[i] y.[j] @> |> defineKernelFunc
 
     let! xSweepKernel =     
         <@ fun nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) ->     
@@ -175,44 +175,48 @@ let adiSolver (initCondExpr:Expr<float -> float -> float -> float>)
             let source = % sourceExpr     
             ySweep boundary source nx ny x y Cx Cy dt t0 t1 u0 u1 @> |> defineKernelFunc
 
+    /// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
+    let timeGrid tstart tstop dt nc =
+        let n = int(ceil (tstop-tstart)/dt)
+        let dt' = (tstop-tstart) / float(n)
+        let dt'' = dt' / float(1<<<(nc+1))
+        let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
+        let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
+        Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
+
     return PFunc(fun (m:Module) k tstart tstop Lx Ly nx ny dt  ->
         let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
-        let dx = Lx / float(nx)
-        let dy = Ly / float(ny)
-        let Cx = k * dt / (dx*dx)
-        let Cy = k * dt / (dy*dy)
-        let x = Array.init (nx+1) (fun i -> float(i)*dx)
-        let y = Array.init (ny+1) (fun i -> float(i)*dy)
-        use dx = m.Worker.Malloc(x)
-        use dy = m.Worker.Malloc(y)
+        let dx = Lx / float(nx-1)
+        let dy = Ly / float(ny-1)
+        let x = Array.init nx (fun i -> float(i)*dx)
+        let y = Array.init ny (fun i -> float(i)*dy)
+        use x_ = m.Worker.Malloc(x)
+        use y_ = m.Worker.Malloc(y)
 
-        let usize = (nx+1)*(ny+1)
+        let usize = nx*ny
         use du0 = m.Worker.Malloc<float>(usize)
         use du1 = m.Worker.Malloc<float>(usize)
 
-        let lp = LaunchParam(dim3(divup (nx+1) 16, divup (ny+1) 16), dim3(16, 16))
-        let lpx = LaunchParam(ny+1, nx+1, 4*(nx+1)*sizeof<float>)
-        let lpy = LaunchParam(nx+1, ny+1, 4*(ny+1)*sizeof<float>)
+        let lp = LaunchParam(dim3(divup nx 16, divup ny 16), dim3(16, 16))
+        let lpx = LaunchParam(ny, nx, 4*nx*sizeof<float>)
+        let lpy = LaunchParam(nx, ny, 4*ny*sizeof<float>)
 
         let initCondKernelFunc = initCondKernel.Launch m lp 
         let xSweepKernelFunc = xSweepKernel.Launch m lpx
         let ySweepKernelFunc = ySweepKernel.Launch m lpx
 
-        initCondKernelFunc nx ny tstart dx.Ptr dy.Ptr du0.Ptr
+        initCondKernelFunc nx ny tstart x_.Ptr y_.Ptr du0.Ptr
 
-        let mutable t0 = tstart
-        let mutable t1 = tstart      
-        while t1 < tstop do
-            t0 <- t1
-            t1 <- t1 + 0.5 * dt
+        let tg = timeGrid tstart tstop dt 5
 
-            xSweepKernelFunc nx ny dx.Ptr dy.Ptr Cx Cy dt t0 t1 du0.Ptr du1.Ptr
+        let step (t0, t1) =
+            let dt = t1 - t0
+            let Cx = k * dt / (dx*dx)
+            let Cy = k * dt / (dy*dy)
+            xSweepKernelFunc nx ny x_.Ptr y_.Ptr Cx Cy dt t0 (t0 + 0.5*dt) du0.Ptr du1.Ptr
+            ySweepKernelFunc nx ny x_.Ptr y_.Ptr Cx Cy dt (t0 + 0.5*dt) t1 du1.Ptr du0.Ptr
 
-            t0 <- t1
-            t1 <- t1 + 0.5 * dt
-
-            ySweepKernelFunc nx ny dx.Ptr dy.Ptr Cx Cy dt t0 t1 du1.Ptr du0.Ptr
+        let timeIntervals = Seq.pairwise tg |> Seq.toArray
+        timeIntervals |> Array.iter (step)
 
         x, y, du0.ToHost()) }
-
-
