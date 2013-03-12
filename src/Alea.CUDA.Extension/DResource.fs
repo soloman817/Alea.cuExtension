@@ -126,6 +126,8 @@ module DArray =
     let toScalar (darray:DArray<'T>) (idx:int) = new DScalar<'T>(darray.Worker, darray.Offset + idx * sizeof<'T>, false, darray.DMem)
     let ofScalar (dscalar:DScalar<'T>) = new DArray<'T>(dscalar.Worker, dscalar.Offset, 1, false, dscalar.DMem)
 
+    let subView (darray:DArray<'T>) (startIdx:int) (length:int) = new DArray<'T>(darray.Worker, darray.Offset + startIdx * sizeof<'T>, length, false, darray.DMem)
+
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DScalar =
     let createInBlob<'T when 'T:unmanaged> (worker:DeviceWorker) =
