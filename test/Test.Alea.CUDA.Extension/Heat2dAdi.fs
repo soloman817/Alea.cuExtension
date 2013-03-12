@@ -34,8 +34,8 @@ let ``exp(-t) * sin(pi*x) * cos(pi*y)`` () =
     let Ly = 1.0
     let dt = 0.01
 
-    let nx = 127
-    let ny = 127
+    let nx = 128
+    let ny = 128
 
     let x, y, u = solve k tstart tstop Lx Ly nx ny dt
 
@@ -71,8 +71,8 @@ let ``heat box (instable solution)`` () =
     let Ly = 1.0
     let dt = 0.01
 
-    let nx = 127
-    let ny = 127
+    let nx = 128
+    let ny = 128
 
     let x, y, u = solve k tstart tstop Lx Ly nx ny dt
 
@@ -103,8 +103,8 @@ let ``heat gauss`` () =
         let Ly = 1.0
         let dt = 0.0001
 
-        let nx = 511
-        let ny = 511
+        let nx = 512
+        let ny = 512
 
         let x, y, u = solve k tstart tstop Lx Ly nx ny dt
         plotSurfaceOfArray x y u "x" "y" "heat" (sprintf "Heat 2d ADI t=%f" tstop) ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
@@ -115,8 +115,27 @@ let ``heat gauss`` () =
     heatdist 0.02
     heatdist 0.03
     heatdist 0.04
+                            
 
     printfn ""
 
+[<Test>]
+let ``time grid with initial condensing`` () =
+
+    let dt = 0.02
+    let tstop = 0.652
+
+    let n = int(ceil tstop/dt)
+    let dt' = tstop / float(n)
+
+    let n1 = 5
+    let ddt = dt' / float(1<<<(n1+1))
+    let tg1 = [0..n1] |> Seq.map (fun n -> ddt * float(1<<<(n)))
+
+    let tg2 = [1..n] |> Seq.map (fun n -> float(n)*dt')
+
+    let tg = Seq.concat [Seq.singleton 0.0; tg1; tg2] |> Seq.toArray
+
+    ()
     
     
