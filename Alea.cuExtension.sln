@@ -18,6 +18,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.CUDA.Extension", 
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "GenSobolData", "src\GenSobolData\GenSobolData.fsproj", "{485D9835-04BD-4A8A-8E6F-D14ED4ED18F0}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "sample", "sample", "{4F154050-BC76-42F1-8123-571053C4D71E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
