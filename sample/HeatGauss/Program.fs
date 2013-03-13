@@ -102,6 +102,7 @@ let heatdist tstop =
         let calc = calc k tstart tstop Lx Ly nx ny dt
         //calc k tstart tstop Lx Ly nx ny dt |> PCalc.run
         let (x, y, u), ktc = calc |> PCalc.runWithKernelTiming 1
+        printfn "tstop = %f" tstop
         ktc.Dump()
         x, y, u
 
