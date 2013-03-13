@@ -6,10 +6,14 @@ open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
 
-//open Alea.Matlab.Plot
+let calc (solve:float -> float -> float -> float -> float -> int -> int -> float -> PCalc<float[] * float[] * DArray<float>>) =
+    fun k tstart tstop Lx Ly nx ny dt ->
+        pcalc {
+            let! x, y, u = solve k tstart tstop Lx Ly nx ny dt
+            let! u = u.Gather()
+            return x, y, u }
 
-let inline maxErr (b:'T[]) (b':'T[]) =
-    Array.map2 (fun bi bi' -> abs (bi - bi')) b b' |> Array.max
+let inline maxErr (b:'T[]) (b':'T[]) = Array.map2 (fun bi bi' -> abs (bi - bi')) b b' |> Array.max
 
 let [<ReflectedDefinition>] pi = System.Math.PI
     
@@ -31,20 +35,13 @@ let ``exp(-t) * sin(pi*x) * cos(pi*y)`` () =
     let ny = 128
 
     let worker = getDefaultWorker()
-    let solve = worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke
-    let calc = pcalc {
-        let! x, y, u = solve k tstart tstop Lx Ly nx ny dt
-        let! u = u.Gather()
-        return x, y, u }
+    let calc = calc (worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke)
        
-    let x, y, u = calc |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let x, y, u = calc k tstart tstop Lx Ly nx ny dt |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
     //plotSurfaceOfArray x y u "x" "y" "heat" "Heat 2d ADI" ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
 
-    printfn "Here3 %d %d %d" x.Length y.Length u.Length
-
     let ue = Array.zeroCreate (x.Length*y.Length)
-    //let mstride = ny+1 // Why?
     let mstride = ny
     for i = 0 to x.Length-1 do
         for j = 0 to y.Length-1 do
@@ -75,21 +72,14 @@ let ``heat box (instable solution)`` () =
     let ny = 128
 
     let worker = getDefaultWorker()
-    let solve = worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr)
-    let calc = pcalc {
-        let! x, y, u = solve.Invoke k tstart tstop Lx Ly nx ny dt
-        let! u = u.Gather()
-        return x, y, u }
+    let calc = calc (worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke)
 
-    let x, y, u = calc |> PCalc.run
-
+    let x, y, u = calc k tstart tstop Lx Ly nx ny dt |> PCalc.run
     //plotSurfaceOfArray x y u "x" "y" "heat" "Heat 2d ADI" ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
-
-    printfn ""
+    ()
 
 [<Test>]
 let ``heat gauss`` () =
-
     let sigma1 = 0.04
     let sigma2 = 0.04
     let sigma3 = 0.04
@@ -101,11 +91,7 @@ let ``heat gauss`` () =
     let sourceFunctionExpr = <@ fun t x y -> 0.0 @>
 
     let worker = getDefaultWorker()
-    let solve = worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke
-    let calc k tstart tstop Lx Ly nx ny dt = pcalc {
-        let! x, y, u = solve k tstart tstop Lx Ly nx ny dt
-        let! u = u.Gather()
-        return x, y, u }
+    let calc = calc (worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke)
 
     let heatdist tstop =
         let k = 1.0
@@ -127,9 +113,6 @@ let ``heat gauss`` () =
     heatdist 0.02
     heatdist 0.03
     heatdist 0.04
-                            
-
-    printfn ""
 
 [<Test>]
 let ``time grid with initial condensing`` () =
