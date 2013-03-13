@@ -150,5 +150,5 @@ let results =
 
 //results |> Array.iter plotWithMatlab
 
-//printf "Press Enter to quit..."
-//System.Console.ReadKey(true) |> ignore
+printf "Press Enter to quit..."
+System.Console.ReadKey(true) |> ignore
