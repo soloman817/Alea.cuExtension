@@ -17,13 +17,23 @@ let inline normalizedDifferenceKernel () =
 
 let inline movingAverageTemplate () = cuda {
 
-    let! kernel = normalizedDifferenceKernel () |> defineKernelFunc
+    let! scanner = Scan.sum Scan.Planner.Default 
+    let! windowDifference = normalizedDifferenceKernel () |> defineKernelFunc
 
     return PFunc(fun (m:Module) windowSize -> 
+        let worker = m.Worker
+        let scanner = scanner.Apply m
         let normalizer:float = NumericLiteralG.FromInt32 windowSize
+        fun (inclusive:bool) (values:DArray<'T>) ->
+            let n = values.Length
+            let scanner = scanner n 
+            pcalc {
+                let! ranges = DArray.scatterInBlob worker scanner.Ranges
+                let! rangeTotals = DArray.createInBlob worker scanner.NumRangeTotals
+                let! results = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
+                return results } ) }
 
-        ()
-        ) }
 
 
 
