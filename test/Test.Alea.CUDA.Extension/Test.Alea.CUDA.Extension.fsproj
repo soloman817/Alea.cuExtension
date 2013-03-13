@@ -94,6 +94,7 @@
     <Compile Include="Sobol.fs" />
     <Compile Include="TriDiag.fs" />
     <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="Program.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

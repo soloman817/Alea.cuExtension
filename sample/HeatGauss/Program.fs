@@ -101,9 +101,13 @@ let heatdist tstop =
     let x, y, u =
         let calc = calc k tstart tstop Lx Ly nx ny dt
         //calc k tstart tstop Lx Ly nx ny dt |> PCalc.run
-        let (x, y, u), ktc = calc |> PCalc.runWithKernelTiming 1
+        //let (x, y, u), ktc = calc |> PCalc.runWithKernelTiming 1
+        //let (x, y, u), loggers = calc |> PCalc.runWithTimingLogger
+        let (x, y, u), timings = calc |> PCalc.runWithTiming 3
         printfn "tstop = %f" tstop
-        ktc.Dump()
+        //ktc.Dump()
+        //loggers.["default"].DumpLogs()
+        printfn "timing = %.6f ms" (timings |> Array.average)
         x, y, u
 
     x, y, u
