@@ -184,16 +184,18 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
 
     /// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
     let timeGrid tstart tstop dt nc =
-        let n = int(ceil (tstop-tstart)/dt)
-        let dt' = (tstop-tstart) / float(n)
-        let dt'' = dt' / float(1<<<(nc+1))
-        let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
-        let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
-        Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
+        if tstart = tstop then
+            [|tstart|]
+        else
+            let n = int(ceil (tstop-tstart)/dt)
+            let dt' = (tstop-tstart) / float(n)
+            let dt'' = dt' / float(1<<<(nc+1))
+            let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
+            let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
+            Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
-        //let maxThreads = worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
         let initCondKernel = initCondKernel.Apply m
         let xSweepKernel = xSweepKernel.Apply m
         let ySweepKernel = ySweepKernel.Apply m
@@ -227,15 +229,16 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
 
                 let tg = timeGrid tstart tstop dt 5
 
-                let step (t0, t1) =
-                    let dt = t1 - t0
-                    let Cx = k * dt / (dx * dx)
-                    let Cy = k * dt / (dy * dy)
-                    xSweepKernelFunc nx ny x y Cx Cy dt t0 (t0 + 0.5 * dt) u0 u1
-                    ySweepKernelFunc nx ny x y Cx Cy dt (t0 + 0.5 * dt) t1 u1 u0
+                if tg.Length > 1 then
+                    let step (t0, t1) =
+                        let dt = t1 - t0
+                        let Cx = k * dt / (dx * dx)
+                        let Cy = k * dt / (dy * dy)
+                        xSweepKernelFunc nx ny x y Cx Cy dt t0 (t0 + 0.5 * dt) u0 u1
+                        ySweepKernelFunc nx ny x y Cx Cy dt (t0 + 0.5 * dt) t1 u1 u0
 
-                let timeIntervals = tg |> Seq.pairwise |> Seq.toArray
-                timeIntervals |> Array.iter step
+                    let timeIntervals = tg |> Seq.pairwise |> Seq.toArray
+                    timeIntervals |> Array.iter step
 
             { new ISolver with
                 member this.GenX Lx = genX Lx
@@ -260,7 +263,6 @@ let solve init boundary source = cuda {
                 let! y' = DArray.scatterInBlob worker y
                 let! u0 = DArray.createInBlob worker nu
                 let! u1 = DArray.createInBlob worker nu
-                // Launch hint x dx y dy u0 u1 k tstart tstop dt
                 do! PCalc.action (fun hint -> solver.Launch hint x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
                 return x, y, u0 } ) }
 

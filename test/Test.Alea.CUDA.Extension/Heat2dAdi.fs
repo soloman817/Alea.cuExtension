@@ -39,8 +39,6 @@ let ``exp(-t) * sin(pi*x) * cos(pi*y)`` () =
        
     let x, y, u = calc k tstart tstop Lx Ly nx ny dt |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
-    //plotSurfaceOfArray x y u "x" "y" "heat" "Heat 2d ADI" ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
-
     let ue = Array.zeroCreate (x.Length*y.Length)
     let mstride = ny
     for i = 0 to x.Length-1 do
@@ -51,7 +49,6 @@ let ``exp(-t) * sin(pi*x) * cos(pi*y)`` () =
 
     printfn "uErr = %e" uErr
 
-    //Assert.IsTrue(uErr < 1.2e-4) // Why?
     Assert.IsTrue(uErr < 3e-4)
 
 [<Test>]
@@ -75,7 +72,6 @@ let ``heat box (instable solution)`` () =
     let calc = calc (worker.LoadPModule(Heat2dAdi.solve initialCondExpr boundaryExpr sourceFunctionExpr).Invoke)
 
     let x, y, u = calc k tstart tstop Lx Ly nx ny dt |> PCalc.run
-    //plotSurfaceOfArray x y u "x" "y" "heat" "Heat 2d ADI" ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
     ()
 
 [<Test>]
@@ -98,13 +94,12 @@ let ``heat gauss`` () =
         let tstart = 0.0
         let Lx = 1.0
         let Ly = 1.0
-        let dt = 0.0001
+        let dt = 0.01
 
-        let nx = 512
-        let ny = 512
+        let nx = 128
+        let ny = 128
 
         let x, y, u = calc k tstart tstop Lx Ly nx ny dt |> PCalc.run
-        //plotSurfaceOfArray x y u "x" "y" "heat" (sprintf "Heat 2d ADI t=%f" tstop) ([400.; 200.; 750.; 700.] |> Seq.ofList |> Some)
         ()
 
     heatdist 0.0
@@ -114,23 +109,6 @@ let ``heat gauss`` () =
     heatdist 0.03
     heatdist 0.04
 
-[<Test>]
-let ``time grid with initial condensing`` () =
 
-    let dt = 0.02
-    let tstop = 0.652
-
-    let n = int(ceil tstop/dt)
-    let dt' = tstop / float(n)
-
-    let n1 = 5
-    let ddt = dt' / float(1<<<(n1+1))
-    let tg1 = [0..n1] |> Seq.map (fun n -> ddt * float(1<<<(n)))
-
-    let tg2 = [1..n] |> Seq.map (fun n -> float(n)*dt')
-
-    let tg = Seq.concat [Seq.singleton 0.0; tg1; tg2] |> Seq.toArray
-
-    ()
     
     
