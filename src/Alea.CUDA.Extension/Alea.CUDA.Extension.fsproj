@@ -76,6 +76,7 @@
     <Compile Include="NormalDistribution.fs" />
     <Compile Include="TriDiag.fs" />
     <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="Heston.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

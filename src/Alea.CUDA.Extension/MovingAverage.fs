@@ -80,7 +80,7 @@ module MovingAvDirect =
                     shared.[idx + j*blockSize] <- dValues.[iGlobal + j * blockSize - (windowSize - 1)]
                 j <- j + 1
 
-            __syncthreads();
+            __syncthreads()
 
             let mutable temp = 0.0
             let mutable k = 0

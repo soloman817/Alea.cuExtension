@@ -8,7 +8,23 @@ open Alea.CUDA.Extension.TriDiag
 
 open Util 
 
-let [<ReflectedDefinition>] pi = System.Math.PI
+/// Simple homogeneous state grid startig at zero, covering interval [0, L]
+let stateGrid n L =
+    let dx = L / float(n - 1)
+    let x = Array.init n (fun i -> float(i) * dx)
+    x, dx
+
+/// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
+let timeGrid tstart tstop dt nc =
+    if tstart = tstop then
+        [|tstart|]
+    else
+        let n = int(ceil (tstop-tstart)/dt)
+        let dt' = (tstop-tstart) / float(n)
+        let dt'' = dt' / float(1<<<(nc+1))
+        let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
+        let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
+        Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
 
 /// Solves ny-2 systems of dimension nx in the x-coordinate direction 
 [<ReflectedDefinition>]
@@ -145,12 +161,13 @@ let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
 
 // Launch hint x dx y dy u0 u1 k tstart tstop dt
 type ISolver =
+    abstract GenT : float -> float -> float -> float[] // tstart -> tstop -> dt -> timeGrid
     abstract GenX : float -> float[] * float // Lx -> x, dx
     abstract GenY : float -> float[] * float // Ly -> y, dy
     abstract NumU : int
-    abstract Launch : ActionHint -> DevicePtr<float> -> float -> DevicePtr<float> -> float -> DevicePtr<float> -> DevicePtr<float> -> float -> float -> float -> float -> unit
+    abstract Launch : ActionHint -> float[] -> DevicePtr<float> -> float -> DevicePtr<float> -> float -> DevicePtr<float> -> DevicePtr<float> -> float -> float -> float -> float -> unit
 
-/// Exact solution of heat equation 
+/// Solve heat equation 
 ///
 ///     u_t = u_{xx} + u_{yy} + f(t, x, y)
 ///
@@ -182,18 +199,6 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
             let source = % sourceExpr     
             ySweep boundary source nx ny x y Cx Cy dt t0 t1 u0 u1 @> |> defineKernelFunc
 
-    /// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
-    let timeGrid tstart tstop dt nc =
-        if tstart = tstop then
-            [|tstart|]
-        else
-            let n = int(ceil (tstop-tstart)/dt)
-            let dt' = (tstop-tstart) / float(n)
-            let dt'' = dt' / float(1<<<(nc+1))
-            let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
-            let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
-            Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
-
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
@@ -206,17 +211,7 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
             let lpx = LaunchParam(ny, nx, 4*nx*sizeof<float>)
             let lpy = LaunchParam(nx, ny, 4*ny*sizeof<float>)
 
-            let genX Lx =
-                let dx = Lx / float(nx - 1)
-                let x = Array.init nx (fun i -> float(i) * dx)
-                x, dx
-
-            let genY Ly =
-                let dy = Ly / float(ny - 1)
-                let y = Array.init ny (fun i -> float(i) * dy)
-                y, dy
-
-            let launch (hint:ActionHint) (x:DevicePtr<float>) dx (y:DevicePtr<float>) dy (u0:DevicePtr<float>) (u1:DevicePtr<float>) k tstart tstop dt =
+            let launch (hint:ActionHint) (t:float[]) (x:DevicePtr<float>) dx (y:DevicePtr<float>) dy (u0:DevicePtr<float>) (u1:DevicePtr<float>) k tstart tstop dt =
                 let lp0 = lp0 |> hint.ModifyLaunchParam
                 let lpx = lpx |> hint.ModifyLaunchParam
                 let lpy = lpy |> hint.ModifyLaunchParam
@@ -227,9 +222,7 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
 
                 initCondKernelFunc nx ny tstart x y u0
 
-                let tg = timeGrid tstart tstop dt 5
-
-                if tg.Length > 1 then
+                if t.Length > 1 then
                     let step (t0, t1) =
                         let dt = t1 - t0
                         let Cx = k * dt / (dx * dx)
@@ -237,14 +230,15 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
                         xSweepKernelFunc nx ny x y Cx Cy dt t0 (t0 + 0.5 * dt) u0 u1
                         ySweepKernelFunc nx ny x y Cx Cy dt (t0 + 0.5 * dt) t1 u1 u0
 
-                    let timeIntervals = tg |> Seq.pairwise |> Seq.toArray
+                    let timeIntervals = t |> Seq.pairwise |> Seq.toArray
                     timeIntervals |> Array.iter step
 
             { new ISolver with
-                member this.GenX Lx = genX Lx
-                member this.GenY Ly = genY Ly
+                member this.GenT tstart tstop dt = timeGrid tstart tstop dt 5
+                member this.GenX Lx = stateGrid nx Lx
+                member this.GenY Ly = stateGrid ny Ly
                 member this.NumU = nu
-                member this.Launch hint x dx y dy u0 u1 k tstart tstop dt = launch hint x dx y dy u0 u1 k tstart tstop dt
+                member this.Launch hint t x dx y dy u0 u1 k tstart tstop dt = launch hint t x dx y dy u0 u1 k tstart tstop dt
             } ) }
 
 let solve init boundary source = cuda {
@@ -255,6 +249,7 @@ let solve init boundary source = cuda {
         let solver = solver.Apply m
         fun k tstart tstop Lx Ly nx ny dt ->
             let solver = solver nx ny
+            let t = timeGrid tstart tstop dt 5
             let x, dx = solver.GenX Lx
             let y, dy = solver.GenY Ly
             let nu = solver.NumU
@@ -263,75 +258,100 @@ let solve init boundary source = cuda {
                 let! y' = DArray.scatterInBlob worker y
                 let! u0 = DArray.createInBlob worker nu
                 let! u1 = DArray.createInBlob worker nu
-                do! PCalc.action (fun hint -> solver.Launch hint x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
+                do! PCalc.action (fun hint -> solver.Launch hint t x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
                 return x, y, u0 } ) }
 
-//let adiSolver (initCondExpr:Expr<float -> float -> float -> float>) 
-//                     (boundaryExpr:Expr<float -> float -> float -> float>) 
-//                     (sourceExpr:Expr<float -> float -> float -> float>) = cuda {
-//
-//    let! initCondKernel =     
-//        <@ fun nx ny t (x:DevicePtr<float>) (y:DevicePtr<float>) (u:DevicePtr<float>) ->
-//            let initCond = %initCondExpr
-//            let i = blockIdx.x*blockDim.x + threadIdx.x
-//            let j = blockIdx.y*blockDim.y + threadIdx.y
-//            let mstride = ny
-//            if i < nx && j < ny then u.[i*mstride+j] <- initCond t x.[i] y.[j] @> |> defineKernelFunc
-//
-//    let! xSweepKernel =     
-//        <@ fun nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) ->     
-//            let boundary = %boundaryExpr
-//            let source = %sourceExpr     
-//            xSweep boundary source nx ny x y Cx Cy dt t0 t1 u0 u1 @> |> defineKernelFunc
-//
-//    let! ySweepKernel =     
-//        <@ fun nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) Cx Cy dt t0 t1 (u0:DevicePtr<float>) (u1:DevicePtr<float>) ->          
-//            let boundary = %boundaryExpr
-//            let source = % sourceExpr     
-//            ySweep boundary source nx ny x y Cx Cy dt t0 t1 u0 u1 @> |> defineKernelFunc
-//
-//    /// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
-//    let timeGrid tstart tstop dt nc =
-//        let n = int(ceil (tstop-tstart)/dt)
-//        let dt' = (tstop-tstart) / float(n)
-//        let dt'' = dt' / float(1<<<(nc+1))
-//        let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
-//        let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
-//        Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
-//
-//    return PFunc(fun (m:Module) k tstart tstop Lx Ly nx ny dt  ->
-//        let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
-//        let dx = Lx / float(nx-1)
-//        let dy = Ly / float(ny-1)
-//        let x = Array.init nx (fun i -> float(i)*dx)
-//        let y = Array.init ny (fun i -> float(i)*dy)
-//        use x_ = m.Worker.Malloc(x)
-//        use y_ = m.Worker.Malloc(y)
-//
-//        let usize = nx*ny
-//        use du0 = m.Worker.Malloc<float>(usize)
-//        use du1 = m.Worker.Malloc<float>(usize)
-//
-//        let lp = LaunchParam(dim3(divup nx 16, divup ny 16), dim3(16, 16))
-//        let lpx = LaunchParam(ny, nx, 4*nx*sizeof<float>)
-//        let lpy = LaunchParam(nx, ny, 4*ny*sizeof<float>)
-//
-//        let initCondKernelFunc = initCondKernel.Launch m lp 
-//        let xSweepKernelFunc = xSweepKernel.Launch m lpx
-//        let ySweepKernelFunc = ySweepKernel.Launch m lpx
-//
-//        initCondKernelFunc nx ny tstart x_.Ptr y_.Ptr du0.Ptr
-//
-//        let tg = timeGrid tstart tstop dt 5
-//
-//        let step (t0, t1) =
-//            let dt = t1 - t0
-//            let Cx = k * dt / (dx*dx)
-//            let Cy = k * dt / (dy*dy)
-//            xSweepKernelFunc nx ny x_.Ptr y_.Ptr Cx Cy dt t0 (t0 + 0.5*dt) du0.Ptr du1.Ptr
-//            ySweepKernelFunc nx ny x_.Ptr y_.Ptr Cx Cy dt (t0 + 0.5*dt) t1 du1.Ptr du0.Ptr
-//
-//        let timeIntervals = Seq.pairwise tg |> Seq.toArray
-//        timeIntervals |> Array.iter (step)
-//
-//        x, y, du0.ToHost()) }
+// Launch hint nt t x dx y dy u0 u1 k tstart tstop dt
+type ISolverFused =
+    abstract GenT : float -> float -> float -> float[] // tstart -> tstop -> dt -> timeGrid
+    abstract GenX : float -> float[] * float // Lx -> x, dx
+    abstract GenY : float -> float[] * float // Ly -> y, dy
+    abstract NumU : int
+    abstract Launch : ActionHint -> int -> DevicePtr<float> -> DevicePtr<float> -> float -> DevicePtr<float> -> float -> DevicePtr<float> -> DevicePtr<float> -> float -> float -> float -> float -> unit
+
+let buildFused (initCondExpr:Expr<float -> float -> float -> float>) 
+               (boundaryExpr:Expr<float -> float -> float -> float>) 
+               (sourceExpr:Expr<float -> float -> float -> float>) = cuda {
+
+    let! initCondKernel =     
+        <@ fun nx ny t (x:DevicePtr<float>) (y:DevicePtr<float>) (u:DevicePtr<float>) ->
+            let initCond = %initCondExpr
+            let i = blockIdx.x*blockDim.x + threadIdx.x
+            let j = blockIdx.y*blockDim.y + threadIdx.y
+            let mstride = ny
+            if i < nx && j < ny then u.[i*mstride+j] <- initCond t x.[i] y.[j] @> |> defineKernelFunc
+
+    let! stepKernel =     
+        <@ fun k nt nx ny (t:DevicePtr<float>) (x:DevicePtr<float>) dx (y:DevicePtr<float>) dy (u0:DevicePtr<float>) (u1:DevicePtr<float>) ->     
+            let boundary = %boundaryExpr
+            let source = %sourceExpr  
+            
+            let mutable i = 0
+            while i < nt - 1 do
+                let t0 = t.[i]
+                let t1 = t.[i + 1]
+                let dt = t1 - t0
+                let Cx = k * dt / (dx * dx)
+                let Cy = k * dt / (dy * dy)
+              
+                xSweep boundary source nx ny x y Cx Cy dt t0 (t0 + 0.5 * dt) u0 u1 
+
+                __syncthreads()
+                
+                ySweep boundary source nx ny x y Cx Cy dt (t0 + 0.5 * dt) t1 u0 u1
+
+                __syncthreads()
+
+                i <- i + 1
+
+        @> |> defineKernelFunc
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let initCondKernel = initCondKernel.Apply m
+        let stepKernel = stepKernel.Apply m
+
+        fun (nx:int) (ny:int) ->
+            let nu = nx * ny
+            let lp0 = LaunchParam(dim3(divup nx 16, divup ny 16), dim3(16, 16))
+            let n = max nx ny
+            let lp1 = LaunchParam(n, n, 4*n*sizeof<float>)
+
+            let launch (hint:ActionHint) nt (t:DevicePtr<float>) (x:DevicePtr<float>) dx (y:DevicePtr<float>) dy (u0:DevicePtr<float>) (u1:DevicePtr<float>) k tstart tstop dt =
+                let lp0 = lp0 |> hint.ModifyLaunchParam
+                let initCondKernelFunc = initCondKernel.Launch lp0 
+                initCondKernelFunc nx ny tstart x y u0
+
+                if nt > 1 then
+                    let lp1 = lp1 |> hint.ModifyLaunchParam
+                    let stepKernelFunc = stepKernel.Launch lp1
+                    stepKernelFunc k nt nx ny t x dx y dy u0 u1
+
+            { new ISolverFused with
+                member this.GenT tstart tstop dt = timeGrid tstart tstop dt 5
+                member this.GenX Lx = stateGrid nx Lx
+                member this.GenY Ly = stateGrid ny Ly
+                member this.NumU = nu
+                member this.Launch hint nt t x dx y dy u0 u1 k tstart tstop dt = launch hint nt t x dx y dy u0 u1 k tstart tstop dt
+            } ) }
+
+let solveFused init boundary source = cuda {
+    let! solver = buildFused init boundary source
+    
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let solver = solver.Apply m
+        fun k tstart tstop Lx Ly nx ny dt ->
+            let solver = solver nx ny
+            let t = solver.GenT tstart tstop dt
+            let x, dx = solver.GenX Lx
+            let y, dy = solver.GenY Ly
+            let nu = solver.NumU
+            pcalc {
+                let! t' = DArray.scatterInBlob worker t
+                let! x' = DArray.scatterInBlob worker x
+                let! y' = DArray.scatterInBlob worker y
+                let! u0 = DArray.createInBlob worker nu
+                let! u1 = DArray.createInBlob worker nu
+                do! PCalc.action (fun hint -> solver.Launch hint t.Length t'.Ptr x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
+                return x, y, u0 } ) }
