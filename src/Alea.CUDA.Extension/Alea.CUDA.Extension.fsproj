@@ -81,11 +81,11 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.0.431\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.1.467\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Alea.Interop">
-      <HintPath>..\..\packages\Alea.cuBase.1.0.431\lib\net40\Alea.Interop.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.1.467\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />

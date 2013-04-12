@@ -10,6 +10,8 @@ let segscanVsMGPUByFlags() =
 let segscanVsMGPUByKeys() =
     Test.Alea.CUDA.Extension.SegmentedScanByKey.``performance: compare with mgpu``()
 
-for i = 1 to 3 do
-    segscanPerformance()
-    printfn ""
+segscanVsMGPUByKeys()
+
+//for i = 1 to 3 do
+//    segscanPerformance()
+//    printfn ""

@@ -6,6 +6,16 @@ open Alea.CUDA
 
 open Util
 
+[<Struct;Align(8)>]
+type Range =
+    val x : int
+    val y : int
+
+    [<ReflectedDefinition>]
+    new (x, y) = { x = x; y = y }
+
+    override this.ToString() = sprintf "(%d,%d)" this.x this.y
+
 // IReduce represents a reducer. It is created by given the number of reducing values.
 // Then it calcuate the ranges, which is an integer array of size numRanges + 1.
 // The member NumRangeTotals gives you a hint on the minumal size requirement on rangeTotals.
@@ -14,9 +24,9 @@ open Util
 // After calling this function, the result is stored in rangeTotals[0], you should decide
 // a way to extract that value, because it will dispear one you run Reduce for another input.
 type IReduce<'T when 'T:unmanaged> =
-    abstract Ranges : int[]
+    abstract Ranges : Range[]
     abstract NumRangeTotals : int
-    abstract Reduce : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
+    abstract Reduce : ActionHint -> DevicePtr<Range> -> DevicePtr<'T> -> DevicePtr<'T> -> unit
 
 type Plan =
     { NumThreads:int; ValuesPerThread:int; NumThreadsReduction:int; BlockPerSm:int} 
@@ -46,7 +56,7 @@ type Plan =
             let bricks = if (i-1) < brickDivRem then brickDivQuot + 1 else brickDivQuot
             min (s + bricks * blockSize) count) 0
            
-        ranges
+        ranges |> Seq.pairwise |> Seq.map (fun (x, y) -> Range(x, y)) |> Array.ofSeq
 
 type Planner =
     | Default
@@ -107,29 +117,28 @@ module Generic =
         let numThreads = plan.NumThreads
         let numWarps = plan.NumWarps
         let logNumWarps = log2 numWarps
-        <@ fun (dValues:DevicePtr<'T>) (dRanges:DevicePtr<int>) (dRangeTotals:DevicePtr<'T>) ->
+        <@ fun (dValues:DevicePtr<'T>) (dRanges:DevicePtr<Range>) (dRangeTotals:DevicePtr<'T>) ->
             let init = %initExpr
             let op = %opExpr
             let transf = %transfExpr
 
             // Each block is processing a range.
-            let range = blockIdx.x
+            let rangeId = blockIdx.x
             let tid = threadIdx.x
-            let rangeX = dRanges.[range]
-            let rangeY = dRanges.[range + 1]
+            let range = dRanges.[rangeId]
 
             // Loop through all elements in the interval, adding up values.
             // There is no need to synchronize until we perform the multireduce.
             let mutable reduced = init()
-            let mutable index = rangeX + tid
-            while index < rangeY do              
+            let mutable index = range.x + tid
+            while index < range.y do              
                 reduced <- op reduced (transf dValues.[index]) 
                 index <- index + numThreads
 
             // Get the total.
             let total = multiReduce init op numWarps logNumWarps tid reduced 
 
-            if tid = 0 then dRangeTotals.[range] <- total @>
+            if tid = 0 then dRangeTotals.[rangeId] <- total @>
 
     /// Reduces range totals to a single total, which is written back to the first element in the range totals input array.
     let reduceRangeTotalsKernel (initExpr:Expr<unit -> 'T>) (opExpr:Expr<'T -> 'T -> 'T>) (plan:Plan) =
@@ -201,17 +210,16 @@ module Sum =
         let numThreads = plan.NumThreads
         let numWarps = plan.NumWarps
         let logNumWarps = log2 numWarps
-        <@ fun (dValues:DevicePtr<'T>) (dRanges:DevicePtr<int>) (dRangeTotals:DevicePtr<'T>) ->
+        <@ fun (dValues:DevicePtr<'T>) (dRanges:DevicePtr<Range>) (dRangeTotals:DevicePtr<'T>) ->
             let block = blockIdx.x
             let tid = threadIdx.x
-            let rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let range = dRanges.[block]
 
             // Loop through all elements in the interval, adding up values.
             // There is no need to synchronize until we perform the multiscan.
             let mutable sum = 0G
-            let mutable index = rangeX + tid
-            while index < rangeY do              
+            let mutable index = range.x + tid
+            while index < range.y do              
                 sum <- sum + dValues.[index] 
                 index <- index + numThreads
 
@@ -236,7 +244,7 @@ module Sum =
             if tid = 0 then dRangeTotals.[0] <- total @>
 
 // UpsweepKernel values ranges rangeTotals
-type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit
+type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<Range> -> DevicePtr<'T> -> unit
 // ReduceKernel numRanges rangeTotals
 type ReduceKernel<'T> = int -> DevicePtr<'T> -> unit
 
@@ -262,16 +270,17 @@ let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Pl
         // factory to create reducer (IReduce)
         fun (n:int) ->
             let ranges = plan.BlockRanges numSm n
-            let numRanges = ranges.Length - 1
+            let numRanges = ranges.Length
 
             let lpUpsweep = LaunchParam(numRanges, plan.NumThreads)
             let lpReduce = LaunchParam(1, plan.NumThreadsReduction)
 
-            let launch (hint:ActionHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) =
+            let launch (hint:ActionHint) (ranges:DevicePtr<Range>) (rangeTotals:DevicePtr<'T>) (values:DevicePtr<'T>) =
                 let lpUpsweep = lpUpsweep |> hint.ModifyLaunchParam
                 let lpReduce = lpReduce |> hint.ModifyLaunchParam
 
                 fun () ->
+                    
                     // Launch range reduction kernel to calculate the totals per range.
                     upsweep.Launch lpUpsweep values ranges rangeTotals
 

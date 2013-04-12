@@ -481,8 +481,8 @@ let applyF ns nv t (ds:Differences) (dv:Differences) (u:float[,]) (func:int -> i
 [<ReflectedDefinition>]
 let solveF1 t (ds:Differences) (dv:Differences) (b:float[,]) (func:int -> int -> float -> float -> unit) (tk1:float) (thetaDt:float) (heston:HestonModel) =
 
-    let shared = __extern_shared__()
-    let h = shared.Reinterpret<float>()
+    let shared = __extern_shared__<float>()
+    let h = shared
     let d = h + ds.n
     let l = d + ds.n
     let u = l + ds.n
@@ -549,8 +549,8 @@ let solveF1 t (ds:Differences) (dv:Differences) (b:float[,]) (func:int -> int ->
 [<ReflectedDefinition>]
 let solveF2 t (ds:Differences) (dv:Differences) (b:float[,]) (func:int -> int -> float -> unit) (tk1:float) (thetaDt:float) (heston:HestonModel) =
 
-    let shared = __extern_shared__()
-    let h = shared.Reinterpret<float>()
+    let shared = __extern_shared__<float>()
+    let h = shared
     let d = h + ds.n
     let l = d + ds.n
     let u = l + ds.n

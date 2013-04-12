@@ -5,15 +5,17 @@ open Alea.CUDA
 
 open Util
 
+type Range = Reduce.Range
+
 // IScan represents a scanner. It is created by given the number of scanning values.
 // Then it calcuate the ranges, which is an integer array of size numRanges + 1.
 // The member NumRangeTotals gives you a hint on the minumal size requirement on rangeTotals.
 // The member Scan takes this signature:
 // Scan : hint -> ranges -> rangeTotals -> values -> results -> inclusive -> unit
 type IScan<'T when 'T : unmanaged> =
-    abstract Ranges : int[]
+    abstract Ranges : Range[]
     abstract NumRangeTotals : int
-    abstract Scan : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
+    abstract Scan : ActionHint -> DevicePtr<Range> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
 
 type Plan = Reduce.Plan
 type Planner = Reduce.Planner
@@ -162,7 +164,7 @@ module Generic =
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<Range>) (inclusive:int) ->
             let init = %initExpr
             let op = %opExpr
             let transf = %transfExpr
@@ -174,8 +176,8 @@ module Generic =
             let index = warp * valuesPerWarp + lane
 
             let mutable blockScan = dRangeTotals.[block]
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
             
             let shared = __shared__<'T>(size).Ptr(0).Volatile()
 
@@ -304,7 +306,7 @@ module Sum =
         let valuesPerWarp = plan.ValuesPerWarp 
         let logNumWarps = log2 numWarps
         let size = numWarps * valuesPerThread * (WARP_SIZE + 1)
-        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<int>) (inclusive:int) ->
+        <@ fun (dValuesIn:DevicePtr<'T>) (dValuesOut:DevicePtr<'T>) (dRangeTotals:DevicePtr<'T>) (dRanges:DevicePtr<Range>) (inclusive:int) ->
             let block = blockIdx.x
             let tid = threadIdx.x
             let warp = tid / WARP_SIZE
@@ -312,8 +314,8 @@ module Sum =
             let index = valuesPerWarp * warp + lane
 
             let mutable blockScan = dRangeTotals.[block]
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
             
             let shared = __shared__<'T>(size).Ptr(0).Volatile()
 
@@ -369,7 +371,7 @@ type UpsweepKernel<'T> = Reduce.UpsweepKernel<'T>
 // ReduceKernel numRanges rangeTotals
 type ReduceKernel<'T> = Reduce.ReduceKernel<'T>
 // DownsweepKernel values -> results -> rangeTotals -> ranges -> inclusive
-type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
+type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<Range> -> int -> unit
 
 let plan32 : Plan = { NumThreads = 1024; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
 let plan64 : Plan = { NumThreads = 512; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 1 }
@@ -396,13 +398,13 @@ let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Pl
         // factory to create scanner (IScan)
         fun (n:int) ->
             let ranges = plan.BlockRanges numSm n
-            let numRanges = ranges.Length - 1
+            let numRanges = ranges.Length
 
             let lpUpsweep = LaunchParam(numRanges, plan.NumThreads)
             let lpReduce = LaunchParam(1, plan.NumThreadsReduction)
             let lpDownsweep = LaunchParam(numRanges, plan.NumThreads)
 
-            let launch (hint:ActionHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (input:DevicePtr<'T>) (output:DevicePtr<'T>) (inclusive:bool) =
+            let launch (hint:ActionHint) (ranges:DevicePtr<Range>) (rangeTotals:DevicePtr<'T>) (input:DevicePtr<'T>) (output:DevicePtr<'T>) (inclusive:bool) =
                 let inclusive = if inclusive then 1 else 0
                 let lpUpsweep = lpUpsweep |> hint.ModifyLaunchParam
                 let lpReduce = lpReduce |> hint.ModifyLaunchParam

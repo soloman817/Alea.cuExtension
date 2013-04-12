@@ -24,6 +24,15 @@ let ``[DEBUG] save data``() =
         //printfn "%A" values
         )
 
+//[<Test>]
+let ``[DEBUG]`` () =
+    let calc = pcalc {
+        let hArray = [| 1; 2; 3 |]
+        let! dArray = DArray.scatterInBlob worker hArray
+        return! dArray.Gather() }
+    let result = calc |> PCalc.run
+    printfn "%A" result
+
 [<Test>]
 let ``sum: int``() =
     let sum = worker.LoadPModule(PArray.sum()).Invoke
@@ -375,3 +384,63 @@ let ``reducer: sum square<float> (2)``() =
     let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
     let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+
+[<Struct;Align(16)>]
+type IterativeMean =
+    val mean : float
+    val count : float
+
+    [<ReflectedDefinition>]
+    new (mean, count) = { mean = mean; count = count }
+
+    [<ReflectedDefinition>]
+    new (mean) = { mean = mean; count = 1.0 }
+
+    [<ReflectedDefinition>]
+    static member ( + ) (lhs:IterativeMean, rhs:IterativeMean) =
+        if lhs.count = 0.0 then rhs
+        elif rhs.count = 0.0 then lhs
+        else
+            let count = lhs.count + rhs.count
+            let mean = (lhs.count * lhs.mean + rhs.count * rhs.mean) / count
+            IterativeMean(mean, count)
+
+    [<ReflectedDefinition>]
+    static member get_Zero() = IterativeMean()
+
+[<Test>]
+let ``reduce: iterative mean <float>``() =
+    let reduce = worker.LoadPModule(PArray.reduce <@ IterativeMean.get_Zero @> <@ (+) @> <@ Util.identity @>).Invoke
+    let test eps1 eps2 (hValues:IterativeMean[]) = pcalc {
+        let n = hValues.Length
+        let hResult = Array.sum hValues
+        let! dValues = DArray.scatterInBlob worker hValues
+        let! dResult = reduce dValues
+        let! dResult = dResult.Gather()
+        let average = hValues |> Array.averageBy (fun v -> v.mean)
+        let err1 = abs (dResult.mean - average)
+        let err2 = abs (dResult.mean - hResult.mean) / abs hResult.mean
+        let err3 = abs (dResult.count - hResult.count) / abs hResult.count
+        printfn "[Size %d] a(%f) h(%f,%f) d(%f,%f) e(%f,%f,%f)" n average hResult.mean hResult.count dResult.mean dResult.count err1 err2 err3
+        Assert.That(err1 < eps1)
+        Assert.That(err2 < eps2)
+        Assert.AreEqual(err3, 0.0)
+        Assert.AreEqual(dResult.count |> int, n) }
+
+    let eps1 = 1e-16
+    let eps2 = 1e-12
+    let values1 n = Array.init n (fun _ -> IterativeMean(1.0))
+    let values2 n = Array.init n (fun _ -> IterativeMean(-1.0))
+    let values3 n = let rng = Random(2) in Array.init n (fun _ -> IterativeMean(rng.NextDouble() - 0.5))
+
+    sizes |> Seq.iter (fun n -> values1 n |> test eps1 eps2 |> PCalc.run)
+    sizes |> Seq.iter (fun n -> values2 n |> test eps1 eps2 |> PCalc.run)
+    sizes |> Seq.iter (fun n -> values3 n |> test eps1 eps2 |> PCalc.run)
+
+    let n = 8388608
+    let test = values3 n |> test eps1 eps2
+
+    let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+    test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+

@@ -73,8 +73,8 @@ let inline triDiag () = cuda {
         <@ fun n (dl:DevicePtr<'T>) (dd:DevicePtr<'T>) (du:DevicePtr<'T>) (dh:DevicePtr<'T>) ->  
             let rank = threadIdx.x
             
-            let shared = __extern_shared__()
-            let l = shared.Reinterpret<'T>()
+            let shared = __extern_shared__<'T>()
+            let l = shared
             let d = l + n
             let u = d + n
             let h = u + n
