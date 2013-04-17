@@ -67,8 +67,7 @@ module MovingAvDirect =
             let idx = threadIdx.x
             let iGlobal = threadIdx.x + blockIdx.x * blockDim.x + blockIdx.y * blockDim.x * gridDim.x
                       
-            let shared = __extern_shared__()
-            let shared = shared.Reinterpret<float>()
+            let shared = __extern_shared__<float>()
 
             // load one data element from global to shared memory
             shared.[idx + (windowSize - 1)] <- dValues.[iGlobal]

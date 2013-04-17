@@ -19,12 +19,14 @@ let ``bfi [BUILDER]``(ctx:IRB.LLVMFunctionBuilderContext) =
     let funcp = LLVMConstInlineAsm(funct, "bfi.b32 \t$0, $2, $1, $3, $4;", "=r,r,r,r,r", 0, 0)
     IRB.Value(LLVMBuildCallEx(ctx.Builder, funcp, args, ""))
 
+type Range = Reduce.Range
+
 // Scan : hint -> ranges -> rangeTotals -> headFlags -> marks(flags/keys) -> values -> results -> inclusive -> unit
 type ISegmentedScan<'T when 'T : unmanaged> =
-    abstract Ranges : int[]
+    abstract Ranges : Range[]
     abstract NumRangeTotals : int
     abstract NumHeadFlags : int
-    abstract Scan : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
+    abstract Scan : ActionHint -> DevicePtr<Range> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> bool -> unit
 
 type Plan = Reduce.Plan
 type Planner = Reduce.Planner
@@ -312,32 +314,31 @@ module Generic =
         let UpSweepValues = 4
         let NumValues = UpSweepValues * NumThreads
 
-        <@ fun (values:DevicePtr<'T>) (flags:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<int>) ->
+        <@ fun (values:DevicePtr<'T>) (flags:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<Range>) ->
             let init = %init
             let op = %op
             let transf = %transf
 
             let block = blockIdx.x
             let tid = threadIdx.x
-            let rangeX = ranges.[block]
-            let rangeY = ranges.[block + 1]
+            let range = ranges.[block]
 
             // Start at the last tile (NumValues before the end iterator). Because 
             // upsweep isn't executed for the last block, we don't have to worry about
             // the ending edge case.
-            let mutable current = rangeY - NumValues
+            let mutable current = range.y - NumValues
 
             let mutable threadSum = init()
             let mutable segmentStart = -1
 
-            while current + NumValues > rangeX do
+            while current + NumValues > range.x do
                
                 let x = __local__<'T>(UpSweepValues)
                 let f = __local__<int>(UpSweepValues)
 
                 for i = 0 to UpSweepValues - 1 do
                     let index = current + i * NumThreads + tid
-                    if index >= rangeX then
+                    if index >= range.x then
                         x.[i] <- transf values.[index]
                         f.[i] <- flags.[index]
                     else
@@ -365,7 +366,7 @@ module Generic =
 
                 match segmentStart = -1 with
                 | true -> current <- current - NumValues; __syncthreads()
-                | false -> current <- rangeX - NumValues - 1 // force break
+                | false -> current <- range.x - NumValues - 1 // force break
 
             // We've either hit the head flag or run out of values. Do a horizontal sum
             // of the thread values and store to global memory.
@@ -386,7 +387,7 @@ module Generic =
         let boxFlag = boxMark sizeof<'T>
         let unboxFlag = unboxMark sizeof<'T>
             
-        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<Range>) inclusive ->
             let boxFlag = %boxFlag
             let unboxFlag = %unboxFlag
             let init = %init
@@ -398,8 +399,8 @@ module Generic =
             let lane = tid &&& (WARP_SIZE - 1)
             let block = blockIdx.x
             let index = ValuesPerWarp * warp + lane
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
             let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
@@ -460,7 +461,7 @@ module Generic =
         let UpSweepValues = 8
         let NumValues = UpSweepValues * NumThreads
 
-        <@ fun (values:DevicePtr<'T>) (keys:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<int>) ->
+        <@ fun (values:DevicePtr<'T>) (keys:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<Range>) ->
             let init = %init
             let op = %op
             let transf = %transf
@@ -469,29 +470,28 @@ module Generic =
             let tid = threadIdx.x
             let lane = (WARP_SIZE - 1) &&& tid
             let warp = tid / WARP_SIZE
-            let rangeX = ranges.[block]
-            let rangeY = ranges.[block + 1]
+            let range = ranges.[block]
 
             // Start at the last tile (NumValues before the end iterator). Because 
             // upsweep isn't executed for the last block, we don't have to worry about
             // the ending edge case.
-            let mutable current = rangeY - NumValues
+            let mutable current = range.y - NumValues
 
             let mutable threadSum = init()
             let mutable blockFlags = 0
 
             // load the last key in the segment.
-            let lastKey = keys.[rangeY - 1]
-            let firstKey = keys.[rangeX]
+            let lastKey = keys.[range.y - 1]
+            let firstKey = keys.[range.x]
 
-            while current + NumValues > rangeX do
+            while current + NumValues > range.x do
                
                 let x = __local__<'T>(UpSweepValues)
                 let k = __local__<int>(UpSweepValues)
 
                 for i = 0 to UpSweepValues - 1 do
                     let index = current + i * NumThreads + tid
-                    if index >= rangeX then
+                    if index >= range.x then
                         x.[i] <- transf values.[index]
                         k.[i] <- keys.[index]
                     else
@@ -523,7 +523,7 @@ module Generic =
                 blockFlags <- warpShared.[0]
 
                 match blockFlags <> 0 with
-                | true -> current <- rangeX - NumValues - 1 // force break
+                | true -> current <- range.x - NumValues - 1 // force break
                 | false -> current <- current - NumValues
 
             // we've either hit the preceding segment or run out of values. do a
@@ -535,9 +535,9 @@ module Generic =
 
                 // prepare the head flag
                 let mutable headFlag = blockFlags
-                if headFlag = 0 && rangeX <> 0 then
+                if headFlag = 0 && range.x <> 0 then
                     // load the preceding key.
-                    let precedingKey = keys.[rangeX - 1]
+                    let precedingKey = keys.[range.x - 1]
                     //headFlag <- if precedingKey <> lastKey then 1 else 0
                     headFlag <- precedingKey ^^^ lastKey
                 headFlags.[block] <- headFlag @>
@@ -553,7 +553,7 @@ module Generic =
         let boxKey = boxMark sizeof<'T>
         let unboxKey = unboxMark sizeof<'T>
             
-        <@ fun (dValues:DevicePtr<'T>) (dKeys:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+        <@ fun (dValues:DevicePtr<'T>) (dKeys:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<Range>) inclusive ->
             let init = %init
             let op = %op
             let transf = %transf
@@ -565,8 +565,8 @@ module Generic =
             let lane = tid &&& (WARP_SIZE - 1)
             let block = blockIdx.x
             let index = ValuesPerWarp * warp + lane
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
             let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
@@ -1090,28 +1090,27 @@ module Sum =
         let UpSweepValues = 4
         let NumValues = UpSweepValues * NumThreads
 
-        <@ fun (values:DevicePtr<'T>) (flags:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<int>) ->
+        <@ fun (values:DevicePtr<'T>) (flags:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<Range>) ->
             let block = blockIdx.x
             let tid = threadIdx.x
-            let rangeX = ranges.[block]
-            let rangeY = ranges.[block + 1]
+            let range = ranges.[block]
 
             // Start at the last tile (NumValues before the end iterator). Because 
             // upsweep isn't executed for the last block, we don't have to worry about
             // the ending edge case.
-            let mutable current = rangeY - NumValues
+            let mutable current = range.y - NumValues
 
             let mutable threadSum : 'T = 0G
             let mutable segmentStart = -1
 
-            while current + NumValues > rangeX do
+            while current + NumValues > range.x do
                
                 let x = __local__<'T>(UpSweepValues)
                 let f = __local__<int>(UpSweepValues)
 
                 for i = 0 to UpSweepValues - 1 do
                     let index = current + i * NumThreads + tid
-                    if index >= rangeX then
+                    if index >= range.x then
                         x.[i] <- values.[index]
                         f.[i] <- flags.[index]
                     else
@@ -1139,7 +1138,7 @@ module Sum =
 
                 match segmentStart = -1 with
                 | true -> current <- current - NumValues; __syncthreads()
-                | false -> current <- rangeX - NumValues - 1 // force break
+                | false -> current <- range.x - NumValues - 1 // force break
 
             // We've either hit the head flag or run out of values. Do a horizontal sum
             // of the thread values and store to global memory.
@@ -1160,7 +1159,7 @@ module Sum =
         let boxFlag = boxMark sizeof<'T>
         let unboxFlag = unboxMark sizeof<'T>
             
-        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<Range>) inclusive ->
             let boxFlag = %boxFlag
             let unboxFlag = %unboxFlag
 
@@ -1169,8 +1168,8 @@ module Sum =
             let lane = tid &&& (WARP_SIZE - 1)
             let block = blockIdx.x
             let index = ValuesPerWarp * warp + lane
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
             let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
@@ -1236,7 +1235,7 @@ module Sum =
         let boxFlag = boxMark sizeof<'T>
         let unboxFlag = unboxMark sizeof<'T>
             
-        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+        <@ fun (dValues:DevicePtr<'T>) (dFlags:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<Range>) inclusive ->
             let boxFlag = %boxFlag
             let unboxFlag = %unboxFlag
 
@@ -1245,8 +1244,8 @@ module Sum =
             let lane = tid &&& (WARP_SIZE - 1)
             let block = blockIdx.x
             let index = ValuesPerWarp * warp + lane
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
             let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
@@ -1307,34 +1306,33 @@ module Sum =
         let UpSweepValues = 8
         let NumValues = UpSweepValues * NumThreads
 
-        <@ fun (values:DevicePtr<'T>) (keys:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<int>) ->
+        <@ fun (values:DevicePtr<'T>) (keys:DevicePtr<int>) (blockLast:DevicePtr<'T>) (headFlags:DevicePtr<int>) (ranges:DevicePtr<Range>) ->
             let block = blockIdx.x
             let tid = threadIdx.x
             let lane = (WARP_SIZE - 1) &&& tid
             let warp = tid / WARP_SIZE
-            let rangeX = ranges.[block]
-            let rangeY = ranges.[block + 1]
+            let range = ranges.[block]
 
             // Start at the last tile (NumValues before the end iterator). Because 
             // upsweep isn't executed for the last block, we don't have to worry about
             // the ending edge case.
-            let mutable current = rangeY - NumValues
+            let mutable current = range.y - NumValues
 
             let mutable threadSum : 'T = 0G
             let mutable blockFlags = 0
 
             // load the last key in the segment.
-            let lastKey = keys.[rangeY - 1]
-            let firstKey = keys.[rangeX]
+            let lastKey = keys.[range.y - 1]
+            let firstKey = keys.[range.x]
 
-            while current + NumValues > rangeX do
+            while current + NumValues > range.x do
                
                 let x = __local__<'T>(UpSweepValues)
                 let k = __local__<int>(UpSweepValues)
 
                 for i = 0 to UpSweepValues - 1 do
                     let index = current + i * NumThreads + tid
-                    if index >= rangeX then
+                    if index >= range.x then
                         x.[i] <- values.[index]
                         k.[i] <- keys.[index]
                     else
@@ -1366,7 +1364,7 @@ module Sum =
                 blockFlags <- warpShared.[0]
 
                 match blockFlags <> 0 with
-                | true -> current <- rangeX - NumValues - 1 // force break
+                | true -> current <- range.x - NumValues - 1 // force break
                 | false -> current <- current - NumValues
 
             // we've either hit the preceding segment or run out of values. do a
@@ -1378,9 +1376,9 @@ module Sum =
 
                 // prepare the head flag
                 let mutable headFlag = blockFlags
-                if headFlag = 0 && rangeX <> 0 then
+                if headFlag = 0 && range.x <> 0 then
                     // load the preceding key.
-                    let precedingKey = keys.[rangeX - 1]
+                    let precedingKey = keys.[range.x - 1]
                     //headFlag <- if precedingKey <> lastKey then 1 else 0
                     headFlag <- precedingKey ^^^ lastKey
                 headFlags.[block] <- headFlag @>
@@ -1396,7 +1394,7 @@ module Sum =
         let boxKey = boxMark sizeof<'T>
         let unboxKey = unboxMark sizeof<'T>
             
-        <@ fun (dValues:DevicePtr<'T>) (dKeys:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<int>) inclusive ->
+        <@ fun (dValues:DevicePtr<'T>) (dKeys:DevicePtr<int>) (dValuesOut:DevicePtr<'T>) (dStart:DevicePtr<'T>) (dRanges:DevicePtr<Range>) inclusive ->
             let boxKey = %boxKey
             let unboxKey = %unboxKey
 
@@ -1405,8 +1403,8 @@ module Sum =
             let lane = tid &&& (WARP_SIZE - 1)
             let block = blockIdx.x
             let index = ValuesPerWarp * warp + lane
-            let mutable rangeX = dRanges.[block]
-            let rangeY = dRanges.[block + 1]
+            let mutable rangeX = dRanges.Ref(block).contents.x
+            let rangeY = dRanges.Ref(block).contents.y
 
             let blockOffsetShared = __shared__<'T>(1).Ptr(0).Volatile()
             let shared = __shared__<'T>(NumWarps * ValuesPerThread * (WARP_SIZE + 1)).Ptr(0).Volatile()
@@ -1485,11 +1483,11 @@ module Sum =
                 rangeX <- rangeX + NumValues @>
 
 // UpsweepKernel values flags rangeTotals headFlags headFlags ranges
-type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> unit
+type UpsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<Range> -> unit
 // ReduceKernel headFlags rangeTotals numRanges
 type ReduceKernel<'T> = DevicePtr<int> -> DevicePtr<'T> -> int -> unit
 // DownsweepKernel values -> marks(flags/keys) -> results -> rangeTotals -> ranges -> inclusive
-type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> int -> unit
+type DownsweepKernel<'T> = DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<Range> -> int -> unit
 
 let plan32 : Plan = { NumThreads = 256; ValuesPerThread = 16; NumThreadsReduction = 256; BlockPerSm = 2 }
 let plan64 : Plan = { NumThreads = 256; ValuesPerThread = 4; NumThreadsReduction = 256; BlockPerSm = 6 }
@@ -1514,13 +1512,13 @@ let build (planner:Planner) (upsweep:Plan -> Expr<UpsweepKernel<'T>>) (reduce:Pl
 
         fun (n:int) ->
             let ranges = plan.BlockRanges numSm n
-            let numRanges = ranges.Length - 1
+            let numRanges = ranges.Length
 
             let lpUpsweep = LaunchParam(numRanges, plan.NumThreads)
             let lpReduce = LaunchParam(1, plan.NumThreadsReduction)
             let lpDownsweep = LaunchParam(numRanges, plan.NumThreads)
 
-            let launch (hint:ActionHint) (ranges:DevicePtr<int>) (rangeTotals:DevicePtr<'T>) (headFlags:DevicePtr<int>) (marks:DevicePtr<int>) (values:DevicePtr<'T>) (results:DevicePtr<'T>) (inclusive:bool) =
+            let launch (hint:ActionHint) (ranges:DevicePtr<Range>) (rangeTotals:DevicePtr<'T>) (headFlags:DevicePtr<int>) (marks:DevicePtr<int>) (values:DevicePtr<'T>) (results:DevicePtr<'T>) (inclusive:bool) =
                 let inclusive = if inclusive then 1 else 0
                 let lpUpsweep = lpUpsweep |> hint.ModifyLaunchParam
                 let lpReduce = lpReduce |> hint.ModifyLaunchParam

@@ -19,8 +19,8 @@ let timeGrid = exponentiallyCondensedGrid
 [<ReflectedDefinition>]
 let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
            nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
-    let shared = __extern_shared__()
-    let h = shared.Reinterpret<float>()
+    let shared = __extern_shared__<float>()
+    let h = shared
     let d = h + nx
     let l = d + nx
     let u = l + nx
@@ -85,8 +85,8 @@ let xSweep (boundary:float -> float -> float -> float) (sourceFunction:float -> 
 [<ReflectedDefinition>]
 let ySweep (boundary:float -> float -> float -> float) (sourceFunction:float -> float -> float -> float)
            nx ny (x:DevicePtr<float>) (y:DevicePtr<float>) (Cx:float) (Cy:float) (dt:float) (t0:float) (t1:float) (u0:DevicePtr<float>) (u1:DevicePtr<float>) =
-    let shared = __extern_shared__()
-    let h = shared.Reinterpret<float>()
+    let shared = __extern_shared__<float>()
+    let h = shared
     let d = h + ny
     let l = d + ny
     let u = l + ny

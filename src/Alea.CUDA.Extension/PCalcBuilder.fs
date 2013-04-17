@@ -31,7 +31,14 @@ type BlobSlot =
     member this.Size =
         match this with
         | Extent(_, size) -> size
-        | FromHost(_, _, array) -> Buffer.ByteLength(array)
+        | FromHost(_, _, array) ->
+            let length = array.Length
+            match length with
+            | 0 -> 0
+            | _ ->
+                let ty = array.GetValue(0).GetType()
+                let size = Marshal.SizeOf(ty)
+                size * length
 
     member this.Type =
         match this with
