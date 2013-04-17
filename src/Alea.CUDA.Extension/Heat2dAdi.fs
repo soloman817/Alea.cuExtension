@@ -5,26 +5,15 @@ open Alea.Interop.CUDA
 open Alea.CUDA
 
 open Alea.CUDA.Extension.TriDiag
+open Alea.CUDA.Extension.Grid
 
 open Util 
 
 /// Simple homogeneous state grid startig at zero, covering interval [0, L]
-let stateGrid n L =
-    let dx = L / float(n - 1)
-    let x = Array.init n (fun i -> float(i) * dx)
-    x, dx
+let stateGrid = homogeneousGrid
 
 /// Create a time grid up to tstop of step size not larger than dt, with nc condensing points in the first interval
-let timeGrid tstart tstop dt nc =
-    if tstart = tstop then
-        [|tstart|]
-    else
-        let n = int(ceil (tstop-tstart)/dt)
-        let dt' = (tstop-tstart) / float(n)
-        let dt'' = dt' / float(1<<<(nc+1))
-        let tg1 = [0..nc] |> Seq.map (fun n -> tstart + float(1<<<n)*dt'')
-        let tg2 = [1..n] |> Seq.map (fun n -> tstart + float(n)*dt')
-        Seq.concat [Seq.singleton tstart; tg1; tg2] |> Seq.toArray
+let timeGrid = exponentiallyCondensedGrid 
 
 /// Solves ny-2 systems of dimension nx in the x-coordinate direction 
 [<ReflectedDefinition>]
