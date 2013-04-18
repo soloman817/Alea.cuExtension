@@ -5,12 +5,12 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{9b7250a2-94ed-4887-ac29-8cdbdea80eea}</ProjectGuid>
+    <ProjectGuid>{ff4b6c27-82cc-43a8-aefc-4d72f9fa5e5d}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <RootNamespace>Alea.cuExtension.Finance</RootNamespace>
-    <AssemblyName>Alea.cuExtension.Finance</AssemblyName>
+    <RootNamespace>Alea.CUDA.Extension.Finance</RootNamespace>
+    <AssemblyName>Alea.CUDA.Extension.Finance</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
-    <Name>Alea.cuExtension.Finance</Name>
+    <Name>Alea.CUDA.Extension.Finance</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -22,7 +22,7 @@
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Alea.cuExtension.Finance.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Alea.CUDA.Extension.Finance.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,18 +31,39 @@
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Alea.cuExtension.Finance.XML</DocumentationFile>
+    <DocumentationFile>bin\Release\Alea.CUDA.Extension.Finance.XML</DocumentationFile>
   </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
+  <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
+  <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
+    <Compile Include="Grid.fs" />
+    <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="Heston.fs" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Alea.CUDA">
+      <HintPath>..\..\packages\Alea.cuBase.1.1.467\lib\net40\Alea.CUDA.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Alea.Interop">
+      <HintPath>..\..\packages\Alea.cuBase.1.1.467\lib\net40\Alea.Interop.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
   </ItemGroup>
-  <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
-  <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
-  <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
+  <ItemGroup>
+    <ProjectReference Include="..\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
+      <Name>Alea.CUDA.Extension</Name>
+      <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
 	     Other similar extension points exist, see Microsoft.Common.targets.
 	<Target Name="BeforeBuild">
