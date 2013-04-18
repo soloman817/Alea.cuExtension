@@ -1,11 +1,12 @@
-﻿module Alea.CUDA.Extension.Heat2dAdi
+﻿module Alea.CUDA.Extension.Finance.Heat2dAdi
 
 open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
 open Alea.CUDA
 
+open Alea.CUDA.Extension
 open Alea.CUDA.Extension.TriDiag
-open Alea.CUDA.Extension.Grid
+open Alea.CUDA.Extension.Finance.Grid
 
 open Util 
 

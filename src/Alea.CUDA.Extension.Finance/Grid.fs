@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Grid
+﻿module Alea.CUDA.Extension.Finance.Grid
 
 open System
 open Microsoft.FSharp.Quotations
