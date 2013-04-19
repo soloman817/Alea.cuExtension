@@ -1,10 +1,13 @@
-﻿module Test.Alea.CUDA.Extension.Heat2dAdi
+﻿module Test.Alea.CUDA.Extension.Finance.Heat2dAdi
 
 open System
 open Microsoft.FSharp.Quotations
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
+open Alea.CUDA.Extension
+open Alea.CUDA.Extension.Finance
+open Test.Alea.CUDA.Extension
 
 let calc (solve:float -> float -> float -> float -> float -> int -> int -> float -> PCalc<float[] * float[] * DArray<float>>) =
     fun k tstart tstop Lx Ly nx ny dt ->

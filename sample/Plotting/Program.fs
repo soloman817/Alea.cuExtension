@@ -8,6 +8,7 @@ open SharpDX.Direct3D9
 open Alea.Interop.CUDA
 open Alea.CUDA
 open Alea.CUDA.Extension
+open Alea.CUDA.Extension.Finance
 open Alea.CUDA.Extension.Graphics.Direct3D9
 
 module WaveSurface =

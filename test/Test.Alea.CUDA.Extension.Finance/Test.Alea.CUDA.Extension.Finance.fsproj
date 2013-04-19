@@ -5,13 +5,13 @@
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{a1579393-b2dc-4dfc-b71d-c47de8b45f05}</ProjectGuid>
+    <ProjectGuid>{3083adf8-6e31-4388-b86a-e5c606a4ddaa}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>HeatGauss</RootNamespace>
-    <AssemblyName>HeatGauss</AssemblyName>
+    <RootNamespace>Test.Alea.CUDA.Extension.Finance</RootNamespace>
+    <AssemblyName>Test.Alea.CUDA.Extension.Finance</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
     <TargetFrameworkProfile>Client</TargetFrameworkProfile>
-    <Name>HeatGauss</Name>
+    <Name>Test.Alea.CUDA.Extension.Finance</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -24,7 +24,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>x86</PlatformTarget>
-    <DocumentationFile>bin\Debug\HeatGauss.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Test.Alea.CUDA.Extension.Finance.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
     <DebugType>pdbonly</DebugType>
@@ -34,33 +34,13 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>x86</PlatformTarget>
-    <DocumentationFile>bin\Release\HeatGauss.XML</DocumentationFile>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <Tailcalls>false</Tailcalls>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\HeatGauss.XML</DocumentationFile>
-    <PlatformTarget>x64</PlatformTarget>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <Tailcalls>true</Tailcalls>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\HeatGauss.XML</DocumentationFile>
-    <PlatformTarget>x64</PlatformTarget>
+    <DocumentationFile>bin\Release\Test.Alea.CUDA.Extension.Finance.XML</DocumentationFile>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
+    <Compile Include="Heat2dAdi.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />
   </ItemGroup>
@@ -73,27 +53,30 @@
       <HintPath>..\..\packages\Alea.cuBase.1.1.467\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Alea.Matlab">
-      <HintPath>..\..\support\Matlab\Alea.Matlab.dll</HintPath>
-    </Reference>
-    <Reference Include="FSharp.PowerPack">
-      <HintPath>..\..\support\Matlab\FSharp.PowerPack.dll</HintPath>
-    </Reference>
-    <Reference Include="MatlabWrapper">
-      <HintPath>..\..\support\Matlab\MatlabWrapper.dll</HintPath>
-    </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
-    <Reference Include="MWArray">
-      <HintPath>..\..\support\Matlab\MWArray.dll</HintPath>
+    <Reference Include="nunit.framework">
+      <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Finance\Alea.CUDA.Extension.Finance.fsproj">
+      <Name>Alea.CUDA.Extension.Finance</Name>
+      <Project>{ff4b6c27-82cc-43a8-aefc-4d72f9fa5e5d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\Test.Alea.CUDA.Extension\Test.Alea.CUDA.Extension.fsproj">
+      <Name>Test.Alea.CUDA.Extension</Name>
+      <Project>{f4f4c49f-1d5b-4a1f-a01e-f0e95d09b3bc}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

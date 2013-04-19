@@ -67,6 +67,11 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Numerics" />
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Finance\Alea.CUDA.Extension.Finance.fsproj">
+      <Name>Alea.CUDA.Extension.Finance</Name>
+      <Project>{ff4b6c27-82cc-43a8-aefc-4d72f9fa5e5d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Graphics.Direct3D9\Alea.CUDA.Extension.Graphics.Direct3D9.fsproj">
       <Name>Alea.CUDA.Extension.Graphics.Direct3D9</Name>
       <Project>{0edbc8ff-dd6a-49d4-8e76-5df9b0b0a2d2}</Project>
