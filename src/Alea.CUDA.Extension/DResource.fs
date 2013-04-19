@@ -1,7 +1,10 @@
 ﻿namespace Alea.CUDA.Extension
 
 open System
+open Microsoft.FSharp.Quotations
 open Alea.CUDA
+
+open Util
 
 type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, length:int, needDispose:bool, dmem:Lazy<DeviceMemory option * DevicePtr<byte>>) =
     inherit DisposableObject()
@@ -56,6 +59,30 @@ type DScalar<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, ne
     override this.Dispose(disposing) = 
         if needDispose && disposing && dmem.IsValueCreated && this.Memory.IsSome then
             this.Memory.Value.Dispose()
+        base.Dispose(disposing)
+
+type DMatrix<'T when 'T:unmanaged> (storage:DArray<'T>, order:MatrixStorageOrder, rows:int, cols:int) =
+    inherit DisposableObject()
+
+    let elements = rows * cols
+    do if storage.Length <> elements then failwith "Matrix storage length not equal to rows * cols"
+
+    member this.Storage = storage
+    member this.Order = order
+    member this.NumRows = rows
+    member this.NumCols = cols
+    member this.NumElements = elements
+    member this.DMem = storage.DMem
+    member this.Worker = storage.Worker
+    member this.Ptr = storage.Ptr
+
+    member this.Gather() =
+        pcalc {
+            let! storage = storage.Gather()
+            return storage, order, rows, cols }
+
+    override this.Dispose(disposing) =
+        if disposing then storage.Dispose()
         base.Dispose(disposing)
 
 type DStopwatch internal (worker:DeviceWorker, stream:Stream option, start:Event, stop:Event) =
@@ -127,6 +154,21 @@ module DArray =
     let ofScalar (dscalar:DScalar<'T>) = new DArray<'T>(dscalar.Worker, dscalar.Offset, 1, false, dscalar.DMem)
 
     let subView (darray:DArray<'T>) (startIdx:int) (length:int) = new DArray<'T>(darray.Worker, darray.Offset + startIdx * sizeof<'T>, length, false, darray.DMem)
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module DMatrix =
+    let createInBlob<'T when 'T:unmanaged> (worker:DeviceWorker) (order:MatrixStorageOrder) (rows:int) (cols:int) =
+        pcalc {
+            let elements = rows * cols
+            let! storage = DArray.createInBlob<'T> worker elements
+            return new DMatrix<'T>(storage, order, rows, cols) }
+
+    let scatterInBlob (worker:DeviceWorker) (storage:'T[], order:MatrixStorageOrder, rows:int, cols:int) =
+        pcalc {
+            let! storage = DArray.scatterInBlob worker storage
+            return new DMatrix<'T>(storage, order, rows, cols) }
+
+    let gather (matrix:DMatrix<'T>) = matrix.Gather()
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DScalar =

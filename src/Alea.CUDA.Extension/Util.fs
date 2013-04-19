@@ -1,5 +1,6 @@
 ﻿module Alea.CUDA.Extension.Util
 
+open Microsoft.FSharp.Quotations
 open Alea.CUDA
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
@@ -44,6 +45,27 @@ let kldiag (stats:Engine.KernelExecutionStats) =
         (stats.LaunchParam.BlockDim |> dim3str)
         (stats.Occupancy * 100.0)
         stats.TimeSpan
+
+type MatrixStorageOrder =
+    | RowMajorOrder
+    | ColMajorOrder
+
+    member this.LeadingDimension(rows:int, cols:int) =
+        match this with
+        | RowMajorOrder -> cols
+        | ColMajorOrder -> rows
+
+    // convert row -> col -> 'T to major -> minor -> 'T
+    member this.ToStorageOrder(fune:Expr<int -> int -> 'T>) =
+        match this with
+        | RowMajorOrder -> fune
+        | ColMajorOrder -> <@ fun c r -> (%fune) r c @>
+
+    member this.ToStorageOrder(rows:int, cols:int) =
+        let leadingDimension = this.LeadingDimension(rows, cols)
+        match this with
+        | RowMajorOrder -> leadingDimension, rows, cols
+        | ColMajorOrder -> leadingDimension, cols, rows
 
 module NumericLiteralG =
     let [<ReflectedDefinition>] inline FromZero() = LanguagePrimitives.GenericZero

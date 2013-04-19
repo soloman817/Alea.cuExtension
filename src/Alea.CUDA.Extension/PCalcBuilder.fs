@@ -297,6 +297,8 @@ type PCalcBuilder() =
         PCalc(fun s0 -> let (), s1 = partOne.Invoke(s0) in partTwo.Invoke(s1))
     member this.Delay(restOfComputation:unit -> PCalc<'a>) =
         PCalc(fun s0 -> restOfComputation().Invoke(s0))
+    member this.Using<'a, 'b when 'a :> IDisposable>(x:'a, res:'a -> PCalc<'b>) =
+        PCalc(fun s0 -> try res(x).Invoke(s0) finally x.Dispose())
 
 let pcalc = PCalcBuilder()
 
