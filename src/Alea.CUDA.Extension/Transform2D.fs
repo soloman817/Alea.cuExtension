@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.MatrixTransform
+﻿module Alea.CUDA.Extension.Transform2D
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA

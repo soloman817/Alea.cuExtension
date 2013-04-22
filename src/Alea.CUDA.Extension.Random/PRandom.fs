@@ -1,7 +1,8 @@
-﻿module Alea.CUDA.Extension.PRandom
+﻿module Alea.CUDA.Extension.Random.PRandom
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
+open Alea.CUDA.Extension
 
 let sobol converter = cuda {
     let! generator = Sobol.generator converter

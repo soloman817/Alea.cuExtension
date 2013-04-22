@@ -1,4 +1,4 @@
-module Alea.CUDA.Extension.SobolJoeKuo_6_21201
+module Alea.CUDA.Extension.Random.SobolJoeKuo_6_21201
 
 let d = [|
     0

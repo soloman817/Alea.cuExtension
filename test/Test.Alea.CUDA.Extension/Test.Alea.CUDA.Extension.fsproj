@@ -85,13 +85,12 @@
     <Compile Include="Util.fs" />
     <Compile Include="PCalc.fs" />
     <Compile Include="Transformation.fs" />
-    <Compile Include="NormalDistribution.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="SegmentedScanByFlag.fs" />
     <Compile Include="SegmentedScanByKey.fs" />
+    <Compile Include="NormalDistribution.fs" />
     <Compile Include="MovingAverage.fs" />
-    <Compile Include="Sobol.fs" />
     <Compile Include="TriDiag.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />

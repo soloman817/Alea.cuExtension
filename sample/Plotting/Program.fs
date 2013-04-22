@@ -34,7 +34,7 @@ module WaveSurface =
 
         fun () ->
             printf "Compiling wave surface kernel..."
-            let irm = PMatrix.fillp transform |> markStatic "Plotting.Program.WaveSurface.fillIRM" |> genirm
+            let irm = PMatrix.fillip transform |> markStatic "Plotting.Program.WaveSurface.fillIRM" |> genirm
             printfn "[OK]"
             irm
         |> Lazy.Create

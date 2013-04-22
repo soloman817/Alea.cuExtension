@@ -7,7 +7,7 @@ open Alea.CUDA
 open Util
 
 let init (f:Expr<int -> int -> 'T>) = cuda {
-    let! pfunc = MatrixTransform.filli "init" f
+    let! pfunc = Transform2D.filli "init" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -19,7 +19,7 @@ let init (f:Expr<int -> int -> 'T>) = cuda {
                 return matrix } ) }
 
 let initp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
-    let! pfunc = MatrixTransform.fillip "initp" f
+    let! pfunc = Transform2D.fillip "initp" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -30,8 +30,8 @@ let initp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
                 do! PCalc.action (fun hint -> pfunc hint matrix.Order matrix.NumRows matrix.NumCols param matrix.Ptr)
                 return matrix } ) }
 
-let fillp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
-    let! pfunc = MatrixTransform.fillip "fillp" f
+let fillip (f:Expr<int -> int -> 'P -> 'T>) = cuda {
+    let! pfunc = Transform2D.fillip "fillip" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -40,7 +40,7 @@ let fillp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
             pcalc { do! PCalc.action (fun hint -> pfunc hint matrix.Order matrix.NumRows matrix.NumCols param matrix.Ptr) } ) }
 
 let transformip (f:Expr<int -> int -> 'P -> 'T -> 'U>) = cuda {
-    let! pfunc = MatrixTransform.transformip "transformip" f
+    let! pfunc = Transform2D.transformip "transformip" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker

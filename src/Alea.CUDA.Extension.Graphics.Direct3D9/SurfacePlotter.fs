@@ -162,7 +162,7 @@ module Kernels =
 
                 Vertex(position, color) @>
 
-        let! map = MatrixTransform.transformip "xxx" transform
+        let! map = Transform2D.transformip "xxx" transform
         let! max = PArray.reduce <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>
         let! min = PArray.reduce <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>
 

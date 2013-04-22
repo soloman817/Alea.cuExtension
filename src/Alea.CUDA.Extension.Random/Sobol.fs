@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Sobol
+﻿module Alea.CUDA.Extension.Random.Sobol
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
