@@ -110,10 +110,9 @@ module Kernels =
 
     let initMeshIBIRM =
         fun () ->
-            printf "Compiling init mesh index buffer kernel..."
-            let irm = initMeshIBTemplate |> markStatic "Alea.CUDA.Extension.Graphics.Direct3D9.SurfacePlotter.Kernels.initMeshIBIRM" |> genirm
-            printfn "[OK]"
-            irm
+            initMeshIBTemplate
+            |> markStatic "Alea.CUDA.Extension.Graphics.Direct3D9.SurfacePlotter.Kernels.initMeshIBIRM"
+            |> genirm
         |> Lazy.Create
 
     [<ReflectedDefinition>]
@@ -201,10 +200,9 @@ module Kernels =
 
     let fillVBIRM =
         fun () ->
-            printf "Compiling vertex buffer fill kernel..."
-            let irm = fillVBTemplate |> markStatic "Alea.CUDA.Extension.Graphics.Direct3D9.SurfacePlotter.Kernels.fillVBIRM" |> genirm
-            printfn "[OK]"
-            irm
+            fillVBTemplate
+            |> markStatic "Alea.CUDA.Extension.Graphics.Direct3D9.SurfacePlotter.Kernels.fillVBIRM"
+            |> genirm
         |> Lazy.Create
 
 type RenderType =
@@ -339,13 +337,19 @@ let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (
 
     context.UnregisterGraphicsResource(vbRes) }
 
-
 // about code            
 let genCodeRepo(filename:string) =
     Environment.clearCodeRepo()
     Environment.startRecordingCode(filename)
+    
+    printf "  Compiling initMeshIB..."
     Kernels.initMeshIBIRM.Force() |> ignore
+    printfn "[OK]"
+
+    printf "  Compiling fillVB..."
     Kernels.fillVBIRM.Force() |> ignore
+    printfn "[OK]"
+
     Environment.stopRecordingCode()
 
 let tryLoadCode = Environment.loadCodeRepoFromAssemblyResource(Reflection.Assembly.GetExecutingAssembly(), "SurfacePlotter.pcr")

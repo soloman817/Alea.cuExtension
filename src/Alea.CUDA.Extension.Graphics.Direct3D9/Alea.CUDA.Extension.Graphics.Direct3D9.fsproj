@@ -40,6 +40,7 @@
     <Compile Include="Application.fs" />
     <Compile Include="SurfacePlotter.fs" />
     <EmbeddedResource Include="SurfacePlotter.pcr" />
+    <Compile Include="CodeRepo.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
