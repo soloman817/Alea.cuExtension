@@ -39,6 +39,7 @@
   <ItemGroup>
     <Compile Include="XorShift7Data.fs" />
     <Compile Include="XorShift7.fs" />
+    <Compile Include="XorShift7Gold.fs" />
     <Compile Include="SobolJoeKuo_6_21201.fs" />
     <Compile Include="Sobol.fs" />
     <Compile Include="SobolGold.fs" />

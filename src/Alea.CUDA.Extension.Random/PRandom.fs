@@ -19,9 +19,9 @@ type XorShift7StartState =
 
 type XorShift7Rng<'T when 'T:unmanaged> =
     {
+        StreamUnit : int
         MallocStartStateInBlob : unit -> PCalc<XorShift7StartState>
         UpdateStartState : XorShift7StartState -> uint32 -> PCalc<XorShift7StartState>
-
         MallocRandomNumberInBlob : int -> int -> PCalc<XorShift7RandomNumber<'T>>
         UpdateRandomNumber : XorShift7RandomNumber<'T> -> XorShift7StartState -> int -> int -> PCalc<unit>
     }
@@ -57,12 +57,11 @@ let xorshift7Rng converter = cuda {
                     generator.Generate hint jumpAheadMatrices.Ptr randomNumber.NumStreams randomNumber.NumSteps startState.StartState.Ptr runs rank randomNumber.Numbers.Ptr
                 |> PCalc.action }
 
-        let rng = { MallocStartStateInBlob = mallocStartStateInBlob
-                    UpdateStartState = updateStartState
-                    MallocRandomNumberInBlob = mallocRandomNumberInBlob
-                    UpdateRandomNumber = updateRandomNumber }
-
-        rng) }
+        { StreamUnit = generator.StreamUnit
+          MallocStartStateInBlob = mallocStartStateInBlob
+          UpdateStartState = updateStartState
+          MallocRandomNumberInBlob = mallocRandomNumberInBlob
+          UpdateRandomNumber = updateRandomNumber } ) }
 
 let xorshift7 converter = cuda {
     let! rng = xorshift7Rng converter

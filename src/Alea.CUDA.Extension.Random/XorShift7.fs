@@ -21,7 +21,7 @@ let jumpAhead (numThreads:int) (threadRank:int)
               (jumpAheadMatrixCache:SharedPtr<uint32>) (state:LocalPtr<uint32>) =
 
     let numThreadsPerBlock = blockDim.x * blockDim.y * blockDim.z
-    let threadRankInBlock = threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x
+    let threadRankInBlock = threadIdx.z * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x
 
     let mutable p = 0
     while (1 <<< p) < numThreads do p <- p + 1
@@ -42,11 +42,11 @@ let jumpAhead (numThreads:int) (threadRank:int)
                 __syncthreads()
                 let mutable l = threadRankInBlock
                 while l < 8 do
-                    let matrix = matrix // %BUG% need to be fix: when getting volatile on mutable value
-                    jumpAheadMatrixCache.[l] <- matrix.[l]
+                    let matrix' = matrix // %BUG% need to be fix: when getting volatile on mutable value
+                    jumpAheadMatrixCache.[l] <- matrix'.[l]
                     l <- l + numThreadsPerBlock
-                let matrix_ = matrix // %BUG% again need to be fix
-                matrix <- matrix_ + 8
+                let matrix' = matrix // %BUG% again need to be fix
+                matrix <- matrix' + 8
 
                 __syncthreads()
                 if (threadRank &&& (1 <<< i) <> 0) then
@@ -131,11 +131,14 @@ let generateStartState (seed:uint32) =
     for i = 1 to 7 do state.[i] <- LCG_A * state.[i - 1] + LCG_C
     state
 
-type IXorShift7<'T when 'T:unmanaged> =
-    abstract JumpAheadMatrices : uint32[]
-    abstract GenerateStartState : uint32 -> uint32[]
-    // hint -> jumpAheadMatrices -> streams -> steps -> startState -> runs -> rank -> result
-    abstract Generate : ActionHint -> DevicePtr<uint32> -> int -> int -> DevicePtr<uint32> -> int -> int -> DevicePtr<'T> -> unit
+type XorShift7Rng<'T when 'T:unmanaged> =
+    {
+        StreamUnit : int
+        JumpAheadMatrices : uint32[]
+        GenerateStartState : uint32 -> uint32[]
+        // hint -> jumpAheadMatrices -> streams -> steps -> startState -> runs -> rank -> result
+        Generate : ActionHint -> DevicePtr<uint32> -> int -> int -> DevicePtr<uint32> -> int -> int -> DevicePtr<'T> -> unit
+    }
 
 let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
     let! kernel =
@@ -162,8 +165,9 @@ let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
                 index <- index + numThreads @>
         |> defineKernelFunc
 
+    let blockSize = dim3(32, 8)
+
     let launchParam numStreams =
-        let blockSize = dim3(32, 8)
         let numThreadsPerBlock = blockSize.Size
         if numStreams % numThreadsPerBlock <> 0 then failwithf "streams should be multiple of %d" numThreadsPerBlock
         let gridSize = dim3(numStreams / numThreadsPerBlock)
@@ -175,16 +179,17 @@ let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
 
         let launch (hint:ActionHint) jumpAheadMatrices numStreams numSteps startState numRuns runRank (results:DevicePtr<'T>) =
             let lp = launchParam numStreams |> hint.ModifyLaunchParam
-            printfn "gridSize = (%d,%d,%d)" lp.GridDim.x lp.GridDim.y lp.GridDim.z
-            printfn "blockSize = (%d,%d,%d)" lp.BlockDim.x lp.BlockDim.y lp.BlockDim.z
-            printfn "sharedSize = %A" lp.SharedMemBytes
-            printfn "numRuns = %A" numRuns
-            printfn "runRank = %A" runRank
-            printfn "numSteps = %A" numSteps
             kernel.Launch lp numRuns runRank startState jumpAheadMatrices numSteps results
 
-        { new IXorShift7<'T> with
-            member this.JumpAheadMatrices = XorShift7Data.jumpAheadMatrices
-            member this.GenerateStartState seed = generateStartState seed
-            member this.Generate hint jumpAheadMatrices numStreams numSteps startState numRuns runRank results = launch hint jumpAheadMatrices numStreams numSteps startState numRuns runRank results
-        } ) }
+        { StreamUnit = blockSize.Size
+          JumpAheadMatrices = XorShift7Data.jumpAheadMatrices
+          GenerateStartState = generateStartState
+          Generate = launch } ) }
+
+/// Transforms an uint32 random number to a float value 
+/// on the interval [0,1] by dividing by 2^32-1
+let [<ReflectedDefinition>] toFloat32 (x:uint32) = float32(x) * 2.3283064E-10f
+
+/// Transforms an uint32 random number to a float value 
+/// on the interval [0,1] by dividing by 2^32-1
+let [<ReflectedDefinition>] toFloat64 (x:uint32) = float(x) * 2.328306437080797e-10   
