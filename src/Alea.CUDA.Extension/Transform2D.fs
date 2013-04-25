@@ -68,16 +68,8 @@ let fillip name transform = cuda {
                     minor <- minor + minorStride
                 major <- major + majorStride @>
 
-    // Here Alea.cuBase has a bug, cannot use the following function transformation, need to be fix : @BUG@
-    //let! kernelRowMajorOrder = RowMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
-    //let! kernelColMajorOrder = ColMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
-
-    let toStorageOrder (order:MatrixStorageOrder) (transform:Expr<int -> int -> 'P -> 'T>) =
-        match order with
-        | RowMajorOrder -> transform
-        | ColMajorOrder -> <@ fun c r p -> (%transform) r c p @>
-    let! kernelRowMajorOrder = toStorageOrder RowMajorOrder transform |> kernel |> defineKernelFunc
-    let! kernelColMajorOrder = toStorageOrder ColMajorOrder transform |> kernel |> defineKernelFunc
+    let! kernelRowMajorOrder = RowMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
+    let! kernelColMajorOrder = ColMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
 
     let launchParam (m:Module) =
         let worker = m.Worker
@@ -124,16 +116,8 @@ let transformip name transform = cuda {
                     minor <- minor + minorStride
                 major <- major + majorStride @>
 
-    // Here Alea.cuBase has a bug, cannot use the following function transformation, need to be fix : @BUG@
-    //let! kernelRowMajorOrder = RowMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
-    //let! kernelColMajorOrder = ColMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
-
-    let toStorageOrder (order:MatrixStorageOrder) (transform:Expr<int -> int -> 'P -> 'T -> 'U>) =
-        match order with
-        | RowMajorOrder -> transform
-        | ColMajorOrder -> <@ fun c r p v -> (%transform) r c p v @>
-    let! kernelRowMajorOrder = toStorageOrder RowMajorOrder transform |> kernel |> defineKernelFunc
-    let! kernelColMajorOrder = toStorageOrder ColMajorOrder transform |> kernel |> defineKernelFunc
+    let! kernelRowMajorOrder = RowMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
+    let! kernelColMajorOrder = ColMajorOrder.ToStorageOrder(transform) |> kernel |> defineKernelFunc
 
     let launchParam (m:Module) =
         let worker = m.Worker

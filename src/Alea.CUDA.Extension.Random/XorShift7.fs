@@ -9,16 +9,10 @@ open Microsoft.FSharp.NativeInterop
 open Alea.CUDA
 open Alea.CUDA.Extension
 
-///////////// %BUG% need to be fix to accept type cast ////////////////
-//[<ReflectedDefinition>]
-//let jumpAhead (numThreads:int) (threadRank:int)
-//              (stateStart:RPtr<uint32>) (jumpAheadMatrices:RPtr<uint32>)
-//              (jumpAheadMatrixCache:RWPtr<uint32>) (state:RWPtr<uint32>) =
-//
 [<ReflectedDefinition>]
 let jumpAhead (numThreads:int) (threadRank:int)
-              (stateStart:DevicePtr<uint32>) (jumpAheadMatrices:DevicePtr<uint32>)
-              (jumpAheadMatrixCache:SharedPtr<uint32>) (state:LocalPtr<uint32>) =
+              (stateStart:RPtr<uint32>) (jumpAheadMatrices:RPtr<uint32>)
+              (jumpAheadMatrixCache:RWPtr<uint32>) (state:RWPtr<uint32>) =
 
     let numThreadsPerBlock = blockDim.x * blockDim.y * blockDim.z
     let threadRankInBlock = threadIdx.z * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x
@@ -42,11 +36,9 @@ let jumpAhead (numThreads:int) (threadRank:int)
                 __syncthreads()
                 let mutable l = threadRankInBlock
                 while l < 8 do
-                    let matrix' = matrix // %BUG% need to be fix: when getting volatile on mutable value
-                    jumpAheadMatrixCache.[l] <- matrix'.[l]
+                    jumpAheadMatrixCache.[l] <- matrix.[l]
                     l <- l + numThreadsPerBlock
-                let matrix' = matrix // %BUG% again need to be fix
-                matrix <- matrix' + 8
+                matrix <- matrix + 8
 
                 __syncthreads()
                 if (threadRank &&& (1 <<< i) <> 0) then
@@ -81,21 +73,13 @@ type XorShift7 =
             else failwith "index out of range"
 
     [<ReflectedDefinition>]
-    static member Size = 8 * 4 + 4 // TODO : fix this with sizeof %BUG%
+    static member Size = sizeof<XorShift7>
 
-//    [<ReflectedDefinition>]
-//    static member Bless(buffer:RWPtr<byte>) = buffer.Reinterpret<XorShift7>()
-    // %BUG%
     [<ReflectedDefinition>]
-    static member Bless(buffer:SharedPtr<byte>) = buffer.Reinterpret<XorShift7>()
+    static member Bless(buffer:RWPtr<byte>) = buffer.Reinterpret<XorShift7>()
 
-//    [<ReflectedDefinition>]
-//    static member Init(xorshift7:XorShift7 ref, buffer:RPtr<uint32>) =
-//        for i = 0 to 7 do xorshift7.contents.state(i) <- buffer.[i]
-//        xorshift7.contents.index <- 0
-    // %BUG%
     [<ReflectedDefinition>]
-    static member Init(xorshift7:XorShift7 ref, buffer:LocalPtr<uint32>) =
+    static member Init(xorshift7:XorShift7 ref, buffer:RPtr<uint32>) =
         for i = 0 to 7 do xorshift7.contents.state(i) <- buffer.[i]
         xorshift7.contents.index <- 0
 
@@ -143,8 +127,7 @@ type XorShift7Rng<'T when 'T:unmanaged> =
 let generator (convertExpr:Expr<uint32 -> 'T>) = cuda {
     let! kernel =
         <@ fun (numRuns:int) (runRank:int) (stateStart:DevicePtr<uint32>) (jumpAheadMatrices:DevicePtr<uint32>) (numSteps:int) (results:DevicePtr<'T>) ->
-            // %BUG% fix this extern shared align with new primitives
-            let sharedData = __extern_shared__<int>().Reinterpret<byte>()
+            let sharedData = __extern_align_shared__<byte>(4)
 
             let numBlocks = gridDim.x * gridDim.y * gridDim.z
             let blockRank = blockIdx.z * (gridDim.x * gridDim.y) + blockIdx.y * gridDim.x + blockIdx.x

@@ -271,10 +271,10 @@ let tryLoadCode = Environment.loadCodeRepoFromAssemblyResource(Reflection.Assemb
     
 //genCodeRepo() 
 
-plotWaveSurface()
-animateWaveSurface()
-plotHeatGauss1()
+//plotWaveSurface()
+//animateWaveSurface()
+//plotHeatGauss1()
 animateHeatGauss1()
-plotHeatGauss2()
-animateHeatGauss2()
+//plotHeatGauss2()
+//animateHeatGauss2()
 
