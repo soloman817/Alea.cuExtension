@@ -98,11 +98,11 @@
   <ItemGroup>
     <Reference Include="Accessibility" />
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.1.478\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.1.481\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Alea.Interop">
-      <HintPath>..\..\packages\Alea.cuBase.1.1.478\lib\net40\Alea.Interop.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.1.481\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
@@ -114,8 +114,6 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
