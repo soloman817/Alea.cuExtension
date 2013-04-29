@@ -161,3 +161,10 @@ pip-log.txt
 
 # Mac crap
 .DS_Store
+
+
+###########
+# NUnit
+###########
+Alea.cuExtension.VisualState.xml
+TestResult.xml

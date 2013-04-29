@@ -1,0 +1,13 @@
+﻿<NUnitProject>
+  <Settings activeconfig="Release" processModel="Default" domainUsage="Default" />
+  <Config name="Debug" binpathtype="Auto" runtimeFramework="net-4.0.21006">
+    <assembly path="test\Test.Alea.CUDA.Extension\bin\Release\Test.Alea.CUDA.Extension.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.Random\bin\Release\Test.Alea.CUDA.Extension.Random.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.Finance\bin\Release\Test.Alea.CUDA.Extension.Finance.exe" />
+  </Config>
+  <Config name="Release" binpathtype="Auto">
+    <assembly path="test\Test.Alea.CUDA.Extension\bin\Release\Test.Alea.CUDA.Extension.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.Random\bin\Release\Test.Alea.CUDA.Extension.Random.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.Finance\bin\Release\Test.Alea.CUDA.Extension.Finance.exe" />
+  </Config>
+</NUnitProject>
