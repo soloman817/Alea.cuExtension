@@ -23,13 +23,137 @@ type HestonModel = {
     eta : float -> float
 }
 
-type Differences = {
-    n:int; x:DevicePtr<float>; delta:DevicePtr<float>
-    alpha0:DevicePtr<float>; alphaM1:DevicePtr<float>; alphaM2:DevicePtr<float> 
-    beta0:DevicePtr<float>;  betaP:DevicePtr<float>;   betaM:DevicePtr<float>   
-    gamma0:DevicePtr<float>; gammaP1:DevicePtr<float>; gammaP2:DevicePtr<float> 
-    delta0:DevicePtr<float>; deltaP:DevicePtr<float>;  deltaM:DevicePtr<float> 
-}
+[<Struct>]
+type Differences =
+    val n : int
+    [<PointerField(MemorySpace.Global)>] val mutable x       : int64
+    [<PointerField(MemorySpace.Global)>] val mutable delta   : int64
+    [<PointerField(MemorySpace.Global)>] val mutable alpha0  : int64
+    [<PointerField(MemorySpace.Global)>] val mutable alphaM1 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable alphaM2 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable beta0   : int64
+    [<PointerField(MemorySpace.Global)>] val mutable betaP   : int64
+    [<PointerField(MemorySpace.Global)>] val mutable betaM   : int64
+    [<PointerField(MemorySpace.Global)>] val mutable gamma0  : int64
+    [<PointerField(MemorySpace.Global)>] val mutable gammaP1 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable gammaP2 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable delta0  : int64
+    [<PointerField(MemorySpace.Global)>] val mutable deltaP  : int64
+    [<PointerField(MemorySpace.Global)>] val mutable deltaM  : int64
+
+    [<PointerProperty("x")>] member this.X       with get () = DevicePtr<float>(this.x) and set (ptr:DevicePtr<float>) = this.x <- ptr.Handle64
+    [<PointerProperty("x")>] member this.Delta   with get () = DevicePtr<float>(this.delta) and set (ptr:DevicePtr<float>) = this.delta <- ptr.Handle64
+    [<PointerProperty("x")>] member this.Alpha0  with get () = DevicePtr<float>(this.alpha0) and set (ptr:DevicePtr<float>) = this.alpha0 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.AlphaM1 with get () = DevicePtr<float>(this.alphaM1) and set (ptr:DevicePtr<float>) = this.alphaM1 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.AlphaM2 with get () = DevicePtr<float>(this.alphaM2) and set (ptr:DevicePtr<float>) = this.alphaM2 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.Beta0   with get () = DevicePtr<float>(this.beta0) and set (ptr:DevicePtr<float>) = this.beta0 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.BetaP   with get () = DevicePtr<float>(this.betaP) and set (ptr:DevicePtr<float>) = this.betaP <- ptr.Handle64
+    [<PointerProperty("x")>] member this.BetaM   with get () = DevicePtr<float>(this.betaM) and set (ptr:DevicePtr<float>) = this.betaM <- ptr.Handle64
+    [<PointerProperty("x")>] member this.Gamma0  with get () = DevicePtr<float>(this.gamma0) and set (ptr:DevicePtr<float>) = this.gamma0 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.GammaP1 with get () = DevicePtr<float>(this.gammaP1) and set (ptr:DevicePtr<float>) = this.gammaP1 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.GammaP2 with get () = DevicePtr<float>(this.gammaP2) and set (ptr:DevicePtr<float>) = this.gammaP2 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.Delta0  with get () = DevicePtr<float>(this.delta0) and set (ptr:DevicePtr<float>) = this.delta0 <- ptr.Handle64
+    [<PointerProperty("x")>] member this.DeltaP  with get () = DevicePtr<float>(this.deltaP) and set (ptr:DevicePtr<float>) = this.deltaP <- ptr.Handle64
+    [<PointerProperty("x")>] member this.DeltaM  with get () = DevicePtr<float>(this.deltaM) and set (ptr:DevicePtr<float>) = this.deltaM <- ptr.Handle64
+
+    [<ReflectedDefinition>]
+    new (n:int, x:DevicePtr<float>, delta:DevicePtr<float>, 
+         alpha0:DevicePtr<float>, alphaM1:DevicePtr<float>, alphaM2:DevicePtr<float>, 
+         beta0:DevicePtr<float>, betaP:DevicePtr<float>, betaM:DevicePtr<float>, 
+         gamma0:DevicePtr<float>, gammaP1:DevicePtr<float>, gammaP2:DevicePtr<float>, 
+         delta0:DevicePtr<float>, deltaP:DevicePtr<float>, deltaM:DevicePtr<float>) =
+        { n = n; x = x.Handle64; delta = delta.Handle64
+          alpha0 = alpha0.Handle64; alphaM1 = alphaM1.Handle64; alphaM2 = alphaM2.Handle64
+          beta0 = beta0.Handle64; betaP = betaP.Handle64; betaM = betaM.Handle64
+          gamma0 = gamma0.Handle64; gammaP1 = gammaP1.Handle64; gammaP2 = gammaP2.Handle64
+          delta0 = delta0.Handle64; deltaP = deltaP.Handle64; deltaM = deltaM.Handle64 }
+
+// helper functions to shift index properly
+let [<ReflectedDefinition>] delta (diff:Differences) i = diff.Delta.[i-1]
+let [<ReflectedDefinition>] alphaM2 (diff:Differences) i = diff.AlphaM2.[i-2]
+let [<ReflectedDefinition>] alphaM1(diff:Differences) i = diff.AlphaM1.[i-2]
+let [<ReflectedDefinition>] alpha0(diff:Differences) i = diff.Alpha0.[i-2]
+let [<ReflectedDefinition>] betaM(diff:Differences) i = diff.BetaM.[i-1]
+let [<ReflectedDefinition>] beta0(diff:Differences) i = diff.Beta0.[i-1]
+let [<ReflectedDefinition>] betaP(diff:Differences) i = diff.BetaP.[i-1]
+let [<ReflectedDefinition>] gamma0(diff:Differences) i = diff.Gamma0.[i]
+let [<ReflectedDefinition>] gammaP1(diff:Differences) i = diff.GammaP1.[i]
+let [<ReflectedDefinition>] gammaP2(diff:Differences) i = diff.GammaP2.[i]
+let [<ReflectedDefinition>] deltaM(diff:Differences) i = diff.DeltaM.[i-1]
+let [<ReflectedDefinition>] delta0(diff:Differences) i = diff.Delta0.[i-1]
+let [<ReflectedDefinition>] deltaP(diff:Differences) i = diff.DeltaP.[i-1]
+
+[<ReflectedDefinition>]
+let deltaX (n:int) (x:DevicePtr<float>) (dx:DevicePtr<float>) =
+    let start = blockIdx.x * blockDim.x + threadIdx.x
+    let stride = gridDim.x * blockDim.x
+    let mutable i = start
+    while i < n - 1 do
+        dx.[i] <- x.[i + 1] - x.[i]
+        i <- i + stride 
+
+[<ReflectedDefinition>]
+let finiteDifferenceWeights n (diff:Differences) =
+    let start = blockIdx.x * blockDim.x + threadIdx.x
+    let stride = gridDim.x * blockDim.x
+    let mutable i = start
+    while i < n - 2 do
+        let dx0 = diff.Delta.[i]
+        let dx1 = diff.Delta.[i+1]
+
+        diff.AlphaM2.[i] <- dx1 / (dx0 * (dx0 + dx1))
+        diff.AlphaM1.[i] <- -(dx0 + dx1) / (dx0 * dx1)
+        diff.Alpha0.[i]  <- (dx0 + 2.0 * dx1) / (dx1 * (dx0 + dx1))
+        
+        diff.BetaM.[i]   <- -dx1 / (dx0 * (dx0 + dx1))
+        diff.Beta0.[i]   <- (dx1 - dx0) / (dx0 * dx1)
+        diff.BetaP.[i]   <- dx0 / (dx1 * (dx0 + dx1))
+       
+        diff.Gamma0.[i]  <- (-2.0 * dx0 - dx1) / (dx0 * (dx0 + dx1))
+        diff.GammaP1.[i] <- (dx0 + dx1) / (dx0 * dx1)
+        diff.GammaP2.[i] <- -dx0 / (dx1 * (dx0 + dx1))
+        
+        diff.DeltaM.[i]  <- 2.0 / (dx0 * (dx0 + dx1))
+        diff.Delta0.[i]  <- -2.0 / (dx0 * dx1)
+        diff.DeltaP.[i]  <- 2.0 / (dx1 * (dx0 + dx1))
+
+        i <- i + stride 
+
+let fdWeights = cuda {
+
+        let! deltaXKernel = <@ deltaX @> |> defineKernelFunc
+        let! finiteDifferenceWeightsKernel = <@ finiteDifferenceWeights @> |> defineKernelFunc
+
+        return PFunc(fun (m:Module) (x:float[]) ->
+            let n = x.Length
+            use x_ = m.Worker.Malloc(x)
+            use delta_ = m.Worker.Malloc<float>(n-1)
+            use alpha0_ = m.Worker.Malloc<float>(n-2)
+            use alphaM1_ = m.Worker.Malloc<float>(n-2)
+            use alphaM2_ = m.Worker.Malloc<float>(n-2)
+            use beta0_ = m.Worker.Malloc<float>(n-2)
+            use betaP_ = m.Worker.Malloc<float>(n-2)
+            use betaM_ = m.Worker.Malloc<float>(n-2)
+            use gamma0_ = m.Worker.Malloc<float>(n-2)
+            use gammaP1_ = m.Worker.Malloc<float>(n-2)
+            use gammaP2_ = m.Worker.Malloc<float>(n-2)
+            use delta0_ = m.Worker.Malloc<float>(n-2)
+            use deltaP_ = m.Worker.Malloc<float>(n-2)
+            use deltaM_ = m.Worker.Malloc<float>(n-2)
+
+            let diff = Differences(n, x_.Ptr, delta_.Ptr, alpha0_.Ptr, alphaM1_.Ptr, alphaM2_.Ptr, 
+                                   beta0_.Ptr, betaP_.Ptr, betaM_.Ptr, gamma0_.Ptr, gammaP1_.Ptr, gammaP2_.Ptr, 
+                                   delta0_.Ptr, deltaP_.Ptr, deltaM_.Ptr)
+
+            let blockSize = 256 
+            let gridSize = Util.divup n blockSize
+            let lp = LaunchParam(gridSize, blockSize)
+            deltaXKernel.Launch m lp n diff.X diff.Delta
+            finiteDifferenceWeightsKernel.Launch m lp n diff
+            (delta_.ToHost(), alpha0_.ToHost(), alphaM1_.ToHost(), alphaM2_.ToHost(), 
+             beta0_.ToHost(), betaP_.ToHost(), betaM_.ToHost(), 
+             gamma0_.ToHost(), gammaP1_.ToHost(), gammaP2_.ToHost(), 
+             delta0_.ToHost(), deltaP_.ToHost(), deltaM_.ToHost())) }
 
 type Stencil = {
     si:int; vi:int
@@ -50,59 +174,7 @@ type Stencil = {
     uv0:float; uv1:float; uv2:float
 }
 
-[<ReflectedDefinition>]
-let deltaX (n:int) (x:DevicePtr<float>) (dx:DevicePtr<float>) =
-    let start = blockIdx.x * blockDim.x + threadIdx.x
-    let stride = gridDim.x * blockDim.x
-    let mutable i = start
-    while i < n - 1 do
-        dx.[i] <- x.[i + 1] - x.[i]
-        i <- i + stride 
 
-[<ReflectedDefinition>]
-let finiteDifferenceWeights (diff:Differences) =
-    let start = blockIdx.x * blockDim.x + threadIdx.x
-    let stride = gridDim.x * blockDim.x
-    let mutable i = start
-    while i < diff.n - 2 do
-        let dx0 = diff.delta.[i]
-        let dx1 = diff.delta.[i+1]
-
-        diff.alphaM2.[i] <- dx1 / (dx0 * (dx0 + dx1))
-        diff.alphaM1.[i] <- -(dx0 + dx1) / (dx0 * dx1)
-        diff.alpha0.[i]  <- (dx0 + 2.0 * dx1) / (dx1 * (dx0 + dx1))
-        
-        diff.betaM.[i]   <- -dx1 / (dx0 * (dx0 + dx1))
-        diff.beta0.[i]   <- (dx1 - dx0) / (dx0 * dx1)
-        diff.betaP.[i]   <- dx0 / (dx1 * (dx0 + dx1))
-       
-        diff.gamma0.[i]  <- (-2.0 * dx0 - dx1) / (dx0 * (dx0 + dx1))
-        diff.gammaP1.[i] <- (dx0 + dx1) / (dx0 * dx1)
-        diff.gammaP2.[i] <- -dx0 / (dx1 * (dx0 + dx1))
-        
-        diff.deltaM.[i]  <- 2.0 / (dx0 * (dx0 + dx1))
-        diff.delta0.[i]  <- -2.0 / (dx0 * dx1)
-        diff.deltaP.[i]  <- 2.0 / (dx1 * (dx0 + dx1))
-
-        i <- i + stride 
-
-let [<ReflectedDefinition>] delta (diff:Differences) i = diff.delta.[i-1]
- 
-let [<ReflectedDefinition>] alphaM2 (diff:Differences) i = diff.alphaM2.[i-2]
-let [<ReflectedDefinition>] alphaM1(diff:Differences) i = diff.alphaM1.[i-2]
-let [<ReflectedDefinition>] alpha0(diff:Differences) i = diff.alpha0.[i-2]
-
-let [<ReflectedDefinition>] betaM(diff:Differences) i = diff.betaM.[i-1]
-let [<ReflectedDefinition>] beta0(diff:Differences) i = diff.beta0.[i-1]
-let [<ReflectedDefinition>] betaP(diff:Differences) i = diff.betaP.[i-1]
-
-let [<ReflectedDefinition>] gamma0(diff:Differences) i = diff.gamma0.[i]
-let [<ReflectedDefinition>] gammaP1(diff:Differences) i = diff.gammaP1.[i]
-let [<ReflectedDefinition>] gammaP2(diff:Differences) i = diff.gammaP2.[i]
-
-let [<ReflectedDefinition>] deltaM(diff:Differences) i = diff.deltaM.[i-1]
-let [<ReflectedDefinition>] delta0(diff:Differences) i = diff.delta0.[i-1]
-let [<ReflectedDefinition>] deltaP(diff:Differences) i = diff.deltaP.[i-1]
 
 let [<ReflectedDefinition>] stencil si vi (ds:Differences) (dv:Differences) (u:float[,]) (* u should be a DeviceMatrix *) =
     if si = 0 && vi = 0 then  // 1 corner
@@ -481,12 +553,12 @@ let solveF1 t (ds:Differences) (dv:Differences) (b:float[,]) (func:int -> int ->
     let mutable vi = blockIdx.x
     while vi < dv.n do
         
-        let vv = dv.x.[vi]
+        let vv = dv.X.[vi]
 
         let mutable si = threadIdx.x
         while si < ds.n do
        
-            let vs = ds.x.[si]
+            let vs = ds.X.[si]
 
             if si = 0 then
                 l.[si] <- 0.0
@@ -549,12 +621,12 @@ let solveF2 t (ds:Differences) (dv:Differences) (b:float[,]) (func:int -> int ->
     let mutable si = blockIdx.x
     while si < ds.n - 1 do
 
-        let vs = ds.x.[si]
+        let vs = ds.X.[si]
 
         let mutable vi = threadIdx.x
         while vi < dv.n do
 
-            let vv = dv.x.[vi]
+            let vv = dv.X.[vi]
 
             if si = 0 then
                 h.[vi] <- 0.0

@@ -41,6 +41,7 @@
   <Import Project="$(SolutionDir)\.nuget\nuget.targets" />
   <ItemGroup>
     <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="Heston.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />
   </ItemGroup>
