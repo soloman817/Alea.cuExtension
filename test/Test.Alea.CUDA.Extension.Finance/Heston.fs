@@ -19,11 +19,9 @@ let ``finite difference weights`` () =
     let s = concentratedGrid 0.0 250.0 50.0 100 10.0
     let finiteDifferenceWeights = worker.LoadPModule(finiteDifferenceWeights).Invoke
 
-    //let fdWeights = worker.LoadPModule(fdWeights).Invoke
     let fd = pcalc {
         let! s = DArray.scatterInBlob worker s
         let! sDiff = finiteDifferenceWeights s.Length s.Ptr  
-        let a = sDiff.Alpha0
         return sDiff
     } 
 
