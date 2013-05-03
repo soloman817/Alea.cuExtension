@@ -124,3 +124,59 @@ let ``Douglas scheme`` () =
     let valueMatrix = pricer |> PCalc.run
 
     ()
+
+[<Test>]
+let ``Douglas scheme plotting`` () =
+
+    let loop (context:Graphics.Direct3D9.Application.Context) =
+        pcalc {
+            // in real app, we will first compile template into irm, and load here
+            // this worker from context, which is capable interop with graphics
+            printf "Compiling..."
+            let douglasSolver = context.Worker.LoadPModule(douglasSolver).Invoke
+            printfn "[OK]"
+
+            // Heston model params
+            let rho = -0.5
+            let sigma = 0.2
+            let kappa = 0.2
+            let eta = 0.2
+            let rd = 0.05
+            let rf = 0.01
+            let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
+
+            // contract params
+            let timeToMaturity = 1.0
+            let strike = 100.0
+            let optionType = Call
+
+            // PDE solver params
+            let theta = 0.5
+            let sMax = 1000.0
+            let vMax = 16.0
+            let ns = 128
+            let nv = 64
+            let nt = 100
+            let cS = 8.0
+            let cV = 15.0
+            let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+
+            let! solution = douglasSolver heston optionType strike timeToMaturity param
+
+            let extend minv maxv = let maxv', _ = Graphics.Direct3D9.SurfacePlotter.defaultExtend minv maxv in maxv', 1.0
+            let renderType = Graphics.Direct3D9.SurfacePlotter.RenderType.Mesh
+            do! Graphics.Direct3D9.SurfacePlotter.plottingLoop context solution extend renderType }
+        |> PCalc.run
+
+    //printfn "%A" Device.AllDevices.[0].DeviceId
+    //printfn "%A" Device.AllDevices.[0].Name
+
+    // uhmm, I have 2 cards on my computer (I enabled it recently)
+    // so here the AllDevices has some problem , let me specifiy it
+    let cudaDevice = Device.AllDevices.[0]
+    //let cudaDevice = Engine.Device(1)
+    let param = Graphics.Direct3D9.Application.Param.Create(cudaDevice)
+    let param = { param with FormTitle = "Douglas Scheme"
+                             DrawingSize = System.Drawing.Size(1024, 768) }
+    let application = Graphics.Direct3D9.Application.Application(param, loop)
+    application.Start()

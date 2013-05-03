@@ -81,14 +81,29 @@
       <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="SharpDX">
+      <HintPath>..\..\packages\SharpDX.2.4.2\lib\net40\SharpDX.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D9">
+      <HintPath>..\..\packages\SharpDX.Direct3D9.2.4.2\lib\net40\SharpDX.Direct3D9.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.Numerics" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Finance\Alea.CUDA.Extension.Finance.fsproj">
       <Name>Alea.CUDA.Extension.Finance</Name>
       <Project>{ff4b6c27-82cc-43a8-aefc-4d72f9fa5e5d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Graphics.Direct3D9\Alea.CUDA.Extension.Graphics.Direct3D9.fsproj">
+      <Name>Alea.CUDA.Extension.Graphics.Direct3D9</Name>
+      <Project>{0edbc8ff-dd6a-49d4-8e76-5df9b0b0a2d2}</Project>
       <Private>True</Private>
     </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
