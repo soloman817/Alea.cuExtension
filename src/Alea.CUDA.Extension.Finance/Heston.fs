@@ -751,9 +751,9 @@ let solveF2 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:
 
     let shared = __extern_shared__<float>()
     let h = shared
-    let d = h + ns
-    let l = d + ns
-    let u = l + ns
+    let d = h + nv
+    let l = d + nv
+    let u = l + nv
 
     let mutable si = blockIdx.x
     while si < ns - 1 do
