@@ -61,6 +61,44 @@ type DScalar<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, ne
             this.Memory.Value.Dispose()
         base.Dispose(disposing)
 
+[<Struct>]
+type RMatrixRowMajor =
+    val rows : int  
+    val cols : int  
+    [<PointerField(MemorySpace.Global)>] val mutable storage : int64
+
+    [<PointerProperty("storage")>] member this.Storage with get () = DevicePtr<float>(this.storage) and set (ptr:DevicePtr<float>) = this.storage <- ptr.Handle64
+
+    [<ReflectedDefinition>]
+    new (rows:int, cols:int, storage:DevicePtr<float>) = { rows = rows; cols = cols; storage = storage.Handle64 }
+        
+    [<ReflectedDefinition>]
+    static member Get(s:RMatrixRowMajor ref, i:int, j:int) =
+        s.contents.Storage.[j + i*s.contents.cols]  
+
+    [<ReflectedDefinition>]
+    static member Set(s:RMatrixRowMajor ref, i:int, j:int, value:float) =
+        s.contents.Storage.[j + i*s.contents.cols] <- value
+
+[<Struct>]
+type RMatrixColMajor =
+    val rows : int  
+    val cols : int  
+    [<PointerField(MemorySpace.Global)>] val mutable storage : int64
+
+    [<PointerProperty("storage")>] member this.Storage with get () = DevicePtr<float>(this.storage) and set (ptr:DevicePtr<float>) = this.storage <- ptr.Handle64
+
+    [<ReflectedDefinition>]
+    new (rows:int, cols:int, storage:DevicePtr<float>) = { rows = rows; cols = cols; storage = storage.Handle64 }
+        
+    [<ReflectedDefinition>]
+    static member Get(s:RMatrixRowMajor ref, i:int, j:int) =
+        s.contents.Storage.[i + j*s.contents.rows]  
+
+    [<ReflectedDefinition>]
+    static member Set(s:RMatrixRowMajor ref, i:int, j:int, value:float) =
+        s.contents.Storage.[i + j*s.contents.rows] <- value
+
 type DMatrix<'T when 'T:unmanaged> (storage:DArray<'T>, order:MatrixStorageOrder, rows:int, cols:int) =
     inherit DisposableObject()
 
@@ -75,11 +113,19 @@ type DMatrix<'T when 'T:unmanaged> (storage:DArray<'T>, order:MatrixStorageOrder
     member this.DMem = storage.DMem
     member this.Worker = storage.Worker
     member this.Ptr = storage.Ptr
-
+        
     member this.Gather() =
         pcalc {
             let! storage = storage.Gather()
             return storage, order, rows, cols }
+
+    member this.ToArray2D() =
+        pcalc {
+            let! storage, order, rows, cols = this.Gather()
+            let matrix = match order with
+                         | RowMajorOrder -> Array2D.init rows cols (fun i j -> storage.[j + i*cols])
+                         | ColMajorOrder -> Array2D.init rows cols (fun i j -> storage.[i + j*rows])
+            return matrix}        
 
     override this.Dispose(disposing) =
         if disposing then storage.Dispose()

@@ -27,7 +27,7 @@ type HestonModelExpr =
           rf = <@ fun _ -> rf @>;  kappa = <@ fun _ -> kappa @>; eta = <@ fun _ -> eta @> }
 
 [<Struct>]
-type HestonModel=
+type HestonModel =
     val rho : float
     val sigma : float
     val rd : float
@@ -40,7 +40,7 @@ type HestonModel=
         { rho = rho; sigma = sigma; rd = rd; rf = rf; kappa = kappa; eta = eta } 
 
 [<Struct>]
-type Differences =
+type RFiniteDifferenceWeights =
     val n : int
     [<PointerField(MemorySpace.Global)>] val mutable x       : int64
     [<PointerField(MemorySpace.Global)>] val mutable delta   : int64
@@ -85,24 +85,89 @@ type Differences =
           delta0 = delta0.Handle64; deltaP = deltaP.Handle64; deltaM = deltaM.Handle64 }
 
 // helper functions to shift index properly
-let [<ReflectedDefinition>] delta(diff:Differences) i = diff.Delta.[i-1]
-let [<ReflectedDefinition>] alphaM2(diff:Differences) i = diff.AlphaM2.[i-2]
-let [<ReflectedDefinition>] alphaM1(diff:Differences) i = diff.AlphaM1.[i-2]
-let [<ReflectedDefinition>] alpha0(diff:Differences) i = diff.Alpha0.[i-2]
-let [<ReflectedDefinition>] betaM(diff:Differences) i = diff.BetaM.[i-1]
-let [<ReflectedDefinition>] beta0(diff:Differences) i = diff.Beta0.[i-1]
-let [<ReflectedDefinition>] betaP(diff:Differences) i = diff.BetaP.[i-1]
-let [<ReflectedDefinition>] gamma0(diff:Differences) i = diff.Gamma0.[i]
-let [<ReflectedDefinition>] gammaP1(diff:Differences) i = diff.GammaP1.[i]
-let [<ReflectedDefinition>] gammaP2(diff:Differences) i = diff.GammaP2.[i]
-let [<ReflectedDefinition>] deltaM(diff:Differences) i = diff.DeltaM.[i-1]
-let [<ReflectedDefinition>] delta0(diff:Differences) i = diff.Delta0.[i-1]
-let [<ReflectedDefinition>] deltaP(diff:Differences) i = diff.DeltaP.[i-1]
+let [<ReflectedDefinition>] delta(diff:RFiniteDifferenceWeights) i = diff.Delta.[i-1]
+let [<ReflectedDefinition>] alphaM2(diff:RFiniteDifferenceWeights) i = diff.AlphaM2.[i-2]
+let [<ReflectedDefinition>] alphaM1(diff:RFiniteDifferenceWeights) i = diff.AlphaM1.[i-2]
+let [<ReflectedDefinition>] alpha0(diff:RFiniteDifferenceWeights) i = diff.Alpha0.[i-2]
+let [<ReflectedDefinition>] betaM(diff:RFiniteDifferenceWeights) i = diff.BetaM.[i-1]
+let [<ReflectedDefinition>] beta0(diff:RFiniteDifferenceWeights) i = diff.Beta0.[i-1]
+let [<ReflectedDefinition>] betaP(diff:RFiniteDifferenceWeights) i = diff.BetaP.[i-1]
+let [<ReflectedDefinition>] gamma0(diff:RFiniteDifferenceWeights) i = diff.Gamma0.[i]
+let [<ReflectedDefinition>] gammaP1(diff:RFiniteDifferenceWeights) i = diff.GammaP1.[i]
+let [<ReflectedDefinition>] gammaP2(diff:RFiniteDifferenceWeights) i = diff.GammaP2.[i]
+let [<ReflectedDefinition>] deltaM(diff:RFiniteDifferenceWeights) i = diff.DeltaM.[i-1]
+let [<ReflectedDefinition>] delta0(diff:RFiniteDifferenceWeights) i = diff.Delta0.[i-1]
+let [<ReflectedDefinition>] deltaP(diff:RFiniteDifferenceWeights) i = diff.DeltaP.[i-1]
 
-type DifferenceHighLevel =
-    {
-        Delta : DArray<float>
-    }
+type HFiniteDifferenceWeights = {
+    X       : float[]
+    Delta   : float[]
+    Alpha0  : float[]
+    AlphaM1 : float[]
+    AlphaM2 : float[]
+    Beta0   : float[]
+    BetaP   : float[]
+    BetaM   : float[]
+    Gamma0  : float[]
+    GammaP1 : float[]
+    GammaP2 : float[]
+    Delta0  : float[]
+    DeltaP  : float[]
+    DeltaM  : float[]
+}
+
+type DFiniteDifferenceWeights = 
+    val X       : DArray<float>
+    val Delta   : DArray<float>
+    val Alpha0  : DArray<float>
+    val AlphaM1 : DArray<float>
+    val AlphaM2 : DArray<float>
+    val Beta0   : DArray<float>
+    val BetaP   : DArray<float>
+    val BetaM   : DArray<float>
+    val Gamma0  : DArray<float>
+    val GammaP1 : DArray<float>
+    val GammaP2 : DArray<float>
+    val Delta0  : DArray<float>
+    val DeltaP  : DArray<float>
+    val DeltaM  : DArray<float>
+    
+    new(x:DArray<float>, delta:DArray<float>, 
+        alpha0:DArray<float>, alphaM1:DArray<float>, alphaM2:DArray<float>, 
+        beta0:DArray<float>, betaP:DArray<float>, betaM:DArray<float>, 
+        gamma0:DArray<float>, gammaP1:DArray<float>, gammaP2:DArray<float>, 
+        delta0:DArray<float>, deltaP:DArray<float>, deltaM:DArray<float>) = 
+       { X = x; Delta = delta; Alpha0 = alpha0; AlphaM1 = alphaM1; AlphaM2 = alphaM2; 
+         Beta0 = beta0; BetaP = betaP; BetaM = betaM; Gamma0 = gamma0; GammaP1 = gammaP1; 
+         GammaP2 = gammaP2; Delta0 = delta0; DeltaP = deltaP; DeltaM = deltaM }
+
+    member this.Raw() = RFiniteDifferenceWeights(this.X.Length, this.X.Ptr, this.Delta.Ptr, 
+                                                 this.Alpha0.Ptr, this.AlphaM1.Ptr, this.AlphaM2.Ptr, 
+                                                 this.Beta0.Ptr, this.BetaP.Ptr, this.BetaM.Ptr, 
+                                                 this.Gamma0.Ptr, this.GammaP1.Ptr, this.GammaP2.Ptr, 
+                                                 this.Delta0.Ptr, this.DeltaP.Ptr, this.DeltaM.Ptr)
+
+    member this.Gather() = pcalc {
+            let! x = this.X.Gather()
+            let! delta = this.Delta.Gather()
+            let! alpha0 = this.Alpha0.Gather()
+            let! alphaM1 = this.AlphaM1.Gather()
+            let! alphaM2 = this.AlphaM2.Gather()
+            let! beta0 = this.Beta0.Gather()
+            let! betaP = this.BetaP.Gather()
+            let! betaM = this.BetaM.Gather()
+            let! gamma0 = this.Gamma0.Gather()
+            let! gammaP1 = this.GammaP1.Gather()
+            let! gammaP2 = this.GammaP2.Gather()
+            let! delta0 = this.Delta0.Gather()
+            let! deltaP = this.DeltaP.Gather()
+            let! deltaM = this.DeltaM.Gather()
+            let diff : HFiniteDifferenceWeights = { 
+                X = x; Delta = delta; Alpha0 = alpha0; AlphaM1 = alphaM1; AlphaM2 = alphaM2; 
+                Beta0 = beta0; BetaP = betaP; BetaM = betaM; Gamma0 = gamma0; GammaP1 = gammaP1; 
+                GammaP2 = gammaP2; Delta0 = delta0; DeltaP = deltaP; DeltaM = deltaM } 
+            return diff
+        }
 
 let finiteDifferenceWeights = cuda {
 
@@ -116,7 +181,7 @@ let finiteDifferenceWeights = cuda {
                 i <- i + stride @> |> defineKernelFunc
 
     let! finiteDifferenceKernel = 
-        <@ fun (diff:Differences) ->
+        <@ fun (diff:RFiniteDifferenceWeights) ->
             let start = blockIdx.x * blockDim.x + threadIdx.x
             let stride = gridDim.x * blockDim.x
             let mutable i = start
@@ -142,7 +207,7 @@ let finiteDifferenceWeights = cuda {
 
                 i <- i + stride @> |> defineKernelFunc
 
-    return PFunc(fun (m:Module) n (x:DevicePtr<float>) ->
+    return PFunc(fun (m:Module) n (x:DArray<float>) ->
         let worker = m.Worker
         pcalc {
             let! delta = DArray.createInBlob<float> worker (n-1)
@@ -159,39 +224,17 @@ let finiteDifferenceWeights = cuda {
             let! deltaP = DArray.createInBlob<float> worker (n-2)
             let! deltaM = DArray.createInBlob<float> worker (n-2)
 
-            // %XIANG% (2)
+            let diff = DFiniteDifferenceWeights(x, delta, alpha0, alphaM1, alphaM2, beta0, betaP, betaM, 
+                                                gamma0, gammaP1, gammaP2, delta0, deltaP, deltaM)
 
-            // here again, you should better move this statement inside the action,
-            // because x.Ptr will trigger the blob malloc.
-            // So the difference between a raw pointer and a DScalar, DArray, DMatrix is
-            // DXXXX is DELAYED, first it is just a blob slot, then if you call its .Ptr
-            // that means you really do want that memory, then that will trigger the blob.
-            // So here acturally you need have a higher level of the struct, please reference
-            // the xorshift implementation.
-//            let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
-//                                   beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
-//                                   delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
-            
             do! PCalc.action (fun hint ->
-                // now I move it here, to trigger the memories malloc inside the action
-                // because action is delayed
-                let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
-                                       beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
-                                       delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
                 let blockSize = 256
                 let gridSize = Util.divup n blockSize           
                 let lp = LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
-                diffKernel.Launch m lp n x delta.Ptr
-                finiteDifferenceKernel.Launch m lp diff)
+                diffKernel.Launch m lp n x.Ptr delta.Ptr
+                finiteDifferenceKernel.Launch m lp (diff.Raw()))
 
-            // and I return the high level struct which is delayed (with DArray, or you might need DMatrix)
-            let diff : DifferenceHighLevel =
-                {
-                    Delta = delta
-                }
-                                  
-            return diff      
-        } ) }
+            return diff } ) }
 
 
 [<Struct>]
@@ -247,32 +290,15 @@ type Stencil =
          dds0 = dds0; dds1 = dds1; dds2 = dds2; ddv0 = ddv0; ddv1 = ddv1; ddv2 = ddv2;
          us0 = us0; us1 = us1; us2 = us2; uv0 = uv0; uv1 = uv1; uv2 = uv2}
 
-[<Struct>]
-type StateVolMatrix =
-    val ns : int // number of state grid points in rows
-    val nv : int // number of volatiltiy grid points in columns
-    [<PointerField(MemorySpace.Global)>] val mutable u : int64
+// shorthands 
+// TODO refactor / move
+let [<ReflectedDefinition>] elem (u:RMatrixRowMajor ref) (si:int) (vi:int) =
+    RMatrixRowMajor.Get(u, si, vi)
 
-    [<PointerProperty("u")>] member this.U with get () = DevicePtr<float>(this.u) and set (ptr:DevicePtr<float>) = this.u <- ptr.Handle64
+let [<ReflectedDefinition>] set (u:RMatrixRowMajor ref) (si:int) (vi:int) (value:float) =
+    RMatrixRowMajor.Set(u, si, vi, value)
 
-    [<ReflectedDefinition>]
-    new (ns:int, nv:int, u:DevicePtr<float>) = { ns = ns; nv = nv; u = u.Handle64 }
-        
-    [<ReflectedDefinition>]
-    static member Elem(s:StateVolMatrix ref, si:int, vi:int) =
-        s.contents.U.[vi + si*s.contents.nv]  
-
-    [<ReflectedDefinition>]
-    static member Elem(s:StateVolMatrix ref, si:int, vi:int, value:float) =
-        s.contents.U.[vi + si*s.contents.nv] <- value
-
-let [<ReflectedDefinition>] elem (u:DevicePtr<StateVolMatrix>) (si:int) (vi:int) =
-    StateVolMatrix.Elem(u.Ref(0), si, vi)
-
-let [<ReflectedDefinition>] set (u:DevicePtr<StateVolMatrix>) (si:int) (vi:int) (value:float) =
-    StateVolMatrix.Elem(u.Ref(0), si, vi, value)
-
-let [<ReflectedDefinition>] stencil si vi (ds:Differences) (dv:Differences) (u:DevicePtr<StateVolMatrix>)  =
+let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref)  =
     let mutable stencil = Stencil()
     stencil.si <- si
     stencil.vi <- vi
@@ -539,7 +565,7 @@ let [<ReflectedDefinition>] applyF0 (heston:HestonModel) t (stencil:Stencil) =
             u0 * heston.rho * heston.sigma * stencil.vs * stencil.vv
     u0
 
-let [<ReflectedDefinition>] applyF1 (heston:HestonModel) t (ds:Differences) (stencil:Stencil) =
+let [<ReflectedDefinition>] applyF1 (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (stencil:Stencil) =
     let u1 = 
         let rdt = heston.rd
         let rft = heston.rf
@@ -587,7 +613,7 @@ let [<ReflectedDefinition>] applyF1 (heston:HestonModel) t (ds:Differences) (ste
                 + (v1 * stencil.dds2 + v2 * stencil.ds2) * stencil.us2
     u1                    
 
-let [<ReflectedDefinition>] applyF2 (heston:HestonModel) t (dv:Differences) (stencil:Stencil) =
+let [<ReflectedDefinition>] applyF2 (heston:HestonModel) t (dv:RFiniteDifferenceWeights) (stencil:Stencil) =
     let u2 = 
         let rdt = heston.rd 
         let sigmat = heston.sigma 
@@ -619,10 +645,12 @@ let [<ReflectedDefinition>] applyF2 (heston:HestonModel) t (dv:Differences) (ste
     u2
 
 [<ReflectedDefinition>]
-let applyF (heston:HestonModel) ns nv t (ds:Differences) (dv:Differences) (u:DevicePtr<StateVolMatrix>) (func:int -> int -> float -> float -> float -> float -> unit) =
+let applyF (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) (func:int -> int -> float -> float -> float -> float -> unit) =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
     let mutable si = blockIdx.x * blockDim.x + threadIdx.x
+    let ns = ds.n
+    let nv = dv.n
 
     while si < ns do
 
@@ -640,23 +668,25 @@ let applyF (heston:HestonModel) ns nv t (ds:Differences) (dv:Differences) (u:Dev
         si <- si + blockDim.x * gridDim.x
 
 [<ReflectedDefinition>]
-let solveF1 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePtr<StateVolMatrix>) (func:int -> int -> float -> unit) tk1 thetaDt =
+let solveF1 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit) =
+    let ns = ds.n
+    let nv = dv.n
     let rdt = heston.rd 
     let rft = heston.rf 
 
     let shared = __extern_shared__<float>()
     let h = shared
-    let d = h + ds.n
-    let l = d + ds.n
-    let u = l + ds.n
+    let d = h + ns
+    let l = d + ns
+    let u = l + ns
 
     let mutable vi = blockIdx.x
-    while vi < dv.n do
+    while vi < nv do
         
         let vv = dv.X.[vi]
 
         let mutable si = threadIdx.x
-        while si < ds.n do
+        while si < ns do
        
             let vs = ds.X.[si]
 
@@ -665,11 +695,11 @@ let solveF1 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
                 d.[si] <- 1.0
                 u.[si] <- 0.0
                 h.[si] <- 0.0                           
-            else if si = ds.n - 1 then
+            else if si = ns - 1 then
                 l.[si] <- -1.0 / (delta ds si)
                 d.[si] <- 1.0 / (delta ds si)
                 u.[si] <- 0.0
-                h.[si] <- exp(-tk1 * rft)
+                h.[si] <- exp(-t1 * rft)
             else
                 if vv > 0.0 then
                     let v1 = 0.5 * vv * vs * vs
@@ -701,7 +731,7 @@ let solveF1 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
         triDiagPcrSingleBlock ds.n l d u h
 
         si <- threadIdx.x
-        while si < ds.n do       
+        while si < ns do       
             func si vi h.[si] 
             si <- si + blockDim.x
 
@@ -710,7 +740,9 @@ let solveF1 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
         vi <- vi + gridDim.x
    
 [<ReflectedDefinition>]
-let solveF2 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePtr<StateVolMatrix>) (func:int -> int -> float -> unit) tk1 thetaDt =
+let solveF2 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit)  =
+    let ns = ds.n
+    let nv = dv.n
     let rdt = heston.rd 
     let rft = heston.rf 
     let sigmat = heston.sigma 
@@ -719,12 +751,12 @@ let solveF2 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
 
     let shared = __extern_shared__<float>()
     let h = shared
-    let d = h + ds.n
-    let l = d + ds.n
-    let u = l + ds.n
+    let d = h + ns
+    let l = d + ns
+    let u = l + ns
 
     let mutable si = blockIdx.x
-    while si < ds.n - 1 do
+    while si < ns - 1 do
 
         let vs = ds.X.[si]
 
@@ -741,11 +773,11 @@ let solveF2 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
                     d.[vi] <- 1.0
                     u.[vi] <- 0.0
                     h.[vi] <- elem b si vi
-                else if vi = dv.n - 1 then
+                else if vi = nv - 1 then
                     l.[vi] <- 0.0
                     d.[vi] <- 1.0
                     u.[vi] <- 0.0
-                    h.[vi] <- vs * exp(-tk1 * rft)
+                    h.[vi] <- vs * exp(-t1 * rft)
                 else
                     let deltaVM = deltaM dv vi
                     let deltaV0 = delta0 dv vi
@@ -771,7 +803,7 @@ let solveF2 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
             triDiagPcrSingleBlock ds.n l d u h
         
         vi <- threadIdx.x    
-        while vi < dv.n do  
+        while vi < nv do  
             func si vi h.[vi]
             vi <- vi + blockDim.x
 
@@ -780,16 +812,16 @@ let solveF2 (heston:HestonModel) t (ds:Differences) (dv:Differences) (b:DevicePt
 module DouglasScheme =
 
     [<ReflectedDefinition>]
-    let applyF dt thetaDt (b:DevicePtr<StateVolMatrix>) (u:DevicePtr<StateVolMatrix>) si vi vu u0 u1 u2 =
+    let applyF dt thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi vu u0 u1 u2 =
         set b si vi (vu + dt * (u0 + u1 + u2) - thetaDt * u1)
         set u si vi u2
 
     [<ReflectedDefinition>]
-    let solveF1 thetaDt (b:DevicePtr<StateVolMatrix>) (u:DevicePtr<StateVolMatrix>) si vi x =
+    let solveF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
         set b si vi (x - thetaDt * elem u si vi)
 
     [<ReflectedDefinition>]
-    let solveF2 (heston:HestonModel) t (ds:Differences) (u:DevicePtr<StateVolMatrix>) si vi x =
+    let solveF2 (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
         set u si vi x
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x)
@@ -797,22 +829,22 @@ module DouglasScheme =
 module HVScheme =
 
     [<ReflectedDefinition>]
-    let applyF1 dt thetaDt (b:DevicePtr<StateVolMatrix>) (u:DevicePtr<StateVolMatrix>) (y:DevicePtr<StateVolMatrix>) si vi vu u0 u1 u2 =
+    let applyF1 dt thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) (y:RMatrixRowMajor ref) si vi vu u0 u1 u2 =
         set b si vi (vu + dt * (u0 + u1 + u2) - thetaDt * u1)
         set u si vi u2
         set y si vi (vu + dt * (u0 + u1 + u2) - 0.5 * dt * (u0 + u1 + u2))
 
     [<ReflectedDefinition>]
-    let applyF2 dt thetaDt (b:DevicePtr<StateVolMatrix>) (u:DevicePtr<StateVolMatrix>) (y:DevicePtr<StateVolMatrix>) si vi vu u0 u1 u2 =
+    let applyF2 dt thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) (y:RMatrixRowMajor ref) si vi vu u0 u1 u2 =
         set b si vi ((elem y si vi) + dt * (u0 + u1 + u2) - thetaDt * u1)
         set u si vi u2
 
     [<ReflectedDefinition>]
-    let solveF1 thetaDt (b:DevicePtr<StateVolMatrix>) (u:DevicePtr<StateVolMatrix>) si vi x =
+    let solveF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
         set b si vi (x - thetaDt * elem u si vi)
 
     [<ReflectedDefinition>]
-    let solveF2 (heston:HestonModel) t thetaDt tk1 (ds:Differences) (u:DevicePtr<StateVolMatrix>) si vi x =
+    let solveF2 (heston:HestonModel) t thetaDt t1 (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
         set u si vi x
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x) 
@@ -820,6 +852,10 @@ module HVScheme =
 type OptionType =
 | Call
 | Put
+    member this.sign =
+        match this with
+        | Call -> 1.0
+        | Put -> -1.0
 
 type Param =
     val theta:float
@@ -836,29 +872,30 @@ type Param =
         {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
 
 /// Solve Hesten pde.
-let buildDouglas = cuda {
+let douglasSolver = cuda {
 
     let! initCondKernel =     
-        <@ fun ns nv t (s:DevicePtr<float>) (y:DevicePtr<float>) (u:DevicePtr<StateVolMatrix>) optionType K ->
+        <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
             let i = blockIdx.x*blockDim.x + threadIdx.x
             let j = blockIdx.y*blockDim.y + threadIdx.y
             if i < ns && j < nv then 
                 let payoff = match optionType with
-                             | Call -> max (s.[i] - K) 0.0
-                             | Put  -> max (K - s.[i]) 0.0 
-                set u i j payoff @> |> defineKernelFunc
+                             |  1.0 -> max (s.[i] - strike) 0.0
+                             | -1.0 -> max (strike - s.[i]) 0.0 
+                             | _ -> 0.0
+                set (ref u) i j payoff @> |> defineKernelFunc
 
     let! applyFKernel =
-        <@ fun dt thetaDt b ns nv t ds dv u heston ->
-            applyF heston ns nv t ds dv u (DouglasScheme.applyF dt thetaDt b u) @> |> defineKernelFunc
+        <@ fun heston t dt thetaDt ds dv u u2 b ->
+            applyF heston t ds dv (ref u) (DouglasScheme.applyF dt thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
                 
     let! solveF1Kernel =
-        <@ fun dt thetaDt tk1 b ns nv t ds dv u heston ->
-            solveF1 heston t ds dv b (DouglasScheme.solveF1 thetaDt b u) tk1 thetaDt @> |> defineKernelFunc
+        <@ fun heston t t1 dt thetaDt ds dv u2 b ->
+            solveF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
 
     let! solveF2Kernel =
-        <@ fun dt thetaDt tk1 b ns nv t ds dv u heston ->
-            solveF2 heston t ds dv b (DouglasScheme.solveF2 heston t ds u) tk1 thetaDt @> |> defineKernelFunc
+        <@ fun heston t t1 dt thetaDt ds dv u b ->
+            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston t ds (ref u)) @> |> defineKernelFunc
 
     let! finiteDifferenceWeights = finiteDifferenceWeights
 
@@ -870,53 +907,51 @@ let buildDouglas = cuda {
         let solveF2Kernel = solveF2Kernel.Apply m
         let finiteDifferenceWeights = finiteDifferenceWeights.Apply m
          
-        fun (heston:HestonModel) strike timeToMaturity (param:Param) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
 
             let s = concentratedGrid param.sMin param.sMax strike param.ns param.sC
             let v = concentratedGrid 0.0 param.vMax 0.0 param.nv param.vC
-            let t = homogeneousGrid param.nt 0.0 timeToMaturity
+            let t, dt = homogeneousGrid param.nt 0.0 timeToMaturity
 
             pcalc {
                 let! s = DArray.scatterInBlob worker s
                 let! v = DArray.scatterInBlob worker v
-                let! sDiff = finiteDifferenceWeights s.Length s.Ptr  
-                let! vDiff = finiteDifferenceWeights v.Length v.Ptr  
-                return sDiff, vDiff
-            } ) }
+                
+                let! b = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
+                let! u2 = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
+                
+                let! sDiff = finiteDifferenceWeights s.Length s   
+                let! vDiff = finiteDifferenceWeights v.Length v               
 
-//            let nu = nx * ny
-//            let lp0 = LaunchParam(dim3(divup nx 16, divup ny 16), dim3(16, 16))
-//
-//
-//            let lpx = LaunchParam(ny, nx, 4*nx*sizeof<float>)
-//            let lpy = LaunchParam(nx, ny, 4*ny*sizeof<float>)
-//
-//            let launch (hint:ActionHint) (t:float[]) (x:DevicePtr<float>) dx (y:DevicePtr<float>) dy (u0:DevicePtr<float>) (u1:DevicePtr<float>) k tstart tstop dt =
-//                let lp0 = lp0 |> hint.ModifyLaunchParam
-//                let lpx = lpx |> hint.ModifyLaunchParam
-//                let lpy = lpy |> hint.ModifyLaunchParam
-//
-//                let initCondKernelFunc = initCondKernel.Launch lp0 
-//                let xSweepKernelFunc = xSweepKernel.Launch lpx
-//                let ySweepKernelFunc = ySweepKernel.Launch lpy
-//
-//                initCondKernelFunc nx ny tstart x y u0
-//
-//                if t.Length > 1 then
-//                    let step (t0, t1) =
-//                        let dt = t1 - t0
-//                        let Cx = k * dt / (dx * dx)
-//                        let Cy = k * dt / (dy * dy)
-//                        xSweepKernelFunc nx ny x y Cx Cy dt t0 (t0 + 0.5 * dt) u0 u1
-//                        ySweepKernelFunc nx ny x y Cx Cy dt (t0 + 0.5 * dt) t1 u1 u0
-//
-//                    let timeIntervals = t |> Seq.pairwise |> Seq.toArray
-//                    timeIntervals |> Array.iter step
-//
-//            { new ISolver with
-//                member this.GenT tstart tstop dt = timeGrid tstart tstop dt 5
-//                member this.GenX Lx = stateGrid nx Lx
-//                member this.GenY Ly = stateGrid ny Ly
-//                member this.NumU = nu
-//                member this.Launch hint t x dx y dy u0 u1 k tstart tstop dt = launch hint t x dx y dy u0 u1 k tstart tstop dt
-//            } ) }
+                do! PCalc.action (fun hint ->
+                    let lpm = LaunchParam(dim3(divup param.ns 16, divup param.ns 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let lps = LaunchParam(param.nv, param.ns, 4*param.ns*sizeof<float>) |> hint.ModifyLaunchParam
+                    let lpv = LaunchParam(param.ns, param.nv, 4*param.nv*sizeof<float>) |> hint.ModifyLaunchParam
+
+                    let sDiff = sDiff.Raw()
+                    let vDiff = vDiff.Raw()
+
+                    let b = RMatrixRowMajor(b.NumRows, b.NumCols, b.Storage.Ptr)
+                    let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
+                    let u2 = RMatrixRowMajor(u2.NumRows, u2.NumCols, u2.Storage.Ptr)
+
+                    initCondKernel.Launch lpm param.ns param.nv sDiff.X u optionType.sign strike
+
+                    for ti = 0 to param.nt - 2 do
+                    
+                        let t0 = t.[ti]
+                        let t1 = t.[ti + 1]
+                        let dt = t1 - t0
+                        let thetaDt = dt * param.theta
+
+                        applyFKernel.Launch lpm heston t0 dt thetaDt sDiff vDiff u u2 b
+
+                        solveF1Kernel.Launch lps heston t0 t1 dt thetaDt sDiff vDiff u2 b
+
+                        solveF2Kernel.Launch lpv heston t0 t1 dt thetaDt sDiff vDiff u b
+                )
+                    
+                return u } ) }
+
+

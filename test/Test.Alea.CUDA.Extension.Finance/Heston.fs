@@ -32,7 +32,7 @@ let ``finite difference weights`` () =
         //    we have 2 blob acturally.
         // So, one of the main job of wrapping a raw impl to pcalc function, is to replace those
         // raw pointers with meaningful DScalar, DArray, DMatrix, etc.
-        let! sDiff = finiteDifferenceWeights s.Length s.Ptr
+        let! sDiff = finiteDifferenceWeights s.Length s
 
         // %XIANG% (4)
         // so inside finiteDifferenceWeights, you triggered the .Ptr, so the memory is ok
@@ -85,3 +85,42 @@ let ``finite difference weights`` () =
 
     //Assert.IsTrue(true)
 
+[<Test>]
+let ``Douglas scheme`` () =
+
+    let worker = getDefaultWorker()
+    let douglasSolver = worker.LoadPModule(douglasSolver).Invoke
+
+    // Heston model params
+    let rho = -0.5
+    let sigma = 0.2
+    let kappa = 0.2
+    let eta = 0.2
+    let rd = 0.05
+    let rf = 0.01
+    let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
+
+    // contract params
+    let timeToMaturity = 1.0
+    let strike = 100.0
+    let optionType = Call
+
+    // PDE solver params
+    let theta = 0.5
+    let sMax = 1000.0
+    let vMax = 16.0
+    let ns = 128
+    let nv = 64
+    let nt = 100
+    let cS = 8.0
+    let cV = 15.0
+    let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+
+    let pricer = pcalc {
+        let! solution = douglasSolver heston optionType strike timeToMaturity param
+        return solution.ToArray2D()
+    }
+
+    let valueMatrix = pricer |> PCalc.run
+
+    ()
