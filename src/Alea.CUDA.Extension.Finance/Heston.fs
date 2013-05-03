@@ -645,7 +645,7 @@ let [<ReflectedDefinition>] applyF2 (heston:HestonModel) t (dv:RFiniteDifference
     u2
 
 [<ReflectedDefinition>]
-let applyF (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) (func:int -> int -> float -> float -> float -> float -> unit) =
+let applyF (heston:HestonModel) (t:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) (func:int -> int -> float -> float -> float -> float -> unit) =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
     let mutable si = blockIdx.x * blockDim.x + threadIdx.x
@@ -668,7 +668,7 @@ let applyF (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (dv:RFiniteDiffe
         si <- si + blockDim.x * gridDim.x
 
 [<ReflectedDefinition>]
-let solveF1 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit) =
+let solveF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit) =
     let ns = ds.n
     let nv = dv.n
     let rdt = heston.rd 
@@ -740,7 +740,7 @@ let solveF1 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:
         vi <- vi + gridDim.x
    
 [<ReflectedDefinition>]
-let solveF2 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit)  =
+let solveF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit)  =
     let ns = ds.n
     let nv = dv.n
     let rdt = heston.rd 
@@ -751,9 +751,9 @@ let solveF2 (heston:HestonModel) t t1 thetaDt (ds:RFiniteDifferenceWeights) (dv:
 
     let shared = __extern_shared__<float>()
     let h = shared
-    let d = h + ns
-    let l = d + ns
-    let u = l + ns
+    let d = h + nv
+    let l = d + nv
+    let u = l + nv
 
     let mutable si = blockIdx.x
     while si < ns - 1 do
@@ -821,7 +821,7 @@ module DouglasScheme =
         set b si vi (x - thetaDt * elem u si vi)
 
     [<ReflectedDefinition>]
-    let solveF2 (heston:HestonModel) t (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
+    let solveF2 (heston:HestonModel) (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
         set u si vi x
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x)
@@ -890,12 +890,12 @@ let douglasSolver = cuda {
             applyF heston t ds dv (ref u) (DouglasScheme.applyF dt thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
                 
     let! solveF1Kernel =
-        <@ fun heston t t1 dt thetaDt ds dv u2 b ->
+        <@ fun heston t t1 thetaDt ds dv u2 b ->
             solveF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
 
     let! solveF2Kernel =
-        <@ fun heston t t1 dt thetaDt ds dv u b ->
-            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston t ds (ref u)) @> |> defineKernelFunc
+        <@ fun heston t t1 thetaDt ds dv u b ->
+            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston ds (ref u)) @> |> defineKernelFunc
 
     let! finiteDifferenceWeights = finiteDifferenceWeights
 
@@ -947,9 +947,11 @@ let douglasSolver = cuda {
 
                         applyFKernel.Launch lpm heston t0 dt thetaDt sDiff vDiff u u2 b
 
-                        solveF1Kernel.Launch lps heston t0 t1 dt thetaDt sDiff vDiff u2 b
+                        solveF1Kernel.Launch lps heston t0 t1 thetaDt sDiff vDiff u2 b
 
-                        solveF2Kernel.Launch lpv heston t0 t1 dt thetaDt sDiff vDiff u b
+                        solveF2Kernel.Launch lpv heston t0 t1 thetaDt sDiff vDiff u b
+
+                        printfn "time step %A done" t0
                 )
                     
                 return u } ) }

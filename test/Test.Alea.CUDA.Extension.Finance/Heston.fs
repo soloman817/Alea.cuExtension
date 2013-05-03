@@ -110,7 +110,7 @@ let ``Douglas scheme`` () =
     let sMax = 1000.0
     let vMax = 16.0
     let ns = 128
-    let nv = 64
+    let nv = 128
     let nt = 100
     let cS = 8.0
     let cV = 15.0
@@ -118,7 +118,7 @@ let ``Douglas scheme`` () =
 
     let pricer = pcalc {
         let! solution = douglasSolver heston optionType strike timeToMaturity param
-        return solution.ToArray2D()
+        return! solution.ToArray2D()
     }
 
     let valueMatrix = pricer |> PCalc.run
