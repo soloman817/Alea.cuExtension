@@ -99,6 +99,11 @@ let [<ReflectedDefinition>] deltaM(diff:Differences) i = diff.DeltaM.[i-1]
 let [<ReflectedDefinition>] delta0(diff:Differences) i = diff.Delta0.[i-1]
 let [<ReflectedDefinition>] deltaP(diff:Differences) i = diff.DeltaP.[i-1]
 
+type DifferenceHighLevel =
+    {
+        Delta : DArray<float>
+    }
+
 let finiteDifferenceWeights = cuda {
 
     let! diffKernel = 
@@ -163,16 +168,27 @@ let finiteDifferenceWeights = cuda {
             // that means you really do want that memory, then that will trigger the blob.
             // So here acturally you need have a higher level of the struct, please reference
             // the xorshift implementation.
-            let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
-                                   beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
-                                   delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
+//            let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
+//                                   beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
+//                                   delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
             
             do! PCalc.action (fun hint ->
+                // now I move it here, to trigger the memories malloc inside the action
+                // because action is delayed
+                let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
+                                       beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
+                                       delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
                 let blockSize = 256
                 let gridSize = Util.divup n blockSize           
                 let lp = LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
                 diffKernel.Launch m lp n x delta.Ptr
                 finiteDifferenceKernel.Launch m lp diff)
+
+            // and I return the high level struct which is delayed (with DArray, or you might need DMatrix)
+            let diff : DifferenceHighLevel =
+                {
+                    Delta = delta
+                }
                                   
             return diff      
         } ) }

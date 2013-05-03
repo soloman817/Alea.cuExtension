@@ -39,13 +39,21 @@ let ``finite difference weights`` () =
         // but the action hasn't been executed, becauuse you add action after you create the struct
         // which triggers the blob, so here for debugging, we first need let it run the pending
         // action, we could do it by force()
-        do! PCalc.force()
+        //do! PCalc.force()
+
+        // now we don't need PCalc.force(), because I use DifferenceHighLevel
+
+        // now you gather the DArray (or DMatrix) inside the DifferenceHighLevel
+        let! delta = sDiff.Delta.Gather()
+        printfn "%A" delta
+        // do verfiiction or you can return the host array
+
 
         // then you can gather the raw pointers.
-        do
-            let host = Array.zeroCreate<float> (s.Length - 1) 
-            DevicePtrUtil.Gather(worker, sDiff.Delta, host, s.Length - 1)
-            printfn "%A" host
+//        do
+//            let host = Array.zeroCreate<float> (s.Length - 1) 
+//            DevicePtrUtil.Gather(worker, sDiff.Delta, host, s.Length - 1)
+//            printfn "%A" host
             // do verification
 
         // to debug
