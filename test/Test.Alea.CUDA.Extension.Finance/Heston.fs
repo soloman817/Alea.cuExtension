@@ -118,10 +118,12 @@ let ``Douglas scheme`` () =
 
     let pricer = pcalc {
         let! solution = douglasSolver heston optionType strike timeToMaturity param
-        return! solution.ToArray2D()
+        //return! solution.ToArray2D()
+        return! solution.Gather()
     }
 
     let valueMatrix = pricer |> PCalc.run
+    printfn "%A" valueMatrix
 
     ()
 
@@ -154,8 +156,8 @@ let ``Douglas scheme plotting`` () =
             let theta = 0.5
             let sMax = 1000.0
             let vMax = 16.0
-            let ns = 128
-            let nv = 64
+            let ns = 256
+            let nv = 128
             let nt = 100
             let cS = 8.0
             let cV = 15.0
@@ -168,13 +170,7 @@ let ``Douglas scheme plotting`` () =
             do! Graphics.Direct3D9.SurfacePlotter.plottingLoop context solution extend renderType }
         |> PCalc.run
 
-    //printfn "%A" Device.AllDevices.[0].DeviceId
-    //printfn "%A" Device.AllDevices.[0].Name
-
-    // uhmm, I have 2 cards on my computer (I enabled it recently)
-    // so here the AllDevices has some problem , let me specifiy it
     let cudaDevice = Device.AllDevices.[0]
-    //let cudaDevice = Engine.Device(1)
     let param = Graphics.Direct3D9.Application.Param.Create(cudaDevice)
     let param = { param with FormTitle = "Douglas Scheme"
                              DrawingSize = System.Drawing.Size(1024, 768) }

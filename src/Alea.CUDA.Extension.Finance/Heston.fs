@@ -728,7 +728,7 @@ let solveF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
 
         __syncthreads()
 
-        triDiagPcrSingleBlock ds.n l d u h
+        triDiagPcrSingleBlock ns l d u h
 
         si <- threadIdx.x
         while si < ns do       
@@ -800,7 +800,7 @@ let solveF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
         __syncthreads()
 
         if si <> 0 then
-            triDiagPcrSingleBlock ds.n l d u h
+            triDiagPcrSingleBlock nv l d u h
         
         vi <- threadIdx.x    
         while vi < nv do  
