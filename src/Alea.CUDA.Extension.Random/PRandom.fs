@@ -4,6 +4,12 @@ open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Extension
 
+// %XIANG% (3)
+
+// in the raw impl (in XorShift7.fs), we work with raw pointers
+// but now here in the high level wrapper, I will give some high
+// level struct which gives more information, and use those
+// delayed resource such as DArray, DMatrix.
 type XorShift7RandomNumber<'T when 'T:unmanaged> =
     {
         NumStreams : int

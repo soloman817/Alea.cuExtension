@@ -154,6 +154,15 @@ let finiteDifferenceWeights = cuda {
             let! deltaP = DArray.createInBlob<float> worker (n-2)
             let! deltaM = DArray.createInBlob<float> worker (n-2)
 
+            // %XIANG% (2)
+
+            // here again, you should better move this statement inside the action,
+            // because x.Ptr will trigger the blob malloc.
+            // So the difference between a raw pointer and a DScalar, DArray, DMatrix is
+            // DXXXX is DELAYED, first it is just a blob slot, then if you call its .Ptr
+            // that means you really do want that memory, then that will trigger the blob.
+            // So here acturally you need have a higher level of the struct, please reference
+            // the xorshift implementation.
             let diff = Differences(n, x, delta.Ptr, alpha0.Ptr, alphaM1.Ptr, alphaM2.Ptr, 
                                    beta0.Ptr, betaP.Ptr, betaM.Ptr, gamma0.Ptr, gammaP1.Ptr, gammaP2.Ptr, 
                                    delta0.Ptr, deltaP.Ptr, deltaM.Ptr)  
