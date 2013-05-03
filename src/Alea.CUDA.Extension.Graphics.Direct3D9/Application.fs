@@ -80,8 +80,8 @@ type Application(param:Param, loop:Context -> unit) =
                 cuSafeCall(cuD3D9CtxCreate(&&ctx, &&dev, 0u, d3d9Device.NativePointer))
                 //if dev <> cudaDevice.DeviceId then failwithf "returned dev is %d, but you require %d" dev cudaDevice.DeviceId
                 if dev <> cudaDevice.DeviceId then printfn "warning: returned dev is %d, but you require %d" dev cudaDevice.DeviceId
-                //ctx, cudaDevice
-                ctx, Engine.Device(dev)
+                ctx, cudaDevice
+                //ctx, Engine.Device(dev)
             new DeviceWorker(genctx)
 
         let context =
