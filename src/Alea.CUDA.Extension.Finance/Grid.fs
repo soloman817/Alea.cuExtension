@@ -9,10 +9,10 @@ open Alea.CUDA.Extension.TriDiag
 
 open Util 
 
-/// Simple homogeneous state grid startig at zero, covering interval [0, L]
-let homogeneousGrid n L =
-    let dx = L / float(n - 1)
-    let x = Array.init n (fun i -> float(i) * dx)
+/// Simple homogeneous state grid startig at zero, covering interval [a, b]
+let homogeneousGrid n a b =
+    let dx = (b - a) / float(n - 1)
+    let x = Array.init n (fun i -> a + float(i) * dx)
     x, dx
 
 /// Create an exponentially grid up to tstop of step size not larger than dt, with nc condensing points in the first interval

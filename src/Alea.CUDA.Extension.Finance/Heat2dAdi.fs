@@ -225,8 +225,8 @@ let build (initCondExpr:Expr<float -> float -> float -> float>)
 
             { new ISolver with
                 member this.GenT tstart tstop dt = timeGrid tstart tstop dt 5
-                member this.GenX Lx = stateGrid nx Lx
-                member this.GenY Ly = stateGrid ny Ly
+                member this.GenX Lx = stateGrid nx 0.0 Lx
+                member this.GenY Ly = stateGrid ny 0.0 Ly
                 member this.NumU = nu
                 member this.Launch hint t x dx y dy u0 u1 k tstart tstop dt = launch hint t x dx y dy u0 u1 k tstart tstop dt
             } ) }
@@ -319,8 +319,8 @@ let buildFused (initCondExpr:Expr<float -> float -> float -> float>)
 
             { new ISolverFused with
                 member this.GenT tstart tstop dt = timeGrid tstart tstop dt 5
-                member this.GenX Lx = stateGrid nx Lx
-                member this.GenY Ly = stateGrid ny Ly
+                member this.GenX Lx = stateGrid nx 0.0 Lx
+                member this.GenY Ly = stateGrid ny 0.0 Ly
                 member this.NumU = nu
                 member this.Launch hint nt t x dx y dy u0 u1 k tstart tstop dt = launch hint nt t x dx y dy u0 u1 k tstart tstop dt
             } ) }
