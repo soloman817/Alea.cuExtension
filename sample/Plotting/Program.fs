@@ -54,13 +54,13 @@ module WaveSurface =
             let fill = context.Worker.LoadPModule(fillIRM.Value).Invoke
             let! surface = DMatrix.createInBlob context.Worker order rows cols
 
+            let extend minv maxv = let maxv', _ = SurfacePlotter.defaultExtend minv maxv in maxv', 0.5
             let gen (time:float) = pcalc {
                 let param = Param(rows, cols, time / 400.0)
                 do! fill param surface
-                return surface }
+                return surface, extend }
 
-            let extend minv maxv = let maxv', _ = SurfacePlotter.defaultExtend minv maxv in maxv', 0.5
-            do! SurfacePlotter.animationLoop context order rows cols gen extend renderType None }
+            do! SurfacePlotter.animationLoop context order rows cols gen renderType None }
         |> PCalc.run
 
 module HeatGauss =
@@ -138,14 +138,14 @@ module HeatGauss1 =
             let! u0 = DMatrix.createInBlob context.Worker Util.RowMajorOrder ny nx
             let! u1 = DMatrix.createInBlob context.Worker Util.RowMajorOrder ny nx
 
+            let extend minv maxv = max maxv 1.0, 1.0
             let gen (tstop:float) = pcalc {
                 let tstop = tstop / 1000.0 / 100.0
                 let t = Heat2dAdi.timeGrid tstart tstop dt 5
                 do! PCalc.action (fun hint -> solver.Launch hint t x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
-                return u0 }
+                return u0, extend }
 
-            let extend minv maxv = max maxv 1.0, 1.0
-            do! SurfacePlotter.animationLoop context Util.RowMajorOrder ny nx gen extend renderType (Some(15.0 * 1000.0)) }
+            do! SurfacePlotter.animationLoop context Util.RowMajorOrder ny nx gen renderType (Some(15.0 * 1000.0)) }
         |> PCalc.run
 
 module HeatGauss2 =
@@ -208,14 +208,14 @@ module HeatGauss2 =
             let! u0 = DMatrix.createInBlob context.Worker Util.RowMajorOrder ny nx
             let! u1 = DMatrix.createInBlob context.Worker Util.RowMajorOrder ny nx
 
+            let extend minv maxv = max maxv 1.0, 1.0
             let gen (tstop:float) = pcalc {
                 let tstop = tstop / 1000.0 / 3.0
                 let t = Heat2dAdi.timeGrid tstart tstop dt 5
                 do! PCalc.action (fun hint -> solver.Launch hint t x'.Ptr dx y'.Ptr dy u0.Ptr u1.Ptr k tstart tstop dt)
-                return u0 }
+                return u0, extend }
 
-            let extend minv maxv = max maxv 1.0, 1.0
-            do! SurfacePlotter.animationLoop context Util.RowMajorOrder ny nx gen extend renderType (Some(15.0 * 1000.0)) }
+            do! SurfacePlotter.animationLoop context Util.RowMajorOrder ny nx gen renderType (Some(15.0 * 1000.0)) }
         |> PCalc.run
 
 let cudaDevice = Device.AllDevices.[0]

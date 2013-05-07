@@ -413,29 +413,29 @@ let renderingLoop (context:Context) (vd:VertexDeclaration) (vb:VertexBuffer) (or
 
     RenderLoop.Run(context.Form, RenderLoop.RenderCallback(render)) }
 
-let plottingLoop (context:Context) (surface:DMatrix<float>) (extend:ExtendFunc) (renderType:RenderType) = pcalc {
-    use vb = createVertexBuffer context surface.NumElements
+let plottingLoop (context:Context) (values:DMatrix<float>) (extendValue:ExtendFunc) (renderType:RenderType) = pcalc {
+    use vb = createVertexBuffer context values.NumElements
     use vd = createVertexDeclaration context
 
     let fillVB = context.Worker.LoadPModule(Kernels.fillVBIRM.Value).Invoke
     let vbRes = context.RegisterGraphicsResource(vb)
-    do! fillVB extend surface vbRes
+    do! fillVB extendValue values vbRes
     context.UnregisterGraphicsResource(vbRes)
 
-    do! renderingLoop context vd vb surface.Order surface.NumRows surface.NumCols (fun _ -> ()) renderType }
+    do! renderingLoop context vd vb values.Order values.NumRows values.NumCols (fun _ -> ()) renderType }
 
-let plottingXYLoop (context:Context) (rows:DArray<float>) (cols:DArray<float>) (surface:DMatrix<float>) (extendRow:ExtendFunc) (extendCol:ExtendFunc) (extendValue:ExtendFunc) (renderType:RenderType) = pcalc {
-    use vb = createVertexBuffer context surface.NumElements
+let plottingXYLoop (context:Context) (rows:DArray<float>) (cols:DArray<float>) (values:DMatrix<float>) (extendRow:ExtendFunc) (extendCol:ExtendFunc) (extendValue:ExtendFunc) (renderType:RenderType) = pcalc {
+    use vb = createVertexBuffer context values.NumElements
     use vd = createVertexDeclaration context
 
     let fillVB = context.Worker.LoadPModule(Kernels.fillVBXYIRM.Value).Invoke
     let vbRes = context.RegisterGraphicsResource(vb)
-    do! fillVB extendRow extendCol extendValue rows cols surface vbRes
+    do! fillVB extendRow extendCol extendValue rows cols values vbRes
     context.UnregisterGraphicsResource(vbRes)
 
-    do! renderingLoop context vd vb surface.Order surface.NumRows surface.NumCols (fun _ -> ()) renderType }
+    do! renderingLoop context vd vb values.Order values.NumRows values.NumCols (fun _ -> ()) renderType }
 
-let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DMatrix<float>>) (extend:ExtendFunc) (renderType:RenderType) (loopTime:float option) = pcalc {
+let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DMatrix<float> * ExtendFunc>) (renderType:RenderType) (loopTime:float option) = pcalc {
     use vb = createVertexBuffer context (rows * cols)
     use vd = createVertexDeclaration context
 
@@ -453,8 +453,34 @@ let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (
                         let time = clock.Elapsed.TotalMilliseconds
                         if time > loopTime then clock.Restart()
                         clock.Elapsed.TotalMilliseconds
-            let! surface = gen time
-            do! fillVB extend surface vbRes }
+            let! values, extendValue = gen time
+            do! fillVB extendValue values vbRes }
+        |> PCalc.run
+
+    do! renderingLoop context vd vb order rows cols hook renderType
+
+    context.UnregisterGraphicsResource(vbRes) }
+
+let animationXYLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DArray<float> * DArray<float> * DMatrix<float> * ExtendFunc * ExtendFunc * ExtendFunc>) (renderType:RenderType) (loopTime:float option) = pcalc {
+    use vb = createVertexBuffer context (rows * cols)
+    use vd = createVertexDeclaration context
+
+    let vbRes = context.RegisterGraphicsResource(vb)
+    let fillVB = context.Worker.LoadPModule(Kernels.fillVBXYIRM.Value).Invoke
+
+    let hook (clock:Stopwatch) =
+        pcalc {
+            let time =
+                match loopTime with
+                | None -> clock.Elapsed.TotalMilliseconds
+                | Some(loopTime) ->
+                    if loopTime <= 0.0 then clock.Elapsed.TotalMilliseconds
+                    else 
+                        let time = clock.Elapsed.TotalMilliseconds
+                        if time > loopTime then clock.Restart()
+                        clock.Elapsed.TotalMilliseconds
+            let! rows, cols, values, extendRow, extendCol, extendValue = gen time
+            do! fillVB extendRow extendCol extendValue rows cols values vbRes }
         |> PCalc.run
 
     do! renderingLoop context vd vb order rows cols hook renderType
