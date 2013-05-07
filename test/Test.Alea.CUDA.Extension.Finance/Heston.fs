@@ -117,9 +117,8 @@ let ``Douglas scheme`` () =
     let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
 
     let pricer = pcalc {
-        let! solution = douglasSolver heston optionType strike timeToMaturity param
-        //return! solution.ToArray2D()
-        return! solution.Gather()
+        let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
+        return! v.Gather()
     }
 
     let valueMatrix = pricer |> PCalc.run
@@ -163,11 +162,11 @@ let ``Douglas scheme plotting`` () =
             let cV = 15.0
             let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
 
-            let! solution = douglasSolver heston optionType strike timeToMaturity param
+            let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
 
             let extend minv maxv = let maxv', _ = Graphics.Direct3D9.SurfacePlotter.defaultExtend minv maxv in maxv', 1.0
             let renderType = Graphics.Direct3D9.SurfacePlotter.RenderType.Mesh
-            do! Graphics.Direct3D9.SurfacePlotter.plottingLoop context solution extend renderType }
+            do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context s u v extend extend extend renderType }
         |> PCalc.run
 
     let cudaDevice = Device.AllDevices.[0]
