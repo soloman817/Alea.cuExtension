@@ -205,6 +205,119 @@ module Kernels =
             |> genirm
         |> Lazy.Create
 
+    [<Struct;Align(16)>]
+    type FillVBXYParam =
+        val nrows : int
+        val ncols : int
+        [<PointerField(MemorySpace.Global)>] val rows : int64
+        [<PointerField(MemorySpace.Global)>] val cols : int64
+        val ratioRow : float
+        val ratioCol : float
+        val minRow : float
+        val maxRow : float
+        val minCol : float
+        val maxCol : float
+        val minValue : float
+        val maxValue : float
+        val ratioValue : float
+
+        [<PointerProperty("rows")>] member this.Rows = DevicePtr<float>(this.rows)
+        [<PointerProperty("cols")>] member this.Cols = DevicePtr<float>(this.cols)
+
+        new (nrows, rows:DevicePtr<float>, minRow, maxRow, extendRow:ExtendFunc,
+             ncols, cols:DevicePtr<float>, minCol, maxCol, extendCol:ExtendFunc,
+             minValue, maxValue, extendValue:ExtendFunc) =
+
+            let maxRow', ratioRow = extendRow minRow maxRow
+            let maxCol', ratioCol = extendCol minCol maxCol
+            let maxValue', ratioValue = extendValue minValue maxValue
+
+            let verify name minv maxv maxv' ratio =
+                let msg() = sprintf "%s function is wrong: %f -> %f -> %f, %f" name minv maxv maxv' ratio
+                if maxv' <= minv then failwith (msg())
+                if maxv' < maxv then failwith (msg())
+                if ratio <= 0.0 then failwith (msg())
+
+            verify "extendRow" minRow maxRow maxRow' ratioRow
+            verify "extendCol" minCol maxCol maxCol' ratioCol
+            verify "extendValue" minValue maxValue maxValue' ratioValue
+
+            { nrows = nrows; rows = rows.Handle64; minRow = minRow; maxRow = maxRow'; ratioRow = ratioRow
+              ncols = ncols; cols = cols.Handle64; minCol = minCol; maxCol = maxCol'; ratioCol = ratioCol
+              minValue = minValue; maxValue = maxValue'; ratioValue = ratioValue }
+
+    let fillVBXYTemplate = cuda {
+        let transform =
+            <@ fun (r:int) (c:int) (p:FillVBXYParam) (v:float) ->
+                let x = float32((p.Cols.[c] - p.minCol) / (p.maxCol - p.minCol) * p.ratioCol - p.ratioCol / 2.0)
+                let z = float32((p.Rows.[r] - p.minRow) / (p.maxRow - p.minRow) * p.ratioRow - p.ratioRow / 2.0)
+                let y = float32((v - p.minValue) / (p.maxValue - p.minValue) * p.ratioValue - p.ratioValue / 2.0)
+
+                let position = Vector4(x, y, z, 1.0f)
+                let color = mapColor v p.minValue p.maxValue
+
+                Vertex(position, color) @>
+
+        let! map = Transform2D.transformip "xxx" transform
+        let! max = PArray.reduce <@ fun () -> Double.NegativeInfinity @> <@ max @> <@ Util.identity @>
+        let! min = PArray.reduce <@ fun () -> Double.PositiveInfinity @> <@ min @> <@ Util.identity @>
+
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let map = map.Apply m
+            let max = max.Apply m
+            let min = min.Apply m
+
+            fun (extendRow:ExtendFunc) (extendCol:ExtendFunc) (extendValue:ExtendFunc) (rows:DArray<float>) (cols:DArray<float>) (surface:DMatrix<float>) (vbRes:CUgraphicsResource) ->
+                if rows.Length <> surface.NumRows then failwith "rows.Length not match surface.NumRows"
+                if cols.Length <> surface.NumCols then failwith "cols.Length not match surface.NumCols"
+                let action (minRow:float) (maxRow:float) (minCol:float) (maxCol:float) (minValue:float) (maxValue:float) (hint:ActionHint) =
+                    fun () ->
+                        let mutable vbRes = vbRes
+                        cuSafeCall(cuGraphicsMapResources(1u, &&vbRes, 0n))
+
+                        let mutable vbPtr = 0n
+                        let mutable vbSize = 0n
+                        cuSafeCall(cuGraphicsResourceGetMappedPointer(&&vbPtr, &&vbSize, vbRes))
+
+                        let vb = DevicePtr<Vertex>(vbPtr)
+                        let param = FillVBXYParam(rows.Length, rows.Ptr, minRow, maxRow, extendRow,
+                                                  cols.Length, cols.Ptr, minCol, maxCol, extendCol,
+                                                  minValue, maxValue, extendValue)
+                        map hint surface.Order surface.NumRows surface.NumCols param surface.Ptr vb
+                    
+                        cuSafeCall(cuGraphicsUnmapResources(1u, &&vbRes, 0n))
+                    |> worker.Eval 
+
+                pcalc {
+                    let! minRow = min rows
+                    let! minCol = min cols
+                    let! minValue = min surface.Storage
+
+                    let! maxRow = max rows
+                    let! maxCol = max cols
+                    let! maxValue = max surface.Storage
+
+                    let! minRow = minRow.Gather()
+                    let! minCol = minCol.Gather()
+                    let! minValue = minValue.Gather()
+
+                    let! maxRow = maxRow.Gather()
+                    let! maxCol = maxCol.Gather()
+                    let! maxValue = maxValue.Gather()
+
+                    do! action minRow maxRow minCol maxCol minValue maxValue |> PCalc.action
+                    do! PCalc.force() } ) }
+
+    type FillVBXYFunc = ExtendFunc -> ExtendFunc -> ExtendFunc -> DArray<float> -> DArray<float> -> DMatrix<float> -> CUgraphicsResource -> PCalc<unit>
+
+    let fillVBXYIRM =
+        fun () ->
+            fillVBXYTemplate
+            |> markStatic "Alea.CUDA.Extension.Graphics.Direct3D9.SurfacePlotter.Kernels.fillVBXYIRM"
+            |> genirm
+        |> Lazy.Create
+
 type RenderType =
     | Mesh
     | Point
@@ -300,18 +413,29 @@ let renderingLoop (context:Context) (vd:VertexDeclaration) (vb:VertexBuffer) (or
 
     RenderLoop.Run(context.Form, RenderLoop.RenderCallback(render)) }
 
-let plottingLoop (context:Context) (surface:DMatrix<float>) (extend:ExtendFunc) (renderType:RenderType) = pcalc {
-    use vb = createVertexBuffer context surface.NumElements
+let plottingLoop (context:Context) (values:DMatrix<float>) (extendValue:ExtendFunc) (renderType:RenderType) = pcalc {
+    use vb = createVertexBuffer context values.NumElements
     use vd = createVertexDeclaration context
 
     let fillVB = context.Worker.LoadPModule(Kernels.fillVBIRM.Value).Invoke
     let vbRes = context.RegisterGraphicsResource(vb)
-    do! fillVB extend surface vbRes
+    do! fillVB extendValue values vbRes
     context.UnregisterGraphicsResource(vbRes)
 
-    do! renderingLoop context vd vb surface.Order surface.NumRows surface.NumCols (fun _ -> ()) renderType }
+    do! renderingLoop context vd vb values.Order values.NumRows values.NumCols (fun _ -> ()) renderType }
 
-let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DMatrix<float>>) (extend:ExtendFunc) (renderType:RenderType) (loopTime:float option) = pcalc {
+let plottingXYLoop (context:Context) (rows:DArray<float>) (cols:DArray<float>) (values:DMatrix<float>) (extendRow:ExtendFunc) (extendCol:ExtendFunc) (extendValue:ExtendFunc) (renderType:RenderType) = pcalc {
+    use vb = createVertexBuffer context values.NumElements
+    use vd = createVertexDeclaration context
+
+    let fillVB = context.Worker.LoadPModule(Kernels.fillVBXYIRM.Value).Invoke
+    let vbRes = context.RegisterGraphicsResource(vb)
+    do! fillVB extendRow extendCol extendValue rows cols values vbRes
+    context.UnregisterGraphicsResource(vbRes)
+
+    do! renderingLoop context vd vb values.Order values.NumRows values.NumCols (fun _ -> ()) renderType }
+
+let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DMatrix<float> * ExtendFunc>) (renderType:RenderType) (loopTime:float option) = pcalc {
     use vb = createVertexBuffer context (rows * cols)
     use vd = createVertexDeclaration context
 
@@ -329,8 +453,34 @@ let animationLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (
                         let time = clock.Elapsed.TotalMilliseconds
                         if time > loopTime then clock.Restart()
                         clock.Elapsed.TotalMilliseconds
-            let! surface = gen time
-            do! fillVB extend surface vbRes }
+            let! values, extendValue = gen time
+            do! fillVB extendValue values vbRes }
+        |> PCalc.run
+
+    do! renderingLoop context vd vb order rows cols hook renderType
+
+    context.UnregisterGraphicsResource(vbRes) }
+
+let animationXYLoop (context:Context) (order:Util.MatrixStorageOrder) (rows:int) (cols:int) (gen:float -> PCalc<DArray<float> * DArray<float> * DMatrix<float> * ExtendFunc * ExtendFunc * ExtendFunc>) (renderType:RenderType) (loopTime:float option) = pcalc {
+    use vb = createVertexBuffer context (rows * cols)
+    use vd = createVertexDeclaration context
+
+    let vbRes = context.RegisterGraphicsResource(vb)
+    let fillVB = context.Worker.LoadPModule(Kernels.fillVBXYIRM.Value).Invoke
+
+    let hook (clock:Stopwatch) =
+        pcalc {
+            let time =
+                match loopTime with
+                | None -> clock.Elapsed.TotalMilliseconds
+                | Some(loopTime) ->
+                    if loopTime <= 0.0 then clock.Elapsed.TotalMilliseconds
+                    else 
+                        let time = clock.Elapsed.TotalMilliseconds
+                        if time > loopTime then clock.Restart()
+                        clock.Elapsed.TotalMilliseconds
+            let! rows, cols, values, extendRow, extendCol, extendValue = gen time
+            do! fillVB extendRow extendCol extendValue rows cols values vbRes }
         |> PCalc.run
 
     do! renderingLoop context vd vb order rows cols hook renderType

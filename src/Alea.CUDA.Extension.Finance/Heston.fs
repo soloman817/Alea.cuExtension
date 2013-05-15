@@ -1220,6 +1220,6 @@ let douglasSolver = cuda {
                         printfn "time step %A done" t0
                 )
                     
-                return u } ) }
+                return s, v, u } ) }
 
 
