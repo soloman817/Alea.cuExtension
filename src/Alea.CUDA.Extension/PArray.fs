@@ -6,6 +6,30 @@ open Alea.CUDA
 
 open Util
 
+let init (f:Expr<int -> 'T>) = cuda {
+    let! pfunc = Transform.filli "init" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
+                return data } ) }
+
+let initp (f:Expr<int -> 'P -> 'T>) = cuda {
+    let! pfunc = Transform.fillip "initp" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n param data.Ptr)
+                return data } ) }
+
 let fill (f:Expr<'T>) = cuda {
     let! pfunc = Transform.fill "fill" f
 
@@ -26,17 +50,15 @@ let filli (f:Expr<int -> 'T>) = cuda {
             let n = data.Length
             pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
 
-let init (f:Expr<int -> 'T>) = cuda {
-    let! pfunc = Transform.filli "init" f
+let fillip (f:Expr<int -> 'P -> 'T>) = cuda {
+    let! pfunc = Transform.fillip "fillip" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let pfunc = pfunc.Apply m
-        fun (n:int) ->
-            pcalc {
-                let! data = DArray.createInBlob worker n
-                do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
-                return data } ) }
+        fun (param:'P) (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param data.Ptr) } ) }
 
 let create (f:Expr<'T>) = cuda {
     let! pfunc = Transform.fill "create" f
