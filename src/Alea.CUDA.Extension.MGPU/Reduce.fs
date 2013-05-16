@@ -1,47 +1,23 @@
 ﻿module Alea.CUDA.Extension.MGPU.Reduce
 
-#nowarn "9"
-#nowarn "51"
+// this file maps to reduce.cuh
 
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.Util
+open Alea.CUDA.Extension.MGPU
+open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
-[<Struct;StructLayout(LayoutKind.Sequential, Size=16);Align(16)>]
-type Extent16 =
-    val dummy : byte
-
-[<Struct;StructLayout(LayoutKind.Sequential, Size=8);Align(8)>]
-type Extent8 =
-    val dummy : byte
-
-[<Struct;StructLayout(LayoutKind.Sequential, Size=4);Align(4)>]
-type Extent4 =
-    val dummy : byte
-
-[<Struct;StructLayout(LayoutKind.Sequential, Size=2);Align(2)>]
-type Extent2 =
-    val dummy : byte
-
-[<Struct;StructLayout(LayoutKind.Sequential, Size=1);Align(1)>]
-type Extent1 =
-    val dummy : byte
-
-let createSharedExpr (align:int) (size:int) =
-    let length = divup size align
-    match align with
-    | 16 -> <@ __shared__<Extent16>(length).Ptr(0).Reinterpret<byte>() @>
-    | 8  -> <@ __shared__<Extent8>(length).Ptr(0).Reinterpret<byte>() @>
-    | 4  -> <@ __shared__<Extent4>(length).Ptr(0).Reinterpret<byte>() @>
-    | 2  -> <@ __shared__<Extent2>(length).Ptr(0).Reinterpret<byte>() @>
-    | 1  -> <@ __shared__<Extent1>(length).Ptr(0).Reinterpret<byte>() @>
-    | _ -> failwithf "wrong align of %d" align
-
+// in mgpu, it uses a template type Tuning for different tuning parameters,
+// which we call it plan. In most of mgpu kernel, a plan need a NT (means the
+// numbers of thread in one block), and a VT (means how many values will be
+// handles by one thread, this is used in the local values you can see below in
+// the kernel)
 type Plan =
     {
         NT : int
@@ -53,6 +29,14 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let VT = plan.VT
     let NV = NT * VT
 
+    // so here we dynamically created a shared array, which matches the requiement
+    // of a union's alignment and size
+    //	union Shared {
+    //	    typename R::Storage reduce;
+    //      input_type inputs[NV];
+    //  };
+    // R::Storage is TV[Capacity]
+    // Inputs is TI[NV]
     let capacity, reduce = ctaReduce NT op
     let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
     let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
@@ -60,14 +44,15 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
     let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
+    // get neccesary quotations for later doing slicing in quotation
     let commutative = op.Commutative
     let identity = op.Identity
     let extract = op.DExtract
     let plus = op.DPlus
-
     let deviceGlobalToReg = deviceGlobalToReg NT VT
 
     <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'TV>) ->
+        // quotation slicing (you can google what it means)
         let extract = %extract
         let plus = %plus
         let deviceGlobalToReg = %deviceGlobalToReg
@@ -89,6 +74,12 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         while range.x < range.y do
             let count2 = min NV (count - range.x)
 
+            // here is what VT means, one thread can handle multiple values
+            // which could make the device busy enough
+            // but you need be very careful about the storage order,
+            // so that is why deviceGlobalToReg is used. 
+            // Please check http://www.moderngpu.com/scan/globalscan.html#Scan
+            // and check the concept of transposeValues. 
             let inputs = __local__<'TI>(VT).Ptr(0)
             deviceGlobalToReg count2 (data_global + range.x) tid inputs false
 
@@ -110,11 +101,13 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
 
         if tid = 0 then reduction_global.[block] <- total @>
 
+// each raw implmenetation could return an interface (or api), which doesn't contain
+// any memory management, this will be used later for wrapping with pcalc
 type IReduce<'TI, 'TV> =
     {
         NumBlocks : int // how may 'TV
         Action : ActionHint -> DevicePtr<'TI> ->DevicePtr<'TV> -> unit
-        Result : DevicePtr<'TV> -> 'TV
+        Result : 'TV[] -> 'TV
     }
 
 let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
@@ -155,10 +148,8 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                 let lp = lp |> hint.ModifyLaunchParam
                 kernelReduce.Launch lp data count task reduction
 
-            let result (reduction:DevicePtr<'TV>) =
-                let host = Array.zeroCreate numBlocks
-                DevicePtrUtil.Gather(worker, reduction, host, numBlocks)
-                host |> Array.reduce hplus
+            let result (reduction:'TV[]) =
+                reduction |> Array.reduce hplus
 
             { NumBlocks = numBlocks; Action = action; Result = result } ) }
 

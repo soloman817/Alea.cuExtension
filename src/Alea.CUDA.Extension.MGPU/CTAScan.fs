@@ -1,5 +1,7 @@
 ﻿module Alea.CUDA.Extension.MGPU.CTAScan
 
+// this maps to ctascan.cuh. 
+
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Extension
@@ -8,6 +10,9 @@ open Alea.CUDA.Extension.MGPU.Static
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.Intrinsics
 
+// in c++, mgpu uses template to define the interface, but F# doesn't
+// have template, so we have to use a template. Please read carefully
+// on the ctascan.cuh, and see how I mapped them into interface.
 type IScanOp<'TI, 'TV, 'TR> =
     abstract Commutative : bool
     abstract Identity : 'TI // the init value

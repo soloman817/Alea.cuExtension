@@ -11,17 +11,13 @@ open NUnit.Framework
 let worker = Engine.workers.DefaultWorker
 
 let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
-    let api = worker.LoadPModule(reduce op).Invoke
+    let reduce = worker.LoadPModule(PArray.reduce op).Invoke
 
     fun (gold:'TI[] -> 'TV) (verify:'TV -> 'TV -> unit) (data:'TI[]) ->
         let calc = pcalc {
             let! data = DArray.scatterInBlob worker data
-            let api = api data.Length
-            let! reduction = DArray.createInBlob worker api.NumBlocks
-            do! PCalc.action (fun hint -> api.Action hint data.Ptr reduction.Ptr)
-            do! PCalc.force() // here is a bug, the reduction.Ptr doesn't trigger the actions
-            let result = api.Result reduction.Ptr
-            return result }
+            let! result = reduce data
+            return! result.Value }
 
         let hOutput = gold data
         let dOutput = PCalc.run calc
