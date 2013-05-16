@@ -85,6 +85,8 @@
     <Compile Include="Util.fs" />
     <Compile Include="PCalc.fs" />
     <Compile Include="Transformation.fs" />
+    <Compile Include="TransformationPArray.fs" />
+    <Compile Include="TransformationPMatrix.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="SegmentedScanByFlag.fs" />

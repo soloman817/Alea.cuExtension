@@ -6,26 +6,8 @@ open Alea.CUDA
 
 open Util
 
-let fill (f:Expr<'T>) = cuda {
-    let! pfunc = Transform.fill "fill" f
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let pfunc = pfunc.Apply m
-        fun (data:DArray<'T>) ->
-            let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
-
-let filli (f:Expr<int -> 'T>) = cuda {
-    let! pfunc = Transform.filli "filli" f
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let pfunc = pfunc.Apply m
-        fun (data:DArray<'T>) ->
-            let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
-
+/// <summary>PArray.init</summary>
+/// <remarks></remarks>
 let init (f:Expr<int -> 'T>) = cuda {
     let! pfunc = Transform.filli "init" f
 
@@ -38,6 +20,70 @@ let init (f:Expr<int -> 'T>) = cuda {
                 do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
                 return data } ) }
 
+/// <summary>PArray.initp</summary>
+/// <remarks></remarks>
+let initp (f:Expr<int -> 'P -> 'T>) = cuda {
+    let! pfunc = Transform.fillip "initp" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (n:int) ->
+            pcalc {
+                let! data = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> pfunc hint n param data.Ptr)
+                return data } ) }
+
+/// <summary>PArray.fill</summary>
+/// <remarks></remarks>
+let fill (f:Expr<'T>) = cuda {
+    let! pfunc = Transform.fill "fill" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+
+/// <summary>PArray.fillp</summary>
+/// <remarks></remarks>
+let fillp (f:Expr<'P -> 'T>) = cuda {
+    let! pfunc = Transform.fillp "fillp" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param data.Ptr) } ) }
+
+/// <summary>PArray.filli</summary>
+/// <remarks></remarks>
+let filli (f:Expr<int -> 'T>) = cuda {
+    let! pfunc = Transform.filli "filli" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+
+/// <summary>PArray.fillip</summary>
+/// <remarks></remarks>
+let fillip (f:Expr<int -> 'P -> 'T>) = cuda {
+    let! pfunc = Transform.fillip "fillip" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (data:DArray<'T>) ->
+            let n = data.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param data.Ptr) } ) }
+
+/// <summary>PArray.create</summary>
+/// <remarks></remarks>
 let create (f:Expr<'T>) = cuda {
     let! pfunc = Transform.fill "create" f
 
@@ -50,6 +96,8 @@ let create (f:Expr<'T>) = cuda {
                 do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
                 return data } ) }
 
+/// <summary>PArray.zeroCreate</summary>
+/// <remarks></remarks>
 let inline zeroCreate() = cuda {
     let! pfunc = Transform.fill "zeroCreate" <@ 0G @>
 
@@ -62,6 +110,8 @@ let inline zeroCreate() = cuda {
                 do! PCalc.action (fun hint -> pfunc hint n data.Ptr)
                 return data } ) }
 
+/// <summary>PArray.transform</summary>
+/// <remarks></remarks>
 let transform (f:Expr<'T -> 'U>) = cuda {
     let! pfunc = Transform.transform "transform" f
 
@@ -72,16 +122,20 @@ let transform (f:Expr<'T -> 'U>) = cuda {
             let n = input.Length
             pcalc { do! PCalc.action (fun hint -> pfunc hint n input.Ptr output.Ptr) } ) }
 
-let transform2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
-    let! pfunc = Transform.transform2 "transform2" f
+/// <summary>PArray.transformp</summary>
+/// <remarks></remarks>
+let transformp (f:Expr<'P -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformp "transformp" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let pfunc = pfunc.Apply m
-        fun (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
-            let n = input1.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n input1.Ptr input2.Ptr output.Ptr) } ) }
+        fun (param:'P) (input:DArray<'T>) (output:DArray<'U>) ->
+            let n = input.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param input.Ptr output.Ptr) } ) }
 
+/// <summary>PArray.transformi</summary>
+/// <remarks></remarks>
 let transformi (f:Expr<int -> 'T -> 'U>) = cuda {
     let! pfunc = Transform.transformi "transformi" f
 
@@ -92,6 +146,44 @@ let transformi (f:Expr<int -> 'T -> 'U>) = cuda {
             let n = input.Length
             pcalc { do! PCalc.action (fun hint -> pfunc hint n input.Ptr output.Ptr) } ) }
 
+/// <summary>PArray.transformip</summary>
+/// <remarks></remarks>
+let transformip (f:Expr<int -> 'P -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformip "transformip" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input:DArray<'T>) (output:DArray<'U>) ->
+            let n = input.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param input.Ptr output.Ptr) } ) }
+
+/// <summary>PArray.transform2</summary>
+/// <remarks></remarks>
+let transform2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transform2 "transform2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
+            let n = input1.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n input1.Ptr input2.Ptr output.Ptr) } ) }
+
+/// <summary>PArray.transformp2</summary>
+/// <remarks></remarks>
+let transformp2 (f:Expr<'P -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformp2 "transformp2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
+            let n = input1.Length
+            pcalc { do! PCalc.action (fun hint -> pfunc hint n param input1.Ptr input2.Ptr output.Ptr) } ) }
+
+/// <summary>PArray.transformi2</summary>
+/// <remarks></remarks>
 let transformi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
     let! pfunc = Transform.transformi2 "transformi2" f
 
@@ -102,6 +194,20 @@ let transformi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
             let n = input1.Length
             pcalc { do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr) } ) }
 
+/// <summary>PArray.transformip2</summary>
+/// <remarks></remarks>
+let transformip2 (f:Expr<int -> 'P -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformip2 "transformip2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input1:DArray<'T1>) (input2:DArray<'T2>) (output:DArray<'U>) ->
+            let n = input1.Length
+            pcalc { do! PCalc.action (fun lphint -> pfunc lphint n param input1.Ptr input2.Ptr output.Ptr) } ) }
+
+/// <summary>PArray.map</summary>
+/// <remarks></remarks>
 let map (f:Expr<'T -> 'U>) = cuda {
     let! pfunc = Transform.transform "map" f
 
@@ -115,19 +221,23 @@ let map (f:Expr<'T -> 'U>) = cuda {
                 do! PCalc.action (fun lphint -> pfunc lphint n input.Ptr output.Ptr)
                 return output } ) }
 
-let map2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
-    let! pfunc = Transform.transform2 "map2" f
+/// <summary>PArray.mapp</summary>
+/// <remarks></remarks>
+let mapp (f:Expr<'P -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformp "mapp" f
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let pfunc = pfunc.Apply m
-        fun (input1:DArray<'T1>) (input2:DArray<'T2>) ->
-            let n = input1.Length
+        fun (param:'P) (input:DArray<'T>) ->
+            let n = input.Length
             pcalc {
                 let! output = DArray.createInBlob worker n
-                do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr)
+                do! PCalc.action (fun lphint -> pfunc lphint n param input.Ptr output.Ptr)
                 return output } ) }
 
+/// <summary>PArray.mapi</summary>
+/// <remarks></remarks>
 let mapi (f:Expr<int -> 'T -> 'U>) = cuda {
     let! pfunc = Transform.transformi "mapi" f
 
@@ -141,6 +251,53 @@ let mapi (f:Expr<int -> 'T -> 'U>) = cuda {
                 do! PCalc.action (fun lphint -> pfunc lphint n input.Ptr output.Ptr)
                 return output } ) }
 
+/// <summary>PArray.mapip</summary>
+/// <remarks></remarks>
+let mapip (f:Expr<int -> 'P -> 'T -> 'U>) = cuda {
+    let! pfunc = Transform.transformip "mapip" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input:DArray<'T>) ->
+            let n = input.Length
+            pcalc {
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n param input.Ptr output.Ptr)
+                return output } ) }
+
+/// <summary>PArray.map2</summary>
+/// <remarks></remarks>
+let map2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transform2 "map2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (input1:DArray<'T1>) (input2:DArray<'T2>) ->
+            let n = input1.Length
+            pcalc {
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr)
+                return output } ) }
+
+/// <summary>PArray.mapp2</summary>
+/// <remarks></remarks>
+let mapp2 (f:Expr<'P -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformp2 "mapp2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input1:DArray<'T1>) (input2:DArray<'T2>) ->
+            let n = input1.Length
+            pcalc {
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n param input1.Ptr input2.Ptr output.Ptr)
+                return output } ) }
+
+/// <summary>PArray.mapi2</summary>
+/// <remarks></remarks>
 let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
     let! pfunc = Transform.transformi2 "mapi2" f
 
@@ -154,6 +311,23 @@ let mapi2 (f:Expr<int -> 'T1 -> 'T2 -> 'U>) = cuda {
                 do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr)
                 return output } ) }
 
+/// <summary>PArray.mapip2</summary>
+/// <remarks></remarks>
+let mapip2 (f:Expr<int -> 'P -> 'T1 -> 'T2 -> 'U>) = cuda {
+    let! pfunc = Transform.transformip2 "mapip2" f
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let pfunc = pfunc.Apply m
+        fun (param:'P) (input1:DArray<'T1>) (input2:DArray<'T2>) ->
+            let n = input1.Length
+            pcalc {
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n param input1.Ptr input2.Ptr output.Ptr)
+                return output } ) }
+
+/// <summary>PArray.reduce'</summary>
+/// <remarks></remarks>
 let reduce' (reducer:PTemplate<PFunc<int -> Reduce.IReduce<'T>>>) = cuda {
     let! reducer = reducer
 
@@ -169,6 +343,8 @@ let reduce' (reducer:PTemplate<PFunc<int -> Reduce.IReduce<'T>>>) = cuda {
                 do! PCalc.action (fun lphint -> reducer.Reduce lphint ranges.Ptr rangeTotals.Ptr values.Ptr)
                 return DScalar.ofArray rangeTotals 0 } ) }
 
+/// <summary>PArray.reducer'</summary>
+/// <remarks></remarks>
 let reducer' (reducer:PTemplate<PFunc<int -> Reduce.IReduce<'T>>>) = cuda {
     let! reducer = reducer
 
@@ -195,6 +371,8 @@ let reducer init op transf = Reduce.generic Reduce.Planner.Default init op trans
 let inline sum() = Reduce.sum Reduce.Planner.Default |> reduce'
 let inline sumer() = Reduce.sum Reduce.Planner.Default |> reducer'
 
+/// <summary>PArray.scan'</summary>
+/// <remarks></remarks>
 let scan' (scanner:PTemplate<PFunc<int -> Scan.IScan<'T>>>) = cuda {
     let! scanner = scanner
 
@@ -211,6 +389,8 @@ let scan' (scanner:PTemplate<PFunc<int -> Scan.IScan<'T>>>) = cuda {
                 do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr values.Ptr results.Ptr inclusive)
                 return results } ) }
 
+/// <summary>PArray.scanner'</summary>
+/// <remarks></remarks>
 let scanner' (scanner:PTemplate<PFunc<int -> Scan.IScan<'T>>>) = cuda {
     let! scanner = scanner
 
@@ -232,6 +412,8 @@ let scanner init op transf = Scan.generic Scan.Planner.Default init op transf |>
 let inline sumscan() = Scan.sum Scan.Planner.Default |> scan'
 let inline sumscanner() = Scan.sum Scan.Planner.Default |> scanner'
 
+/// <summary>PArray.segscan'</summary>
+/// <remarks></remarks>
 let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>) = cuda {
     let! scanner = scanner
 
@@ -249,6 +431,8 @@ let segscan' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>)
                 do! PCalc.action (fun hint -> scanner.Scan hint ranges.Ptr rangeTotals.Ptr headFlags.Ptr marks.Ptr values.Ptr results.Ptr inclusive)
                 return results } ) }
 
+/// <summary>PArray.segscanner'</summary>
+/// <remarks></remarks>
 let segscanner' (scanner:PTemplate<PFunc<int -> SegmentedScan.ISegmentedScan<'T>>>) = cuda {
     let! scanner = scanner
 
