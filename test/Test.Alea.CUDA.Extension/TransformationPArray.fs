@@ -11,56 +11,23 @@ let worker = getDefaultWorker()
 /// init,initp,fill,fillp,filli,fillip,transform,transformp,transformi,transformip,transform2
 //  transformp2,transformi2,transformip2,map,mapp,mapi,mapip,map2,mapp2,mapi2,mapip2,
 
+//[<Test>] //init
 
-[<Test>]
-let ``transform: (x:float) -> log x``() =
-    let transform = worker.LoadPModule(PArray.transform <@ log @>).Invoke
-    let test n eps = pcalc {
-        let hInput = Array.init n (fun _ -> rng.NextDouble())
-        let hOutput = hInput |> Array.map log
-        let! dInput = DArray.scatterInBlob worker hInput
-        let! dOutput = DArray.createInBlob worker n
-        do! transform dInput dOutput
-        let! dOutput = dOutput.Gather()
-        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
+//[<Test>] //initp
 
-    test (1<<<22) 1e-10 |> PCalc.run
-    test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+//[<Test>] //fill
 
-[<Test>]
-let ``transform: (x:float32) -> log x``() =
-    let transform = worker.LoadPModule(PArray.transform <@ log @>).Invoke
-    let test n eps = pcalc {
-        let hInput = Array.init n (fun _ -> rng.NextDouble() |> float32)
-        let hOutput = hInput |> Array.map log
-        let! dInput = DArray.scatterInBlob worker hInput
-        let! dOutput = DArray.createInBlob worker n
-        do! transform dInput dOutput
-        let! dOutput = dOutput.Gather()
-        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
+//[<Test>] //fillp
 
-    test (1<<<22) 1e-5 |> PCalc.run
-    test (1<<<22) 1e-5 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = test (1<<<22) 1e-5 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+//[<Test>] //filli
 
-[<Test>]
-let ``transform: (x:float) -> float32(log x)``() =
-    let transform = worker.LoadPModule(PArray.transform <@ fun x -> float32(log x) @>).Invoke
-    let test n eps = pcalc {
-        let hInput = Array.init n (fun _ -> rng.NextDouble())
-        let hOutput = hInput |> Array.map log |> Array.map float32
-        let! dInput = DArray.scatterInBlob worker hInput
-        let! dOutput = DArray.createInBlob worker n
-        do! transform dInput dOutput
-        let! dOutput = dOutput.Gather()
-        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
+//[<Test>] //fillip
 
-    test (1<<<22) 1e-10 |> PCalc.run
-    test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
-    let _, loggers = test (1<<<22) 1e-5 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+//[<Test>] //transform
 
-[<Test>]
+//[<Test>] //transformp
+
+[<Test>] //transformi
 let ``transformi: int sequence``() =
     let transformi = worker.LoadPModule(PArray.transformi <@ fun i _ -> i @>).Invoke
     let test n = pcalc {
@@ -74,7 +41,9 @@ let ``transformi: int sequence``() =
     test (1<<<22) |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = test (1<<<22) |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
-[<Test>]
+//[<Test>] //transformip
+
+[<Test>] //transform2
 let ``transform2: (x:float) (y:float32) -> x + float(y)``() =
     let transform2 = worker.LoadPModule(PArray.transform2 <@ fun x y -> x + float(y) @>).Invoke
     let test n eps = pcalc {
@@ -92,7 +61,13 @@ let ``transform2: (x:float) (y:float32) -> x + float(y)``() =
     test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
-[<Test>]
+//[<Test>] //transformp2
+
+//[<Test>] //transformi2
+
+//[<Test>] //transformip2
+
+[<Test>] //map
 let ``map: (x:float) -> log x``() =
     let map = worker.LoadPModule(PArray.map <@ log @>).Invoke
     let test n eps = pcalc {
@@ -106,5 +81,30 @@ let ``map: (x:float) -> log x``() =
     test (1<<<22) 1e-10 |> PCalc.run
     test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
-        
 
+[<Test>] //mapp
+let ``mapp: (param:'P) (x:float) -> param log x``() =
+    let mapp = worker.LoadPModule(PArray.mapp "xxx" <@ (fun x -> log x) @>).Invoke
+    let test n eps = pcalc {
+        let hInput = Array.init n (fun _ -> rng.NextDouble())
+        let hOutput = hInput |> Array.map log
+        let! dInput = DArray.scatterInBlob worker hInput
+        let! dOutput = dInput |> mapp
+        let! dOutput = dOutput.Gather()
+        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
+
+    test (1<<<22) 1e-10 |> PCalc.run
+    test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    
+//[<Test>] //mapi
+
+//[<Test>] //mapip
+
+//[<Test>] //map2
+
+//[<Test>] //mapp2
+
+//[<Test>] //mapi2
+
+//[<Test>] //mapip2

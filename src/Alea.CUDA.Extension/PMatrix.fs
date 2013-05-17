@@ -6,6 +6,8 @@ open Alea.CUDA
 
 open Util
 
+/// <summary>PMatrix.init</summary>
+/// <remarks></remarks>
 let init (f:Expr<int -> int -> 'T>) = cuda {
     let! pfunc = Transform2D.filli "init" f
 
@@ -18,6 +20,8 @@ let init (f:Expr<int -> int -> 'T>) = cuda {
                 do! PCalc.action (fun hint -> pfunc hint matrix.Order matrix.NumRows matrix.NumCols matrix.Ptr)
                 return matrix } ) }
 
+/// <summary>PMatrix.initp</summary>
+/// <remarks></remarks>
 let initp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
     let! pfunc = Transform2D.fillip "initp" f
 
@@ -30,6 +34,8 @@ let initp (f:Expr<int -> int -> 'P -> 'T>) = cuda {
                 do! PCalc.action (fun hint -> pfunc hint matrix.Order matrix.NumRows matrix.NumCols param matrix.Ptr)
                 return matrix } ) }
 
+/// <summary>PMatrix.fillip</summary>
+/// <remarks></remarks>
 let fillip (f:Expr<int -> int -> 'P -> 'T>) = cuda {
     let! pfunc = Transform2D.fillip "fillip" f
 
@@ -39,6 +45,8 @@ let fillip (f:Expr<int -> int -> 'P -> 'T>) = cuda {
         fun (param:'P) (matrix:DMatrix<'T>) ->
             pcalc { do! PCalc.action (fun hint -> pfunc hint matrix.Order matrix.NumRows matrix.NumCols param matrix.Ptr) } ) }
 
+/// <summary>PMatrix.transformip</summary>
+/// <remarks></remarks>
 let transformip (f:Expr<int -> int -> 'P -> 'T -> 'U>) = cuda {
     let! pfunc = Transform2D.transformip "transformip" f
 
@@ -53,3 +61,4 @@ let transformip (f:Expr<int -> int -> 'P -> 'T -> 'U>) = cuda {
             let rows = input.NumRows
             let cols = input.NumCols
             pcalc { do! PCalc.action (fun hint -> pfunc hint order rows cols param input.Ptr output.Ptr) } ) }
+
