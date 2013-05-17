@@ -9,11 +9,11 @@ let worker = getDefaultWorker()
 
 [<Struct;Align(16)>]
     type Param =
-        val rows : int
-        val cols : int
+        val x : float
+        val y : float
         val time : float
 
-        new (rows, cols, time) = { rows = rows; cols = cols; time = time }
+        new (x, y, time) = { x = x; y = y; time = time }
 
 /// All tests for PArray ??
 /// init,initp,fill,fillp,filli,fillip,transform,transformp,transformi,transformip,transform2
@@ -97,8 +97,6 @@ let ``transformi: int sequence``() =
 
 //[<Test>] //transformip
 
-
-
 [<Test>] //transform2
 let ``transform2: (x:float) (y:float32) -> x + float(y)``() =
     let transform2 = worker.LoadPModule(PArray.transform2 <@ fun x y -> x + float(y) @>).Invoke
@@ -139,8 +137,8 @@ let ``map: (x:float) -> log x``() =
     let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
 [<Test>] //mapp
-let ``mapp: (param:'P) (x:float) -> log(x) + p``() =
-    let mapp = worker.LoadPModule(PArray.mapp  <@ (fun (x:float) (p:float) -> log(x) + p ) @>).Invoke
+let ``mapp: (param:float) (x:float) -> log(x) + param``() =
+    let mapp = worker.LoadPModule(PArray.mapp  <@ (fun (p:float) (x:float) -> log(x) + p ) @>).Invoke
     let test n eps = pcalc {
         let hInput = Array.init n (fun _ -> rng.NextDouble() )
         let hOutput p = hInput |> Array.map log |> Array.map (fun x -> x + p)
@@ -155,6 +153,24 @@ let ``mapp: (param:'P) (x:float) -> log(x) + p``() =
     test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
     
+[<Test>] //mapp (axpy using struct)
+let ``mapp: (param:Param) (a:float) -> a*param.x + param.y``() =
+    let mapp = worker.LoadPModule(PArray.mapp  <@ (fun (p:Param) (a:float) -> a*p.x + p.y ) @>).Invoke
+    let test n eps = pcalc {
+        let par = new Param(2.0, 3.0, 0.0) 
+        let hInput = Array.init n (fun _ -> rng.NextDouble() )
+        let hOutput (p:Param) = hInput |> Array.map (fun a -> a*p.x + p.y) 
+        let hOutput = hOutput par
+        let! dInput = DArray.scatterInBlob worker hInput
+        let! dOutput = mapp par dInput
+        let! dOutput = dOutput.Gather()
+        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
+
+    test (1<<<22) 1e-10 |> PCalc.run
+    test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+
+
 //[<Test>] //mapi
 
 //[<Test>] //mapip
