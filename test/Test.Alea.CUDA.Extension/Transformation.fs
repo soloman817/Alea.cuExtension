@@ -7,7 +7,7 @@ open Alea.CUDA.Extension
 
 let worker = getDefaultWorker()
 
-[<Struct;Align(16)>]
+[<Struct>]
     type Param =
         val x : float
         val y : float
@@ -170,8 +170,20 @@ let ``mapp: (param:Param) (a:float) -> a*param.x + param.y``() =
     test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
     let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
+[<Test>] //mapi
+let ``mapi: (i:int) (x:float) -> (i, log(x))``() =
+    let mapi = worker.LoadPModule(PArray.mapi  <@ (fun i x -> i ) @>).Invoke
+    let test n eps = pcalc {
+        let hInput = Array.init n (fun _ -> rng.NextDouble() )
+        let hOutput = hInput |> Array.mapi (fun i x -> (i, log(x))) 
+        let! dInput = DArray.scatterInBlob worker hInput
+        let! dOutput = dInput |> mapi
+        let! dOutput = dOutput.Gather()
+        (hOutput, dOutput) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps))) }
 
-//[<Test>] //mapi
+    test (1<<<22) 1e-10 |> PCalc.run
+    test (1<<<22) 1e-10 |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+    let _, loggers = test (1<<<22) 1e-10 |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
 
 //[<Test>] //mapip
 
