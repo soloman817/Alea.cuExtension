@@ -276,9 +276,9 @@ let map2 (f:Expr<'T1 -> 'T2 -> 'U>) = cuda {
         let pfunc = pfunc.Apply m
         fun (input1:DArray<'T1>) (input2:DArray<'T2>) ->
             let n = input1.Length
-            pcalc {
+            pcalc { 
                 let! output = DArray.createInBlob worker n
-                do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr)
+                do! PCalc.action (fun lphint -> pfunc lphint n input1.Ptr input2.Ptr output.Ptr) 
                 return output } ) }
 
 /// <summary>PArray.mapp2</summary>
