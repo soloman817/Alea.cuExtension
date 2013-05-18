@@ -22,7 +22,7 @@ let [<ReflectedDefinition>] set (u:RMatrixRowMajor ref) (si:int) (vi:int) (value
     RMatrixRowMajor.Set(u, si, vi, value)
 
 /// Concentrate at critical point and map critical point to grid point
-let stateGrid = concentratedGrid
+let stateGrid = concentratedGridAt
 
 /// Heston model in terms of expressions to be compiled into various kernels
 type HestonModelExpr =
@@ -83,6 +83,9 @@ let [<ReflectedDefinition>] forwardWeights (dxp:float) (dxpp:float) =
     let w3 = 2.0 / (dxpp*(dxp + dxpp))
     FdWeights(v1, v2, v3, w1, w2, w3)
 
+let [<ReflectedDefinition>] forwardWeightsSimple (dx:float)  = 
+    FdWeights(-1.0/dx, 1.0/dx, 0.0, 0.0, 0.0, 0.0)
+
 let [<ReflectedDefinition>] backwardWeights (dxm:float) (dx:float) = 
     let v1 = dx / (dxm*(dxm + dx))
     let v2 = (-dxm - dx) / (dxm*dx)
@@ -92,8 +95,9 @@ let [<ReflectedDefinition>] backwardWeights (dxm:float) (dx:float) =
     let w3 = 2.0 / (dx*(dxm + dx))
     FdWeights(v1, v2, v3, w1, w2, w3)
 
-[<ReflectedDefinition>]
-let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
+/// Explicit apply operator for Euler scheme.
+
+let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
 
@@ -117,19 +121,48 @@ let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePt
         // Dirichlet boundary at s = 0, so we do not need to process i = 0, we start i at 1
         let mutable i = blockIdx.x * blockDim.x + threadIdx.x + 1
 
-        if j = 0 then
+        let vj = v.[j]
 
-            // j = 0, special boundary at v = 0, one sided forward difference quotient
-            let vj = v.[0]
-            let dv = v.[1] - vj
-            a2d <- -heston.kappa*heston.eta/dv - 0.5*heston.rd
-            a2u <- heston.kappa*heston.eta/dv            
+        // j = 0, special boundary at v = 0, one sided forward difference quotient
+        let fdv =
+            if j = 0 then                
+                let dv = v.[1] - vj
+                let fdv = forwardWeightsSimple dv         
 
-            // we always have i > 0 
-            while i < ns do
+                a2d <- heston.kappa*heston.eta*fdv.v1 - 0.5*heston.rd
+                a2u <- heston.kappa*heston.eta*fdv.v2   
+                
+                fdv
+            else
+                // here we have 0 < j < nv-1 so we can always build central weights for v               
+                let dv = vj - v.[j-1]
+                let dvp = v.[j+1] - vj
+                let fdv = centralWeights dv dvp
 
+                // operator A2, j-th row, is independent of i so we can construct it here
+                if j < nv-2 then
+                    a2l <- 0.5*heston.sigma*vj*fdv.w1 + heston.kappa*(heston.eta - vj)*fdv.v1
+                    a2d <- 0.5*heston.sigma*vj*fdv.w2 + heston.kappa*(heston.eta - vj)*fdv.v2 - 0.5*heston.rd
+                    a2u <- 0.5*heston.sigma*vj*fdv.w3 + heston.kappa*(heston.eta - vj)*fdv.v3
+                else
+                    // Dirichlet boundary at v = max, the constant term 
+                    //   (0.5*sigma*v(j)*wp2 + kappa*(eta - v(j))*wp1)*s(i)*exp(-t*rf)
+                    // is absorbed into b2
+                    a2l <- 0.5*heston.sigma*vj*fdv.w1 + heston.kappa*(heston.eta - vj)*fdv.v1
+                    a2d <- 0.5*heston.sigma*vj*fdv.w2 + heston.kappa*(heston.eta - vj)*fdv.v2 - 0.5*heston.rd
+                    a2u <- 0.0
+                
+                fdv
+                             
+        // we always have i > 0 
+        while i < ns do
+
+            let u00 = get u i     j
+
+            if j = 0 then
+                            
+                // j = 0, special boundary at v = 0, one sided forward difference quotient
                 let um0 = get u (i-1) 0 
-                let u00 = get u i     0
                 let u0p = get u i     1
 
                 let si = s.[i]
@@ -147,9 +180,11 @@ let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePt
                     a1d <- (heston.rd-heston.rf)*si*fds.v2 - 0.5*heston.rd
                     a1u <- (heston.rd-heston.rf)*si*fds.v3 
 
+                    a0 <- 0.0
                     a1 <- a1l*um0 + a1d*u00 + a1u*up0 // A1*u                    
                     a2 <- a2d*u00 + a2u*u0p // A2*u             
                     b1 <- 0.0
+                    b2 <- 0.0
 
                 // boundary s = max: i = ns-1 
                 else
@@ -158,46 +193,21 @@ let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePt
                     // Neumann boundary in s direction with additonal ghost point and extrapolation
                     a1l <- 0.5*si*si*vj*fds.w1 + (heston.rd-heston.rf)*si*fds.v1
                     a1d <- 0.5*si*si*vj*(fds.w2+fds.w3) + (heston.rd-heston.rf)*si*(fds.v2+fds.v3) - 0.5*heston.rd
+                    a1u <- 0.0
 
+                    a0 <- 0.0
                     a1 <- a1l*um0 + a1d*u00 // A1*u
                     a2 <- a2d*u00 + a2u*u0p // A2*u
                     b1 <- (heston.rd-heston.rf)*si*0.5; // wp = ds / (2.0*ds*ds) => duds = wp*ds = 0.5
-          
-                // update u for i = 1,..., ns-1 and j = 0
-                set u i 0 (u00 + dt*(a1+a2+b1))
-
-                i <- i + blockDim.x * gridDim.x
-
-        else
-
-            // here we have 0 < j < nv-1 so we can always build central weights for v
-            let vj = v.[j]
-            let dv = vj - v.[j-1]
-            let dvp = v.[j+1] - vj
-            let fdv = centralWeights dv dvp
-
-            // operator A2, j-th row, is independent of i so we can construct it here
-            if j < nv-2 then
-                a2l <- 0.5*heston.sigma*vj*fdv.w1 + heston.kappa*(heston.eta - vj)*fdv.v1
-                a2d <- 0.5*heston.sigma*vj*fdv.w2 + heston.kappa*(heston.eta - vj)*fdv.v2 - 0.5*heston.rd
-                a2u <- 0.5*heston.sigma*vj*fdv.w3 + heston.kappa*(heston.eta - vj)*fdv.v3
+                    b2 <- 0.0
+               
             else
-                // Dirichlet boundary at v = max, the constant term 
-                //   (0.5*sigma*v(j)*wp2 + kappa*(eta - v(j))*wp1)*s(i)*exp(-t*rf)
-                // is absorbed into b2
-                a2l <- 0.5*heston.sigma*vj*fdv.w1 + heston.kappa*(heston.eta - vj)*fdv.v1
-                a2d <- 0.5*heston.sigma*vj*fdv.w2 + heston.kappa*(heston.eta - vj)*fdv.v2 - 0.5*heston.rd
-                a2u <- 0.0
-                             
-            // we always have i > 0 
-            while i < ns do
 
                 // we add a zero boundary around u to have no memory access issues
                 let umm = get u (i-1) (j-1)
                 let ump = get u (i-1) (j+1)
                 let um0 = get u (i-1) j 
                 let u0m = get u i     (j-1)
-                let u00 = get u i     j
                 let u0p = get u i     (j+1)
                 let upm = get u (i+1) (j-1)
                 let up0 = get u (i+1) j
@@ -223,9 +233,10 @@ let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePt
                     a0 <- heston.rho*heston.sigma*si*vj*mixed  
 
                     // operator A1, i-th row
-                    a1l <- 0.5*si*si*vj*fds.w1 + (heston.rd-heston.rf)*si*fds.v1          
+                    // Dirichlet boundary at s = 0 for i = 1
+                    a1l <- if i = 1 then 0.0 else 0.5*si*si*vj*fds.w1 + (heston.rd-heston.rf)*si*fds.v1          
                     a1d <- 0.5*si*si*vj*fds.w2 + (heston.rd-heston.rf)*si*fds.v2 - 0.5*heston.rd
-                    a1u <- 0.5*si*si*vj*fds.w2 + (heston.rd-heston.rf)*si*fds.v3 
+                    a1u <- 0.5*si*si*vj*fds.w3 + (heston.rd-heston.rf)*si*fds.v3 
 
                     a1 <- a1l*um0 + a1d*u00 + a1u*up0 // A1*u                    
                     a2 <- a2l*u0m + a2d*u00 + a2u*u0p // A2*u    
@@ -239,17 +250,20 @@ let applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePt
                     // Neumann boundary with additonal ghost point and extrapolation
                     a1l <- 0.5*si*si*vj*fds.w1 + (heston.rd-heston.rf)*si*fds.v1
                     a1d <- 0.5*si*si*vj*(fds.w2+fds.w3) + (heston.rd-heston.rf)*si*(fds.v2+fds.v3) - 0.5*heston.rd
+                    a1u <- 0.0
 
                     a1 <- a1l*um0 + a1d*u00 
                     a2 <- a2l*u0m + a2d*u00 + a2u*u0p
                     b1 <- 0.5*si*si*vj/ds + (heston.rd-heston.rf)*si*0.5 // wp = 1.0/(ds*ds), d2ud2s = wp*ds = 1.0/ds, wp = ds / (2.0*ds*ds) duds = wp*ds = 0.5
 
-                // set u for i = 1,..., ns-1, j=1,..., nv-2
-                set u i j (u00 + dt*(a0+a1+a2+b1+b2))
+            // set u for i = 1,..., ns-1, j=1,..., nv-2
+            set u i j (u00 + dt*(a0+a1+a2+b1+b2))
 
-                i <- i + blockDim.x * gridDim.x
+            //set u i j a2d
+
+            i <- i + blockDim.x * gridDim.x
                
-        j <- j + blockDim.y * gridDim.y        
+        j <- j + blockDim.y * gridDim.y   
 
 type OptionType =
 | Call
@@ -258,6 +272,30 @@ type OptionType =
         match this with
         | Call -> 1.0
         | Put -> -1.0
+
+/// Initial condition for vanilla call put option.
+/// We add artifical zeros to avoid access violation in the kernel.
+let [<ReflectedDefinition>] initConditionVanilla ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike =    
+    let i = blockIdx.x*blockDim.x + threadIdx.x
+    let j = blockIdx.y*blockDim.y + threadIdx.y
+    if i < ns + 1 && j < nv + 1 then
+        let payoff = 
+            if i = ns || j = nv then 
+                0.0 
+            else
+                match optionType with
+                |  1.0 -> max (s.[i] - strike) 0.0
+                | -1.0 -> max (strike - s.[i]) 0.0 
+                | _ -> 0.0
+        set (ref u) i j payoff 
+
+/// Boundary condition for vanilla call put option.
+let [<ReflectedDefinition>] boundaryConditionVanilla (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) =
+    let i = blockIdx.x*blockDim.x + threadIdx.x
+    if i < ns then
+        set (ref u) i (nv-1) (exp(-rf*t)*s.[i])
+    if i < nv then
+        set (ref u) 0 i 0.0
 
 type Param =
     val theta:float
@@ -273,24 +311,20 @@ type Param =
     new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, nt:int, sC:float, vC:float) =
         {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
 
-/// Solve Hesten pde.
+/// Solve Hesten with explicit Euler scheme.
+/// Because the time stepping has to be selected according to the state discretization
+/// we may need to have small time steps to maintain stability.
 let eulerSolver = cuda {
 
+    // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
         <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
-            let i = blockIdx.x*blockDim.x + threadIdx.x
-            let j = blockIdx.y*blockDim.y + threadIdx.y
-            if i < ns + 1 && j < nv + 1 then
-                let payoff = 
-                    if i = ns || j = nv then 
-                        0.0 
-                    else
-                        match optionType with
-                                |  1.0 -> max (s.[i] - strike) 0.0
-                                | -1.0 -> max (strike - s.[i]) 0.0 
-                                | _ -> 0.0
-                set (ref u) i j payoff @> |> defineKernelFunc
+            initConditionVanilla ns nv s u optionType strike @> |> defineKernelFunc
 
+    let! boundaryCondKernel =     
+        <@ fun (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) ->
+            boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFunc
+   
     let! appFKernel =
         <@ fun (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
             applyF heston t dt (ref u) s v ns nv @> |> defineKernelFunc
@@ -298,13 +332,18 @@ let eulerSolver = cuda {
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
+        let boundaryCondKernel = boundaryCondKernel.Apply m
         let appFKernel = appFKernel.Apply m
          
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
 
-            let s = concentratedGrid param.sMin param.sMax strike param.ns param.sC
-            let v = concentratedGrid 0.0 param.vMax 0.0 param.nv param.vC
-            let t, dt = homogeneousGrid param.nt 0.0 timeToMaturity
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
+
+            // calculate a time step which is compatible with the space discretization
+            let dt = ds*ds/100.0
+            let nt = int(timeToMaturity/dt) + 1
+            let t, dt = homogeneousGrid nt 0.0 timeToMaturity
 
             pcalc {
                 let! s = DArray.scatterInBlob worker s
@@ -314,25 +353,27 @@ let eulerSolver = cuda {
                 
                 do! PCalc.action (fun hint ->
                     let lpm = LaunchParam(dim3(divup param.ns 16, divup param.ns 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let lpb = LaunchParam(divup (max param.ns param.nv) 256, 256) |> hint.ModifyLaunchParam
 
                     let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
 
                     initCondKernel.Launch lpm param.ns param.nv s.Ptr u optionType.sign strike
 
-//                    for ti = 0 to param.nt - 2 do
-//                    
-//                        let t0 = t.[ti]
-//                        let t1 = t.[ti + 1]
-//                        let dt = t1 - t0
-//                        let thetaDt = dt * param.theta
-//
-//                        appFKernel.Launch lpm heston t0 dt u s.Ptr v.Ptr param.ns param.nv
-//
-//                        printfn "time step %A done" t0
+                    for ti = 0 to nt-2 do
+
+                        let t0 = t.[ti]
+                        let t1 = t.[ti + 1]
+                        let dt = t1 - t0
+                        let thetaDt = dt * param.theta
+
+                        boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
+                        appFKernel.Launch lpm heston t0 dt u s.Ptr v.Ptr param.ns param.nv
                 )
                     
-                return u } ) }
+                return s, v, u } ) }
 
+
+// Refactor below, some problem with boundary conditons
 
 [<Struct>]
 type RFiniteDifferenceWeights =
@@ -1175,8 +1216,8 @@ let douglasSolver = cuda {
          
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
 
-            let s = concentratedGrid param.sMin param.sMax strike param.ns param.sC
-            let v = concentratedGrid 0.0 param.vMax 0.0 param.nv param.vC
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dt = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
             let t, dt = homogeneousGrid param.nt 0.0 timeToMaturity
 
             pcalc {
