@@ -43,6 +43,7 @@
     <Compile Include="Intrinsics.fs" />
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
+    <Compile Include="BulkRemove.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="PArray.fs" />
     <None Include="packages.config" />

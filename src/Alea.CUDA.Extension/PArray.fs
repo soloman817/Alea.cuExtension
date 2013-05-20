@@ -44,7 +44,10 @@ let fill (f:Expr<'T>) = cuda {
         let pfunc = pfunc.Apply m
         fun (data:DArray<'T>) ->
             let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+            pcalc { 
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n output.Ptr)
+                return output } ) }
 
 /// <summary>PArray.fillp</summary>
 /// <remarks></remarks>
@@ -56,7 +59,10 @@ let fillp (f:Expr<'P -> 'T>) = cuda {
         let pfunc = pfunc.Apply m
         fun (param:'P) (data:DArray<'T>) ->
             let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n param data.Ptr) } ) }
+            pcalc { 
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n param output.Ptr)
+                return output } ) }
 
 /// <summary>PArray.filli</summary>
 /// <remarks></remarks>
@@ -68,7 +74,10 @@ let filli (f:Expr<int -> 'T>) = cuda {
         let pfunc = pfunc.Apply m
         fun (data:DArray<'T>) ->
             let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n data.Ptr) } ) }
+            pcalc { 
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n output.Ptr)
+                return output } ) }
 
 /// <summary>PArray.fillip</summary>
 /// <remarks></remarks>
@@ -80,7 +89,10 @@ let fillip (f:Expr<int -> 'P -> 'T>) = cuda {
         let pfunc = pfunc.Apply m
         fun (param:'P) (data:DArray<'T>) ->
             let n = data.Length
-            pcalc { do! PCalc.action (fun hint -> pfunc hint n param data.Ptr) } ) }
+            pcalc { 
+                let! output = DArray.createInBlob worker n
+                do! PCalc.action (fun lphint -> pfunc lphint n param output.Ptr)
+                return output } ) }
 
 /// <summary>PArray.create</summary>
 /// <remarks></remarks>

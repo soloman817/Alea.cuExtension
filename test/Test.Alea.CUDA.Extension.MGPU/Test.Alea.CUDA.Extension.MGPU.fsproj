@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CTAScan.fs" />
+    <Compile Include="BulkRemove.fs" />
     <Compile Include="Reduce.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
