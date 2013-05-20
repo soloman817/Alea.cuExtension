@@ -30,21 +30,19 @@ let exponentiallyCondensedGrid tstart tstop dt nc =
 let sinh (x : float) = Math.Sinh x
 let asinh (x : float) = float(Math.Sign x) * Math.Log((Math.Abs x) + Math.Sqrt (x*x + 1.0))
 
-/// Concentrate at critical point and map critical point to grid point
-let concentratedGrid xMin xMax criticalPoint numPoints cFactor =
+/// Concentrate at critical point and map critical point to grid point.
+/// The boundaries are not exact but the critical point.
+/// The concentration factor should be scaled, e.g. alpha = (xMax - xMin) / cFactor or strike / cFactor.
+let concentratedGridAt xMin xMax criticalPoint numPoints alpha =
     if numPoints <= 1 then failwith "require 2 or more points"
     if xMin >= xMax then failwith "require xMin < xMax"
     if criticalPoint < xMin || criticalPoint > xMax then failwith "critical point must be in [xMin, xMax]"
 
-    let alpha = (xMax - xMin) / cFactor
     let c1 = asinh((xMin - criticalPoint) / alpha)
     let c2 = asinh((xMax - criticalPoint) / alpha)
 
     // critical point in homogeneous y coordinates between 0 and 1
     let yCritical = -c1/(c2-c1)
-
-    // this value should be close to zero
-    if abs(alpha*sinh(c1*(1.0 - yCritical) + c2*yCritical)) > 1e-14 then failwith "consistency error"
 
     // build the homogeneous mesh in the xi coordinates which contains transformed critical point xiB
     let dy = 1.0 / float(numPoints - 1)
@@ -57,5 +55,19 @@ let concentratedGrid xMin xMax criticalPoint numPoints cFactor =
     for i = n+1 to numPoints - 1 do
         y.[i] <- y.[i-1] + dy
 
-    Array.init numPoints (fun i -> criticalPoint + alpha * sinh(c1*(1.0 - y.[i]) + c2*y.[i]))
+    Array.init numPoints (fun i -> criticalPoint + alpha * sinh(c1 + (c2 - c1)*y.[i])), dy
+
+/// Concentrate at critical point and map critical point to grid point.
+/// The critical point is not exact, but the boundaries are exact.
+let concentratedGridBetween xMin xMax criticalPoint numPoints alpha =
+    if numPoints <= 1 then failwith "require 2 or more points"
+    if xMin >= xMax then failwith "require xMin < xMax"
+    if criticalPoint < xMin || criticalPoint > xMax then failwith "critical point must be in [xMin, xMax]"
+
+    let c1 = asinh((xMin - criticalPoint) / alpha)
+    let c2 = asinh((xMax - criticalPoint) / alpha)
+    let delta = (c2 - c1) / float(numPoints - 1)
+
+    Array.init numPoints (fun i -> criticalPoint + alpha*sinh(c1 + float(i)*delta)), delta
+
 
