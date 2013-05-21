@@ -1,5 +1,7 @@
 ﻿module Alea.CUDA.Extension.MGPU.DeviceUtil
 
+// This file maps to the deviceutil.cuh file in mgpu, just some utilities.
+
 open Alea.CUDA
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
@@ -18,6 +20,8 @@ let divideTaskRange (numItems:int) (numWorkers:int) =
     let rem = numItems % numWorkers
     int2(quot, rem)
 
+// this function will be called inside kernel, so it need 
+// reflected definition to generate quotation.
 [<ReflectedDefinition>]
 let computeTaskRange (block:int) (task:int2) =
     let mutable range = int2()

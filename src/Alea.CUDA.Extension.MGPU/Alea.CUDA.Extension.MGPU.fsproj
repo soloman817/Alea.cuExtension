@@ -37,12 +37,14 @@
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   <ItemGroup>
+    <Compile Include="QuotationUtil.fs" />
     <Compile Include="Static.fs" />
     <Compile Include="DeviceUtil.fs" />
     <Compile Include="Intrinsics.fs" />
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
     <Compile Include="Reduce.fs" />
+    <Compile Include="PArray.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

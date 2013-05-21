@@ -1,5 +1,9 @@
 ﻿module Alea.CUDA.Extension.MGPU.LoadStore
 
+// this file maps to loadstore.cuh. which acturally did the different matrix
+// order changing. Please check http://www.moderngpu.com/scan/globalscan.html#Scan
+// and check the concept of transposeValues. 
+
 open Alea.CUDA
 
 let deviceSharedToReg (NT:int) (VT:int) =
