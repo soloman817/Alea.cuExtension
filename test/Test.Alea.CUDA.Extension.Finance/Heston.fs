@@ -95,7 +95,7 @@ let ``Douglas scheme`` () =
 [<Test>]
 let ``Euler scheme plotting`` () =
     
-    let verbose = false
+    let verbose = true
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
@@ -137,8 +137,8 @@ let ``Euler scheme plotting`` () =
                 let! uu = u.ToArray2D();
                 printfn "s = %A" ss
                 printfn "v = %A" vv
-                for i = 0 to ns-1 do
-                    for j = 0 to nv-1 do
+                for i = 0 to ns do
+                    for j = 0 to nv do
                         printf "%.4f, " uu.[i,j]
                     printf "\n"
 
