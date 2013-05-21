@@ -297,19 +297,18 @@ let [<ReflectedDefinition>] boundaryConditionVanilla (rf:float) t ns nv (s:Devic
     if i < nv then
         set (ref u) 0 i 0.0
 
-type Param =
+type EulerSolverParam =
     val theta:float
     val sMin:float
     val sMax:float
     val vMax:float
     val ns:int
     val nv:int
-    val nt:int
     val sC:float
     val vC:float
 
-    new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, nt:int, sC:float, vC:float) =
-        {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
+    new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, sC:float, vC:float) =
+        {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; sC = sC; vC = vC}
 
 /// Solve Hesten with explicit Euler scheme.
 /// Because the time stepping has to be selected according to the state discretization
@@ -335,10 +334,11 @@ let eulerSolver = cuda {
         let boundaryCondKernel = boundaryCondKernel.Apply m
         let appFKernel = appFKernel.Apply m
          
-        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
 
-            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
-            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
+            // we add one more point to the state grids because the value surface has a ghost aerea as well
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike (param.ns+1) param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 (param.nv+1) param.vC
 
             // calculate a time step which is compatible with the space discretization
             let dt = ds*ds/100.0
@@ -349,6 +349,8 @@ let eulerSolver = cuda {
                 let! s = DArray.scatterInBlob worker s
                 let! v = DArray.scatterInBlob worker v
                 
+                // add a ghost point to the value surface to allow simpler access in the kernel, these
+                // ghost points will have value zero 
                 let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+1)
                 
                 do! PCalc.action (fun hint ->
@@ -1177,6 +1179,20 @@ module HVScheme =
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x) 
 
+type DouglasSolverParam =
+    val theta:float
+    val sMin:float
+    val sMax:float
+    val vMax:float
+    val ns:int
+    val nv:int
+    val nt:int
+    val sC:float
+    val vC:float
+
+    new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, nt:int, sC:float, vC:float) =
+        {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
+
 
 /// Solve Hesten pde.
 let douglasSolver = cuda {
@@ -1214,7 +1230,7 @@ let douglasSolver = cuda {
         let solveF2Kernel = solveF2Kernel.Apply m
         let finiteDifferenceWeights = finiteDifferenceWeights.Apply m
          
-        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:DouglasSolverParam) ->
 
             let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
             let v, dt = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC

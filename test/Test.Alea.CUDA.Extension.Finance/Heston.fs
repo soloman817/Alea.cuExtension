@@ -34,12 +34,11 @@ let ``Euler scheme`` () =
     let theta = 0.5
     let sMax = 1000.0
     let vMax = 16.0
-    let ns = 128
-    let nv = 128
-    let nt = 100
+    let ns = 24
+    let nv = 24
     let cS = 8.0
     let cV = 15.0
-    let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+    let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
     let pricer = pcalc {
         let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
@@ -81,7 +80,7 @@ let ``Douglas scheme`` () =
     let nt = 100
     let cS = 8.0
     let cV = 15.0
-    let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+    let param = DouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
 
     let pricer = pcalc {
         let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
@@ -94,19 +93,9 @@ let ``Douglas scheme`` () =
     ()
 
 [<Test>]
-let ``Euler scheme grid`` () =
-
-    let strike = 55.0
-
-    let x1 = concentratedGridAt 0.0 220.0 strike 32 5.0 
-
-    let x2 = concentratedGridBetween 0.0 220.0 strike 32 (strike/5.0)
-
-    printfn "x1 = %A" x1
-    printfn "x2 = %A" x2
-
-[<Test>]
 let ``Euler scheme plotting`` () =
+    
+    let verbose = false
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
@@ -134,35 +123,33 @@ let ``Euler scheme plotting`` () =
             let theta = 0.5
             let sMax = 220.0
             let vMax = 4.0
-            let ns = 32
-            let nv = 24
-            let dt = 3.189288111681886e-004
-            let nt = int(1.0 / dt) + 1
+            let ns = 48
+            let nv = 32
             let cS = strike/5.0
             let cV = vMax/5.0
-            let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+            let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
             let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
 
-            let! ss = s.Gather();
-            let! vv = v.Gather();
-            let! uu = u.ToArray2D();
-            printfn "s = %A" ss
-            printfn "v = %A" vv
-            for i = 0 to ns-1 do
-                for j = 0 to nv-1 do
-                    printf "%.4f, " uu.[i,j]
-                printf "\n"
+            if verbose then
+                let! ss = s.Gather();
+                let! vv = v.Gather();
+                let! uu = u.ToArray2D();
+                printfn "s = %A" ss
+                printfn "v = %A" vv
+                for i = 0 to ns-1 do
+                    for j = 0 to nv-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
 
             let extend minv maxv = let maxv', _ = Graphics.Direct3D9.SurfacePlotter.defaultExtend minv maxv in maxv', 1.0
             let renderType = Graphics.Direct3D9.SurfacePlotter.RenderType.Mesh
-            //do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context s v u extend extend extend renderType }
-            do! Graphics.Direct3D9.SurfacePlotter.plottingLoop context u extend renderType }
+            do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context s v u extend extend extend renderType }
         |> PCalc.run
 
     let cudaDevice = Device.AllDevices.[0]
     let param = Graphics.Direct3D9.Application.Param.Create(cudaDevice)
-    let param = { param with FormTitle = "Douglas Scheme"
+    let param = { param with FormTitle = "Euler Scheme"
                              DrawingSize = System.Drawing.Size(1024, 768) }
     let application = Graphics.Direct3D9.Application.Application(param, loop)
     application.Start()
@@ -201,7 +188,7 @@ let ``Douglas scheme plotting`` () =
             let nt = 100
             let cS = 8.0
             let cV = 15.0
-            let param = Param(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+            let param = DouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
 
             let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
 
