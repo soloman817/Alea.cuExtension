@@ -96,7 +96,6 @@ let [<ReflectedDefinition>] backwardWeights (dxm:float) (dx:float) =
     FdWeights(v1, v2, v3, w1, w2, w3)
 
 /// Explicit apply operator for Euler scheme.
-
 let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
@@ -157,7 +156,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
         // we always have i > 0 
         while i < ns do
 
-            let u00 = get u i     j
+            let u00 = get u i j
 
             if j = 0 then
                             
@@ -297,6 +296,21 @@ let [<ReflectedDefinition>] boundaryConditionVanilla (rf:float) t ns nv (s:Devic
     if i < nv then
         set (ref u) 0 i 0.0
 
+/// Copy kernel to copy data on device to reduce to valid range
+let [<ReflectedDefinition>] copyValues ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) =    
+    let i = blockIdx.x*blockDim.x + threadIdx.x
+    let j = blockIdx.y*blockDim.y + threadIdx.y
+    if i < ns && j < nv then
+        set (ref u1) i j (get (ref u0) i j) 
+
+/// Copy kernel to copy data on device to reduce to valid range
+let [<ReflectedDefinition>] copyGrids ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) =    
+    let i = blockIdx.x*blockDim.x + threadIdx.x
+    if i < ns then
+        s1.[i] <- s0.[i]        
+    if i < nv then
+        v1.[i] <- v0.[i]
+
 type EulerSolverParam =
     val theta:float
     val sMin:float
@@ -318,27 +332,37 @@ let eulerSolver = cuda {
     // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
         <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
-            initConditionVanilla ns nv s u optionType strike @> |> defineKernelFunc
+            initConditionVanilla ns nv s u optionType strike @> |> defineKernelFuncWithName "initCondition"
 
     let! boundaryCondKernel =     
         <@ fun (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) ->
-            boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFunc
+            boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFuncWithName "boundaryCondition"
    
     let! appFKernel =
         <@ fun (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
-            applyF heston t dt (ref u) s v ns nv @> |> defineKernelFunc
-                
+            applyF heston t dt (ref u) s v ns nv @> |> defineKernelFuncWithName "applyF"
+    
+    let! copyValuesKernel = 
+        <@ fun ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) ->
+            copyValues ns nv u0 u1 @> |> defineKernelFuncWithName "copyValues"    
+
+    let! copyGridsKernel = 
+        <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
+            copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
+                         
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
         let boundaryCondKernel = boundaryCondKernel.Apply m
         let appFKernel = appFKernel.Apply m
-         
+        let copyValuesKernel = copyValuesKernel.Apply m
+        let copyGridsKernel = copyGridsKernel.Apply m
+
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
 
             // we add one more point to the state grids because the value surface has a ghost aerea as well
-            let s, ds = concentratedGridBetween param.sMin param.sMax strike (param.ns+1) param.sC
-            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 (param.nv+1) param.vC
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
 
             // calculate a time step which is compatible with the space discretization
             let dt = ds*ds/100.0
@@ -348,16 +372,20 @@ let eulerSolver = cuda {
             pcalc {
                 let! s = DArray.scatterInBlob worker s
                 let! v = DArray.scatterInBlob worker v
-                
+
                 // add a ghost point to the value surface to allow simpler access in the kernel, these
                 // ghost points will have value zero 
                 let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+1)
+
+                // storage for reduced values
+                let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
                 
                 do! PCalc.action (fun hint ->
                     let lpm = LaunchParam(dim3(divup param.ns 16, divup param.ns 16), dim3(16, 16)) |> hint.ModifyLaunchParam
                     let lpb = LaunchParam(divup (max param.ns param.nv) 256, 256) |> hint.ModifyLaunchParam
 
                     let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
+                    let ured = RMatrixRowMajor(ured.NumRows, ured.NumCols, ured.Storage.Ptr)
 
                     initCondKernel.Launch lpm param.ns param.nv s.Ptr u optionType.sign strike
 
@@ -370,12 +398,15 @@ let eulerSolver = cuda {
 
                         boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
                         appFKernel.Launch lpm heston t0 dt u s.Ptr v.Ptr param.ns param.nv
+
+                    // this is a temporary solution, later we should use a view on it
+                    copyValuesKernel.Launch lpm param.ns param.nv u ured
                 )
-                    
-                return s, v, u } ) }
+                
+                return s, v, ured } ) }
 
 
-// Refactor below, some problem with boundary conditons
+//****** Refactor below, some problem with boundary conditons
 
 [<Struct>]
 type RFiniteDifferenceWeights =
@@ -516,7 +547,7 @@ let finiteDifferenceWeights = cuda {
             let mutable i = start
             while i < n - 1 do
                 dx.[i] <- x.[i + 1] - x.[i]
-                i <- i + stride @> |> defineKernelFunc
+                i <- i + stride @> |> defineKernelFuncWithName "diff"
 
     let! finiteDifferenceKernel = 
         <@ fun (diff:RFiniteDifferenceWeights) ->
@@ -543,7 +574,7 @@ let finiteDifferenceWeights = cuda {
                 diff.Delta0.[i]  <- -2.0 / (dx0 * dx1)
                 diff.DeltaP.[i]  <- 2.0 / (dx1 * (dx0 + dx1))
 
-                i <- i + stride @> |> defineKernelFunc
+                i <- i + stride @> |> defineKernelFuncWithName "finiteDifference"
 
     return PFunc(fun (m:Module) n (x:DArray<float>) ->
         let worker = m.Worker
@@ -1206,19 +1237,19 @@ let douglasSolver = cuda {
                              |  1.0 -> max (s.[i] - strike) 0.0
                              | -1.0 -> max (strike - s.[i]) 0.0 
                              | _ -> 0.0
-                set (ref u) i j payoff @> |> defineKernelFunc
+                set (ref u) i j payoff @> |> defineKernelFuncWithName "initCondition"
 
     let! appFKernel =
         <@ fun heston t dt thetaDt ds dv u u2 b ->
-            appF heston t ds dv (ref u) (DouglasScheme.appF dt thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
+            appF heston t ds dv (ref u) (DouglasScheme.appF dt thetaDt (ref u2) (ref b)) @> |> defineKernelFuncWithName "applyF"
                 
     let! solveF1Kernel =
         <@ fun heston t t1 thetaDt ds dv u2 b ->
-            solveF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFunc
+            solveF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFuncWithName "solveF1"
 
     let! solveF2Kernel =
         <@ fun heston t t1 thetaDt ds dv u b ->
-            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston ds (ref u)) @> |> defineKernelFunc
+            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston ds (ref u)) @> |> defineKernelFuncWithName "solveF2"
 
     let! finiteDifferenceWeights = finiteDifferenceWeights
 
@@ -1273,8 +1304,6 @@ let douglasSolver = cuda {
                         solveF1Kernel.Launch lps heston t0 t1 thetaDt sDiff vDiff u2 b
 
                         solveF2Kernel.Launch lpv heston t0 t1 thetaDt sDiff vDiff u b
-
-                        printfn "time step %A done" t0
                 )
                     
                 return s, v, u } ) }

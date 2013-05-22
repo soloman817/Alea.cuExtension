@@ -68,6 +68,12 @@ let concentratedGridBetween xMin xMax criticalPoint numPoints alpha =
     let c2 = asinh((xMax - criticalPoint) / alpha)
     let delta = (c2 - c1) / float(numPoints - 1)
 
-    Array.init numPoints (fun i -> criticalPoint + alpha*sinh(c1 + float(i)*delta)), delta
+    let grid = Array.init numPoints (fun i -> criticalPoint + alpha*sinh(c1 + float(i)*delta))
+
+    // make sure that we match the boundaries exactly
+    grid.[0] <- xMin
+    grid.[numPoints-1] <- xMax
+
+    grid, delta
 
 

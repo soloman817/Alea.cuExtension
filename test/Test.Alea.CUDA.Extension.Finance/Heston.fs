@@ -26,7 +26,7 @@ let ``Euler scheme`` () =
     let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
 
     // contract params
-    let timeToMaturity = 1.0
+    let timeToMaturity = 0.01
     let strike = 100.0
     let optionType = Call
 
@@ -34,22 +34,21 @@ let ``Euler scheme`` () =
     let theta = 0.5
     let sMax = 1000.0
     let vMax = 16.0
-    let ns = 24
-    let nv = 24
+    let ns = 128
+    let nv = 64
     let cS = 8.0
     let cV = 15.0
     let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
     let pricer = pcalc {
         let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
-        //return! solution.ToArray2D()
         return! u.Gather()
     }
 
-    let valueMatrix = pricer |> PCalc.run
-    printfn "%A" valueMatrix
-
-    ()
+    let result = pricer |> PCalc.runWithKernelTiming(5)
+//    let result, loggers = pricer |> PCalc.runWithTimingLogger
+//    loggers.["default"].DumpLogs()
+    printfn "%A" result
 
 [<Test>]
 let ``Douglas scheme`` () =
@@ -76,7 +75,7 @@ let ``Douglas scheme`` () =
     let sMax = 1000.0
     let vMax = 16.0
     let ns = 128
-    let nv = 128
+    let nv = 64
     let nt = 100
     let cS = 8.0
     let cV = 15.0
@@ -87,10 +86,8 @@ let ``Douglas scheme`` () =
         return! v.Gather()
     }
 
-    let valueMatrix = pricer |> PCalc.run
-    printfn "%A" valueMatrix
-
-    ()
+    let result = pricer |> PCalc.runWithKernelTiming(5)
+    printfn "%A" result
 
 [<Test>]
 let ``Euler scheme plotting`` () =
@@ -137,8 +134,8 @@ let ``Euler scheme plotting`` () =
                 let! uu = u.ToArray2D();
                 printfn "s = %A" ss
                 printfn "v = %A" vv
-                for i = 0 to ns do
-                    for j = 0 to nv do
+                for i = 0 to ns-1 do
+                    for j = 0 to nv-1 do
                         printf "%.4f, " uu.[i,j]
                     printf "\n"
 
