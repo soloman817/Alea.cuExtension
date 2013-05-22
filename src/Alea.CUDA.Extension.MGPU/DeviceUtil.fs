@@ -15,6 +15,8 @@ type Int2 =
 
 type int2 = Int2
 
+
+
 let divideTaskRange (numItems:int) (numWorkers:int) =
     let quot = numItems / numWorkers
     let rem = numItems % numWorkers
@@ -36,3 +38,36 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range.x <- range.x * blockSize
     range.y <- min count (range.y * blockSize)
     range
+
+
+// found in mgpudevice.cuh
+type MgpuBounds =
+    | MgpuBoundsLower
+    | MgpuBoundsUpper
+
+
+type MgpuScanType =
+    | MgpuScanTypeExc
+    | MgpuScanTypeInc
+
+
+type MgpuSearchType =
+    | MgpuSearchTypeNone
+    | MgpuSearchTypeIndex
+    | MgpuSearchTypeMatch
+    | MgpuSearchTypeIndexMatch
+
+
+type MgpuJoinKind =
+    | MgpuJoinKindInner
+    | MgpuJoinKindLeft
+    | MgpuJoinKindRight
+    | MgpuJoinKindOuter
+
+
+type MgpuSetOp =
+    | MgpuSetOpIntersection
+    | MgpuSetOpUnion
+    | MgpuSetOpDiff
+    | MgpuSetOpSymDiff
+

@@ -83,3 +83,43 @@ let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
             total @>
 
     capacity, reduce
+
+// CTAScan
+let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
+    let size = NT
+    let capacity = 2 * NT + 1
+    let plus = op.DPlus
+    let extract = op.DExtract
+    let identity = op.Identity
+
+    let scan =
+        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) (total:RWPtr<'TV>) (stype:MgpuScanType) ->
+            let plus = %plus
+            let extract = %extract
+
+            let mutable x = x
+            storage.[tid] <- x
+            let mutable first = 0
+            __syncthreads()
+
+            let mutable offset = 1
+            while offset < NT do 
+                if(tid >= offset) then
+                    x <- plus x storage.[first + tid - offset]
+                    first <- NT - first
+                    storage.[first + tid] <- x
+                    __syncthreads()
+                    offset <- offset + offset
+
+            
+            total.[0] <- storage.[first + NT - 1]
+            if(MgpuScanTypeExc = stype) then
+                if( x = tid ) then
+                    x <- storage.[first + tid - 1]
+                else
+                    x <- extract identity -1
+                        
+            __syncthreads()
+            x @>
+
+    capacity, scan
