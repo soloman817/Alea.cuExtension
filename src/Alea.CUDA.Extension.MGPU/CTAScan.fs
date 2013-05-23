@@ -10,6 +10,11 @@ open Alea.CUDA.Extension.MGPU.Static
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.Intrinsics
 
+
+let [<ReflectedDefinition>] ExclusiveScan = 0
+let [<ReflectedDefinition>] InclusiveScan = 1
+
+
 // in c++, mgpu uses template to define the interface, but F# doesn't
 // have template, so we have to use a template. Please read carefully
 // on the ctascan.cuh, and see how I mapped them into interface.
@@ -93,7 +98,7 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let identity = op.Identity
 
     let scan =
-        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) (total:RWPtr<'TV>) (stype:MgpuScanType) ->
+        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) (total:LocalPtr<'TV>) (stype:int) ->
             let plus = %plus
             let extract = %extract
 
@@ -113,7 +118,7 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
 
             
             total.[0] <- storage.[first + NT - 1]
-            if(MgpuScanTypeExc = stype) then
+            if(stype = ExclusiveScan) then
                 if( x = tid ) then
                     x <- storage.[first + tid - 1]
                 else

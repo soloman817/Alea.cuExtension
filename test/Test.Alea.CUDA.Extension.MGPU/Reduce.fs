@@ -24,7 +24,7 @@ let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
         printfn "count(%d) h(%A) (d:%A)" data.Length hOutput dOutput
         verify hOutput dOutput
 
-let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608; 33554432; 33554431; 33554433]
+let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193]//; 9000; 10000; 2097152; 8388608; 33554432; 33554431; 33554433]
 
 [<Test>]
 let ``sum float``() =

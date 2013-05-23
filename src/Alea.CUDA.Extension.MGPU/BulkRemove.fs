@@ -14,6 +14,7 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 open Alea.CUDA.Extension.MGPU.Reduce
 
+
 // this is plan
 type Plan = 
     {
@@ -87,8 +88,8 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             x <- x + indices.[i]
         __syncthreads()
 
-        let passTotal:RWPtr<'TV> = RWPtr( int64(0))
-        let mutable s = scan tid x sharedScan passTotal MgpuScanTypeExc
+        let passTotal = __local__<'TV>(1).Ptr(0)
+        let mutable s = scan tid x sharedScan passTotal ExclusiveScan
         for i = 0 to VT - 1 do
             if indices.[i] > 0 then
                 s <- s + 1
@@ -107,5 +108,5 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         deviceRegToGlobal count values tid (dest_global + gid - begin') @>
 
 
-let bulkRemove =
-    let plan = { NT = 128; VT = 11 }
+//let bulkRemove =
+//    let plan = { NT = 128; VT = 11 }

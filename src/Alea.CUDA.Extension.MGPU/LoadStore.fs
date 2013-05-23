@@ -67,7 +67,7 @@ let deviceGlobalToShared (NT:int) (VT:int)  =
         if sync then __syncthreads() @>
 
 let deviceRegToGlobal (NT:int) (VT:int) =
-    <@ fun (count:int) (reg:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) =
+    <@ fun (count:int) (reg:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then

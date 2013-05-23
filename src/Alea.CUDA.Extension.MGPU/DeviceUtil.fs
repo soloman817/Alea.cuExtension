@@ -46,10 +46,6 @@ type MgpuBounds =
     | MgpuBoundsUpper
 
 
-type MgpuScanType =
-    | MgpuScanTypeExc
-    | MgpuScanTypeInc
-
 
 type MgpuSearchType =
     | MgpuSearchTypeNone

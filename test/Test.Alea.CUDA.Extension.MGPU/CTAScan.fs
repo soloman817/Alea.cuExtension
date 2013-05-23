@@ -6,6 +6,8 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.CTAScan
 open NUnit.Framework
 
+let worker = getDefaultWorker()
+
 [<Test>]
 let ``scanop`` () =
     let pfunct (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
@@ -30,4 +32,3 @@ let ``scanop`` () =
 
     let output = pfuncm.Invoke 100
     printfn "%A" output
-        

@@ -53,9 +53,13 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Util.fs" />
     <Compile Include="CTAScan.fs" />
-    <Compile Include="BulkRemove.fs" />
+    <Compile Include="CTAMerge.fs" />
+    <Compile Include="CTASearch.fs" />
     <Compile Include="Reduce.fs" />
+    <Compile Include="Scan.fs" />
+    <Compile Include="BulkRemove.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
   </ItemGroup>

@@ -24,4 +24,31 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                             let! reduction = reduction.Gather()
                             return api.Result reduction }
                     |> Lazy.Create
-                return result } ) }
+                return result} ) }
+
+
+let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
+    let! api = Scan.scan op
+    
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        
+        fun (data:DArray<'TI>) ->
+            pcalc {
+                let count = data.Length
+                let api = api count
+                let! reduction = DArray.createInBlob worker api.NumBlocks
+                let! scanned = DArray.createInBlob worker count
+                let! total = DArray.createInBlob worker 1
+                let! end' = DArray.createInBlob worker 1
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr reduction.Ptr total.Ptr end'.Ptr scanned.Ptr)
+                let result =
+                    fun () ->
+                        pcalc {
+                            let! scanned = scanned.Gather()
+                            let! total = total.Gather()
+                            return api.Result total.[0] scanned }
+                    |> Lazy.Create
+                return result} ) }

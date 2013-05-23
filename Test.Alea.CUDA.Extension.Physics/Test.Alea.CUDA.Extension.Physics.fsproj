@@ -5,7 +5,7 @@
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>1a03b2cd-6cb2-4347-b4f4-8bb33ab6da3c</ProjectGuid>
+    <ProjectGuid>{12ba8ab1-abbf-4d51-901b-fb20b42f55ef}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <RootNamespace>Test.Alea.CUDA.Extension.Physics</RootNamespace>
     <AssemblyName>Test.Alea.CUDA.Extension.Physics</AssemblyName>
@@ -42,7 +42,8 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Program.fs" />
+    <Compile Include="Util.fs" />
+    <Compile Include="Kinematics.fs" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
