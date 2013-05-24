@@ -342,15 +342,40 @@ let [<ReflectedDefinition>] b1Value i iMax (heston:HestonModel) si vj ds =
         0.0
 
 let [<ReflectedDefinition>] b2Value j jMax (heston:HestonModel) t si vj w3 v3 =               
-    if j = jMax-1 then
+    if j = jMax then
         (0.5*heston.sigma*vj*w3 + heston.kappa*(heston.eta - vj)*v3)*si*exp(-t*heston.rf)
     else
         0.0
 
 
 /// Explicit apply operator for Euler scheme.
-/// Require ghost points at j = 0 and 
-/// Require that the grids are properly extended as well
+/// We require ghost points at j = 0 and s = smax and require that the grids are properly extended as well.
+///
+///     V                             
+///                                    
+///     ^                             
+///  nv |****************************O 
+///     |*...........................O  <--- jMax = nv - 1
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O  <--- jMin = 1 
+///  0  |OOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+///     ---------------------------------->   S
+///     0                            ns
+///      ^                          ^
+///      |                          |
+///      iMin = 1                   iMax = ns - 1
+///
+/// Total dimension of solution matrix (ns+1) x (nv+1) 
+/// Meaning of points:
+///     - O     ghost points added to unify memory reading without bound checks, must remain zero 
+///             will be removed by copying to a reduced matrix
+///     - *     Dirichelt boundary points, which are not going into equation and are fixed
+///     - .     Innter points, which are effectively updated by the solver
+///
 let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
@@ -362,14 +387,15 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let mutable b2 = 0.0
 
     let jMin = 1
-    let jMax = nv
+    let jMax = nv - 1
+    let iMin = 1
     let iMax = ns - 1
 
     // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = blockIdx.y * blockDim.y + threadIdx.y + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
-    while j < jMax do 
+    while j <= jMax do 
 
         // Dirichlet boundary at s = 0, so we do not need to process i = 0, we start i at 1
         let mutable i = blockIdx.x * blockDim.x + threadIdx.x + 1
@@ -399,21 +425,21 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                 
             let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
                     
-            // inside points: 0 < i < ns-1
+            // a0 <> 0 only on jMin < j <= jMax && iMin < i < iMax
             let mixed = 
-                if i < iMax  && j > jMin then
-                    // a0 <> 0 only on 0 < j < nv-1 && 0 < i < ns-1 
+                // we do not need to test for j > jMin because at jMin vj = 0 hend a0 becomes zero there too
+                if i < iMax then                     
                     a1op.v1*a2op.v1*umm + a1op.v2*a2op.v1*u0m + a1op.v3*a2op.v1*upm +
                     a1op.v1*a2op.v2*um0 + a1op.v2*a2op.v2*u00 + a1op.v3*a2op.v2*up0 + 
                     a1op.v1*a2op.v3*ump + a1op.v2*a2op.v3*u0p + a1op.v3*a2op.v3*upp
                 else
                     0.0   
-
+            
             a0 <- heston.rho*heston.sigma*si*vj*mixed                    
             a1 <- A.apply a1op um0 u00 up0 // A1*u                    
             a2 <- A.apply a2op u0m u00 u0p // A2*u    
             
-            // set u for i = 1,..., ns-1, j=1,..., nv-2
+            // set u for i = 1,...,iMax, j = 1,...,jMax
             set u i j (u00 + dt*(a0+a1+a2+b1+b2))
 
             i <- i + blockDim.x * gridDim.x
@@ -435,6 +461,7 @@ let [<ReflectedDefinition>] initConditionVanilla ns nv (s:DevicePtr<float>) (u:R
     let j = blockIdx.y*blockDim.y + threadIdx.y
     if i < ns + 1 && j < nv + 1 then
         let payoff = 
+            // these are ghost points where we set the value to 0 and which the kernels must not change
             if i = ns || j = 0 then 
                 0.0
             else
