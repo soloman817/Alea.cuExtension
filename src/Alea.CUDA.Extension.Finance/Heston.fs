@@ -225,6 +225,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
     let uShared = __extern_shared__<float>()
 
+    //***** TODO move this code after "while i" loop and find out from (i,j) in which tile we are!!!
+
     // use all threads of block to load bx*by elements of u 
     let l = threadIdx.y*bx + threadIdx.x
     let I = l % (bx + 2)
@@ -238,6 +240,10 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let J = l / (bx + 2)
     if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
         uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+
+    __syncthreads()
+
+    //********
 
     // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = j0 + threadIdx.y + 1
