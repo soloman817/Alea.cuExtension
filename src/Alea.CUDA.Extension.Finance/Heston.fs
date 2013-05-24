@@ -285,18 +285,9 @@ type A =
     [<ReflectedDefinition>]
     static member apply (a:A) um u0 up = a.al*um + a.ad*u0 + a.au*up
 
-/// Operator A2 for j = 0, special boundary at v = 0, one sided forward difference quotient
-let [<ReflectedDefinition>] a2forward (heston:HestonModel) dv =
-    let fd = forwardWeightsSimple dv         
-
-    let al = 0.0
-    let ad = heston.kappa*heston.eta*fd.v1 - 0.5*heston.rd
-    let au = heston.kappa*heston.eta*fd.v2   
-                
-    A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
-
 /// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v   
-let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:HestonModel) vj dv dvp =    
+let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:HestonModel) vj dv dvp =   
+    // j = jMin, special boundary at v = 0, one sided forward difference quotient 
     if j = jMin then
         let fd = forwardWeightsSimple dvp         
 
@@ -325,7 +316,7 @@ let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:Hesto
             A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)               
 
 /// Operator A1 i-th row  
-let [<ReflectedDefinition>] a1central (i:int) (ns:int) (heston:HestonModel) si vj ds dsp =   
+let [<ReflectedDefinition>] a1Operator (i:int) (ns:int) (heston:HestonModel) si vj ds dsp =   
     let fd = centralWeights ds dsp  
                   
     if i < ns-1 then
@@ -344,6 +335,20 @@ let [<ReflectedDefinition>] a1central (i:int) (ns:int) (heston:HestonModel) si v
     
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
 
+let [<ReflectedDefinition>] b1Value i iMax (heston:HestonModel) si vj ds =   
+    if i = iMax then 
+        // wp = 1.0/(ds*ds), d2ud2s = wp*ds = 1.0/ds, wp = ds / (2.0*ds*ds) duds = wp*ds = 0.5
+        0.5*si*si*vj/ds + (heston.rd-heston.rf)*si*0.5 
+    else 
+        0.0
+
+let [<ReflectedDefinition>] b2Value j jMax (heston:HestonModel) t si vj w3 v3 =               
+    if j = jMax-1 then
+        (0.5*heston.sigma*vj*w3 + heston.kappa*(heston.eta - vj)*v3)*si*exp(-t*heston.rf)
+    else
+        0.0
+
+
 /// Explicit apply operator for Euler scheme.
 let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let start = blockIdx.x * blockDim.x + threadIdx.x
@@ -357,6 +362,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
     let jMin = 1
     let jMax = nv
+    let iMax = ns - 1
 
     // we added a ghost cell at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = blockIdx.y * blockDim.y + threadIdx.y + 1
@@ -371,7 +377,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
         
         let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
                                             
-        while i < ns do
+        while i <= iMax do
 
             // we add a ghost cells of zero value around u to have no memory access issues
             let umm = get u (i-1) (j-1)
@@ -384,45 +390,34 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             let up0 = get u (i+1) j
             let upp = get u (i+1) (j+1)
 
+            let si = s.[i]
+            let ds = si - s.[i-1]
+
+            b1 <- b1Value i iMax heston si vj ds
+            b2 <- b2Value j jMax heston t si vj a2op.w3 a2op.v3
+
             if j = jMin then
                             
-                // j = 1, special boundary at v = 0, one sided forward difference quotient
-                let si = s.[i]
-                let ds = si - s.[i-1]
-
                 // inside points: 0 < i < ns-1
-                if i < ns-1 then
-                    let a1op = a1central i ns heston si vj ds (s.[i+1] - si)
+                if i < iMax then
+                    let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
 
                     a0 <- 0.0
                     a1 <- A.apply a1op um0 u00 up0 // A1*u                    
                     a2 <- A.apply a2op 0.0 u00 u0p // A2*u             
-                    b1 <- 0.0
-                    b2 <- 0.0
 
                 // boundary s = max: i = ns-1 
                 else
-                    let a1op = a1central i ns heston si vj ds ds
+                    let a1op = a1Operator i ns heston si vj ds ds
 
                     a0 <- 0.0
                     a1 <- A.apply a1op um0 u00 0.0 // A1*u
                     a2 <- A.apply a2op 0.0 u00 u0p // A2*u
-                    b1 <- (heston.rd-heston.rf)*si*0.5; // wp = ds / (2.0*ds*ds) => duds = wp*ds = 0.5
-                    b2 <- 0.0
                
-            else
-
-                let si = s.[i]
-                let ds = si - s.[i-1]
-           
-                if j = jMax-1 then
-                    b2 <- (0.5*heston.sigma*vj*a2op.w3 + heston.kappa*(heston.eta - vj)*a2op.v3)*si*exp(-t*heston.rf)
-                else
-                    b2 <- 0.0
-
+            else           
                 // inside points: 0 < i < ns-1
-                if i < ns-1 then
-                    let a1op = a1central i ns heston si vj ds (s.[i+1] - si)
+                if i < iMax then
+                    let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
 
                     // a0 <> 0 only on 0 < j < nv-1 && 0 < i < ns-1 
                     let mixed = a1op.v1*a2op.v1*umm + a1op.v2*a2op.v1*u0m + a1op.v3*a2op.v1*upm +
@@ -432,16 +427,14 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                     a0 <- heston.rho*heston.sigma*si*vj*mixed  
                     a1 <- A.apply a1op um0 u00 up0 // A1*u                    
                     a2 <- A.apply a2op u0m u00 u0p // A2*u    
-                    b1 <- 0.0                             
             
                 // boundary s = max: i = ns-1 
                 else
-                    let a1op = a1central i ns heston si vj ds ds
+                    let a1op = a1Operator i ns heston si vj ds ds
                     
                     a0 <- 0.0
                     a1 <- A.apply a1op um0 u00 0.0
                     a2 <- A.apply a2op u0m u00 u0p
-                    b1 <- 0.5*si*si*vj/ds + (heston.rd-heston.rf)*si*0.5 // wp = 1.0/(ds*ds), d2ud2s = wp*ds = 1.0/ds, wp = ds / (2.0*ds*ds) duds = wp*ds = 0.5
 
             // set u for i = 1,..., ns-1, j=1,..., nv-2
             set u i j (u00 + dt*(a0+a1+a2+b1+b2))
