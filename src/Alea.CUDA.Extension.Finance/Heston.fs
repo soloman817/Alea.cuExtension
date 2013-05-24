@@ -380,12 +380,6 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
 
-    let mutable a0 = 0.0
-    let mutable a1 = 0.0
-    let mutable a2 = 0.0
-    let mutable b1 = 0.0
-    let mutable b2 = 0.0
-
     let jMin = 1
     let jMax = nv - 1
     let iMin = 1
@@ -420,8 +414,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             let si = s.[i]
             let ds = si - s.[i-1]
 
-            b1 <- b1Value i iMax heston si vj ds
-            b2 <- b2Value j jMax heston t si vj a2op.w3 a2op.v3
+            let b1 = b1Value i iMax heston si vj ds
+            let b2 = b2Value j jMax heston t si vj a2op.w3 a2op.v3
                 
             let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
                     
@@ -435,9 +429,9 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                 else
                     0.0   
             
-            a0 <- heston.rho*heston.sigma*si*vj*mixed                    
-            a1 <- A.apply a1op um0 u00 up0 // A1*u                    
-            a2 <- A.apply a2op u0m u00 u0p // A2*u    
+            let a0 = heston.rho*heston.sigma*si*vj*mixed                    
+            let a1 = A.apply a1op um0 u00 up0 // A1*u                    
+            let a2 = A.apply a2op u0m u00 u0p // A2*u    
             
             // set u for i = 1,...,iMax, j = 1,...,jMax
             set u i j (u00 + dt*(a0+a1+a2+b1+b2))
@@ -455,7 +449,7 @@ type OptionType =
         | Put -> -1.0
 
 /// Initial condition for vanilla call put option.
-/// We add artifical zeros to avoid access violation in the kernel.
+/// We add artifical zeros to avoid access violation in the kernel. See the documentation above.
 let [<ReflectedDefinition>] initConditionVanilla ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike =    
     let i = blockIdx.x*blockDim.x + threadIdx.x
     let j = blockIdx.y*blockDim.y + threadIdx.y
