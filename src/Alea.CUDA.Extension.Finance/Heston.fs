@@ -374,8 +374,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             if j = jMin then
                             
                 // j = 1, special boundary at v = 0, one sided forward difference quotient
-                let um0 = get u (i-1) 0 
-                let u0p = get u i     1
+                let um0 = get u (i-1) j 
+                let u0p = get u i     (j+1)
 
                 let si = s.[i]
                 let ds = si - s.[i-1]
@@ -384,7 +384,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                 if i < ns-1 then
                     let a1op = a1central i ns heston si vj ds (s.[i+1] - si)
 
-                    let up0 = get u (i+1) 0
+                    let up0 = get u (i+1) j
 
                     a0 <- 0.0
                     a1 <- A.apply a1op um0 u00 up0 // A1*u                    
@@ -401,27 +401,6 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                     a2 <- A.apply a2op 0.0 u00 u0p // A2*u
                     b1 <- (heston.rd-heston.rf)*si*0.5; // wp = ds / (2.0*ds*ds) => duds = wp*ds = 0.5
                     b2 <- 0.0
-
-                    //***** check check
-
-//                    let dv = v.[2] - vj
-//                    let fdv = forwardWeightsSimple dv         
-//
-//                    let a2d = heston.kappa*heston.eta*fdv.v1 - 0.5*heston.rd
-//                    let a2u = heston.kappa*heston.eta*fdv.v2   
-//
-//                    let fds = centralWeights ds ds
-//
-//                    // Neumann boundary in s direction with additonal ghost point and extrapolation
-//                    let a1l = 0.5*si*si*vj*fds.w1 + (heston.rd-heston.rf)*si*fds.v1
-//                    let a1d = 0.5*si*si*vj*(fds.w2+fds.w3) + (heston.rd-heston.rf)*si*(fds.v2+fds.v3) - 0.5*heston.rd
-//                    let a1u = 0.0
-//
-//                    a0 <- 0.0
-//                    a1 <- a1l*um0 + a1d*u00 // A1*u
-//                    a2 <- a2d*u00 + a2u*u0p // A2*u
-//                    b1 <- (heston.rd-heston.rf)*si*0.5; // wp = ds / (2.0*ds*ds) => duds = wp*ds = 0.5
-//                    b2 <- 0.0
                
             else
 
