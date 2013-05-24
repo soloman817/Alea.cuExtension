@@ -296,24 +296,33 @@ let [<ReflectedDefinition>] a2forward (heston:HestonModel) dv =
     A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
 
 /// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v   
-let [<ReflectedDefinition>] a2central (j:int) (nv:int) (heston:HestonModel) vj dv dvp =                   
-    let fd = centralWeights dv dvp
+let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:HestonModel) vj dv dvp =    
+    if j = jMin then
+        let fd = forwardWeightsSimple dvp         
 
-    if j < nv-1 then
-        let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
-        let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
-        let au = 0.5*heston.sigma*vj*fd.w3 + heston.kappa*(heston.eta - vj)*fd.v3
-
+        let al = 0.0
+        let ad = heston.kappa*heston.eta*fd.v1 - 0.5*heston.rd
+        let au = heston.kappa*heston.eta*fd.v2   
+                
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
-    else
-        // Dirichlet boundary at v = max, the constant term 
-        //   (0.5*sigma*v(j)*wp2 + kappa*(eta - v(j))*wp1)*s(i)*exp(-t*rf)
-        // is absorbed into b2
-        let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
-        let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
-        let au = 0.0
+    else               
+        let fd = centralWeights dv dvp
 
-        A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)               
+        if j < nv-1 then
+            let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
+            let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
+            let au = 0.5*heston.sigma*vj*fd.w3 + heston.kappa*(heston.eta - vj)*fd.v3
+
+            A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
+        else
+            // Dirichlet boundary at v = max, the constant term 
+            //   (0.5*sigma*v(j)*wp2 + kappa*(eta - v(j))*wp1)*s(i)*exp(-t*rf)
+            // is absorbed into b2
+            let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
+            let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
+            let au = 0.0
+
+            A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)               
 
 /// Operator A1 i-th row  
 let [<ReflectedDefinition>] a1central (i:int) (ns:int) (heston:HestonModel) si vj ds dsp =   
@@ -360,31 +369,30 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
         let vj = v.[j]
         
-        let a2op = 
-            if j = jMin then  
-                a2forward heston (v.[j+1] - vj)
-            else
-                a2central j nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
-                             
-        // we always have i > 0 
+        let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
+                                            
         while i < ns do
 
-            let u00 = get u i j
+            // we add a ghost cells of zero value around u to have no memory access issues
+            let umm = get u (i-1) (j-1)
+            let ump = get u (i-1) (j+1)
+            let um0 = get u (i-1) j 
+            let u0m = get u i     (j-1)
+            let u00 = get u i     j
+            let u0p = get u i     (j+1)
+            let upm = get u (i+1) (j-1)
+            let up0 = get u (i+1) j
+            let upp = get u (i+1) (j+1)
 
             if j = jMin then
                             
                 // j = 1, special boundary at v = 0, one sided forward difference quotient
-                let um0 = get u (i-1) j 
-                let u0p = get u i     (j+1)
-
                 let si = s.[i]
                 let ds = si - s.[i-1]
 
                 // inside points: 0 < i < ns-1
                 if i < ns-1 then
                     let a1op = a1central i ns heston si vj ds (s.[i+1] - si)
-
-                    let up0 = get u (i+1) j
 
                     a0 <- 0.0
                     a1 <- A.apply a1op um0 u00 up0 // A1*u                    
@@ -403,16 +411,6 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                     b2 <- 0.0
                
             else
-
-                // we add a zero boundary around u to have no memory access issues
-                let umm = get u (i-1) (j-1)
-                let ump = get u (i-1) (j+1)
-                let um0 = get u (i-1) j 
-                let u0m = get u i     (j-1)
-                let u0p = get u i     (j+1)
-                let upm = get u (i+1) (j-1)
-                let up0 = get u (i+1) j
-                let upp = get u (i+1) (j+1)
 
                 let si = s.[i]
                 let ds = si - s.[i-1]
@@ -569,7 +567,8 @@ let eulerSolver = cuda {
                 let! v = DArray.scatterInBlob worker v
 
                 // add zero value ghost points to the value surface to allow simpler access in the kernel
-                // one ghost point for smax and v = 0
+                // one ghost point at s = smax and v = 0
+                // no ghost point needed at v = vmax and s = 0 because there we have Dirichlet boundary 
                 let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+1)
 
                 // storage for reduced values
