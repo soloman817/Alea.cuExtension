@@ -403,16 +403,16 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                     let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
 
                     a0 <- 0.0
-                    a1 <- A.apply a1op um0 u00 up0 // A1*u                    
-                    a2 <- A.apply a2op 0.0 u00 u0p // A2*u             
+                    a1 <- A.apply a1op um0 u00 up0 // A1*u                             
+                    a2 <- A.apply a2op u0m u00 u0p // A2*u             
 
                 // boundary s = max: i = ns-1 
                 else
                     let a1op = a1Operator i ns heston si vj ds ds
 
                     a0 <- 0.0
-                    a1 <- A.apply a1op um0 u00 0.0 // A1*u
-                    a2 <- A.apply a2op 0.0 u00 u0p // A2*u
+                    a1 <- A.apply a1op um0 u00 up0 // A1*u
+                    a2 <- A.apply a2op u0m u00 u0p // A2*u
                
             else           
                 // inside points: 0 < i < ns-1
@@ -456,10 +456,10 @@ type OptionType =
 let [<ReflectedDefinition>] initConditionVanilla ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike =    
     let i = blockIdx.x*blockDim.x + threadIdx.x
     let j = blockIdx.y*blockDim.y + threadIdx.y
-    if i < ns + 1 && j < nv + 2 then
+    if i < ns + 1 && j < nv + 1 then
         let payoff = 
-            if i = ns || j = 0 || j = (nv+1)  then 
-                0.0 
+            if i = ns || j = 0 then 
+                0.0
             else
                 match optionType with
                 |  1.0 -> max (s.[i] - strike) 0.0
@@ -544,10 +544,9 @@ let eulerSolver = cuda {
             let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
 
             // extend grids for ghost points
-            let sGhost = 2.0*s.[s.Length - 1] - s.[s.Length - 1]
+            let sGhost = 2.0*s.[s.Length - 1] - s.[s.Length - 2]
             let s = Array.append s [|sGhost|]
             let vLowerGhost = 2.0*v.[0] - v.[1]
-            let vUpperGhost = 2.0*v.[v.Length - 1] - v.[v.Length - 1]
             let v = Array.append [|vLowerGhost|] v
 
             // calculate a time step which is compatible with the space discretization
@@ -562,7 +561,9 @@ let eulerSolver = cuda {
                 // add zero value ghost points to the value surface to allow simpler access in the kernel
                 // one ghost point at s = smax and v = 0
                 // no ghost point needed at v = vmax and s = 0 because there we have Dirichlet boundary 
-                let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+1)
+                let ns1 = param.ns+1
+                let nv1 = param.nv+1
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder ns1 nv1
 
                 // storage for reduced values
                 let! sred = DArray.createInBlob<float> worker param.ns
@@ -570,8 +571,8 @@ let eulerSolver = cuda {
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
                 
                 do! PCalc.action (fun hint ->
-                    let lpm = LaunchParam(dim3(divup param.ns 16, divup param.ns 16), dim3(16, 16)) |> hint.ModifyLaunchParam
-                    let lpb = LaunchParam(divup (max param.ns param.nv) 256, 256) |> hint.ModifyLaunchParam
+                    let lpm = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let lpb = LaunchParam(divup (max ns1 nv1) 256, 256) |> hint.ModifyLaunchParam
 
                     let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
                     let ured = RMatrixRowMajor(ured.NumRows, ured.NumCols, ured.Storage.Ptr)

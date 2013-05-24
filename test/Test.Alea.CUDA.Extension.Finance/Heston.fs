@@ -134,7 +134,10 @@ let ``Euler scheme plotting`` () =
                 let! uu = u.ToArray2D();
                 printfn "s = %A" ss
                 printfn "v = %A" vv
+                printfn "u.Lx %d" (uu.GetLength(0))
+                printfn "u.Ly %d" (uu.GetLength(1))
                 for i = 0 to ns-1 do
+                    printf "[i = %d] " i
                     for j = 0 to nv-1 do
                         printf "%.4f, " uu.[i,j]
                     printf "\n"
