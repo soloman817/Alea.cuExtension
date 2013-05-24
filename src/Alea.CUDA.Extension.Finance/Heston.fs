@@ -349,7 +349,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let jMin = 1
     let jMax = nv
 
-    // we added a ghost cell at j = 0
+    // we added a ghost cell at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = blockIdx.y * blockDim.y + threadIdx.y + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
@@ -557,7 +557,7 @@ let eulerSolver = cuda {
             let s = Array.append s [|sGhost|]
             let vLowerGhost = 2.0*v.[0] - v.[1]
             let vUpperGhost = 2.0*v.[v.Length - 1] - v.[v.Length - 1]
-            let v = Array.concat [[|vLowerGhost|]; v; [|vUpperGhost|]]
+            let v = Array.append [|vLowerGhost|] v
 
             // calculate a time step which is compatible with the space discretization
             let dt = ds*ds/100.0
@@ -569,8 +569,8 @@ let eulerSolver = cuda {
                 let! v = DArray.scatterInBlob worker v
 
                 // add zero value ghost points to the value surface to allow simpler access in the kernel
-                // one ghost point for smax and v = 0, vmax
-                let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+2)
+                // one ghost point for smax and v = 0
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder (param.ns+1) (param.nv+1)
 
                 // storage for reduced values
                 let! sred = DArray.createInBlob<float> worker param.ns
