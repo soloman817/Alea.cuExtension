@@ -262,7 +262,6 @@ let [<ReflectedDefinition>] applyFWorking (heston:HestonModel) t (dt:float) (u:R
                
         j <- j + blockDim.y * gridDim.y   
 
-
 [<Struct>]
 type A =
     // row of A2
@@ -350,6 +349,8 @@ let [<ReflectedDefinition>] b2Value j jMax (heston:HestonModel) t si vj w3 v3 =
 
 
 /// Explicit apply operator for Euler scheme.
+/// Require ghost points at j = 0 and 
+/// Require that the grids are properly extended as well
 let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let start = blockIdx.x * blockDim.x + threadIdx.x
     let stride = gridDim.x * blockDim.x
@@ -364,7 +365,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let jMax = nv
     let iMax = ns - 1
 
-    // we added a ghost cell at j = 0, so we can start at j = 1 and read from u the same way for each thread
+    // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = blockIdx.y * blockDim.y + threadIdx.y + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
@@ -379,7 +380,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                                             
         while i <= iMax do
 
-            // we add a ghost cells of zero value around u to have no memory access issues
+            // we add a ghost points of zero value around u to have no memory access issues
             let umm = get u (i-1) (j-1)
             let ump = get u (i-1) (j+1)
             let um0 = get u (i-1) j 
@@ -395,47 +396,23 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
             b1 <- b1Value i iMax heston si vj ds
             b2 <- b2Value j jMax heston t si vj a2op.w3 a2op.v3
-
-            if j = jMin then
-                            
-                // inside points: 0 < i < ns-1
-                if i < iMax then
-                    let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
-
-                    a0 <- 0.0
-                    a1 <- A.apply a1op um0 u00 up0 // A1*u                             
-                    a2 <- A.apply a2op u0m u00 u0p // A2*u             
-
-                // boundary s = max: i = ns-1 
-                else
-                    let a1op = a1Operator i ns heston si vj ds ds
-
-                    a0 <- 0.0
-                    a1 <- A.apply a1op um0 u00 up0 // A1*u
-                    a2 <- A.apply a2op u0m u00 u0p // A2*u
-               
-            else           
-                // inside points: 0 < i < ns-1
-                if i < iMax then
-                    let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
-
+                
+            let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
+                    
+            // inside points: 0 < i < ns-1
+            let mixed = 
+                if i < iMax  && j > jMin then
                     // a0 <> 0 only on 0 < j < nv-1 && 0 < i < ns-1 
-                    let mixed = a1op.v1*a2op.v1*umm + a1op.v2*a2op.v1*u0m + a1op.v3*a2op.v1*upm +
-                                a1op.v1*a2op.v2*um0 + a1op.v2*a2op.v2*u00 + a1op.v3*a2op.v2*up0 + 
-                                a1op.v1*a2op.v3*ump + a1op.v2*a2op.v3*u0p + a1op.v3*a2op.v3*upp
-                    
-                    a0 <- heston.rho*heston.sigma*si*vj*mixed  
-                    a1 <- A.apply a1op um0 u00 up0 // A1*u                    
-                    a2 <- A.apply a2op u0m u00 u0p // A2*u    
-            
-                // boundary s = max: i = ns-1 
+                    a1op.v1*a2op.v1*umm + a1op.v2*a2op.v1*u0m + a1op.v3*a2op.v1*upm +
+                    a1op.v1*a2op.v2*um0 + a1op.v2*a2op.v2*u00 + a1op.v3*a2op.v2*up0 + 
+                    a1op.v1*a2op.v3*ump + a1op.v2*a2op.v3*u0p + a1op.v3*a2op.v3*upp
                 else
-                    let a1op = a1Operator i ns heston si vj ds ds
-                    
-                    a0 <- 0.0
-                    a1 <- A.apply a1op um0 u00 0.0
-                    a2 <- A.apply a2op u0m u00 u0p
+                    0.0   
 
+            a0 <- heston.rho*heston.sigma*si*vj*mixed                    
+            a1 <- A.apply a1op um0 u00 up0 // A1*u                    
+            a2 <- A.apply a2op u0m u00 u0p // A2*u    
+            
             // set u for i = 1,..., ns-1, j=1,..., nv-2
             set u i j (u00 + dt*(a0+a1+a2+b1+b2))
 
