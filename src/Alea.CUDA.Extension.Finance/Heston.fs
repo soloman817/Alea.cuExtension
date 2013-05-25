@@ -221,46 +221,43 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let iMax = ns - 1
 
     let uPtr = u.contents.Storage
-
-    let i0 = blockIdx.x * bx 
-    let j0 = blockIdx.y * by 
-
     let uShared = __extern_shared__<float>()
 
-    //***** TODO move this code after "while i" loop and find out from (i,j) in which tile we are!!!
-
-    // use all threads of block to load bx*by elements of u 
-    let l = ty*bx + tx
-    let I = l % (bx + 2)
-    let J = l / (bx + 2)
-    if i0 + I < ns + 1 && j0 + J < nv + 1 then
-        uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
-
-    // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
-    let l = bx * by + ty*bx + tx
-    let I = l % (bx + 2)
-    let J = l / (bx + 2)
-    if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
-        uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
-
-    __syncthreads()
-
-    //********
-
     // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
-    let mutable j = j0 + ty + 1
+    let mutable j = blockIdx.y * by + ty + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
     while j <= jMax do 
 
         // Dirichlet boundary at s = 0, so we do not need to process i = 0, we start i at 1
-        let mutable i = i0 + tx + 1
-
-        let vj = v.[j]
-        
-        let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
+        let mutable i = blockIdx.x * bx + tx + 1
                                             
         while i <= iMax do
+
+            // find out the tile in which we are working because the grid may not cover all of the matrix u
+            let i0 = (i - 1) / bx
+            let j0 = (j - 1) / by
+
+            // use all threads of block to load bx*by elements of u 
+            let l = ty*bx + tx
+            let I = l % (bx + 2)
+            let J = l / (bx + 2)
+            if i0 + I < ns + 1 && j0 + J < nv + 1 then
+                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+
+            // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
+            let l = bx * by + ty*bx + tx
+            let I = l % (bx + 2)
+            let J = l / (bx + 2)
+            if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
+                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+
+            __syncthreads()
+
+
+            let vj = v.[j]
+        
+            let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
 
             // we add a ghost points of zero value around u to have no memory access issues
             let umm = get u (i-1) (j-1)
