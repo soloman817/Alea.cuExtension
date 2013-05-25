@@ -210,6 +210,8 @@ let [<ReflectedDefinition>] b2Value j jMax (heston:HestonModel) t si vj w3 v3 =
 ///     - .     Innter points, which are effectively updated by the solver
 ///
 let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
+    let tx = threadIdx.x
+    let ty = threadIdx.y
     let bx = blockDim.x
     let by = blockDim.y
     
@@ -228,14 +230,14 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     //***** TODO move this code after "while i" loop and find out from (i,j) in which tile we are!!!
 
     // use all threads of block to load bx*by elements of u 
-    let l = threadIdx.y*bx + threadIdx.x
+    let l = ty*bx + tx
     let I = l % (bx + 2)
     let J = l / (bx + 2)
     if i0 + I < ns + 1 && j0 + J < nv + 1 then
         uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
 
     // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
-    let l = bx * by + threadIdx.y*bx + threadIdx.x
+    let l = bx * by + ty*bx + tx
     let I = l % (bx + 2)
     let J = l / (bx + 2)
     if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
@@ -246,13 +248,13 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     //********
 
     // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
-    let mutable j = j0 + threadIdx.y + 1
+    let mutable j = j0 + ty + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
     while j <= jMax do 
 
         // Dirichlet boundary at s = 0, so we do not need to process i = 0, we start i at 1
-        let mutable i = i0 + threadIdx.x + 1
+        let mutable i = i0 + tx + 1
 
         let vj = v.[j]
         
@@ -296,9 +298,9 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             // set u for i = 1,...,iMax, j = 1,...,jMax
             set u i j (u00 + dt*(a0+a1+a2+b1+b2))
 
-            i <- i + blockDim.x * gridDim.x
+            i <- i + bx * gridDim.x
                
-        j <- j + blockDim.y * gridDim.y   
+        j <- j + by * gridDim.y   
 
 type OptionType =
 | Call
