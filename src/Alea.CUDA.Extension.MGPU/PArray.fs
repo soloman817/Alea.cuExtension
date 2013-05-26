@@ -10,6 +10,7 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
     let! api = Reduce.reduce op
 
     return PFunc(fun (m:Module) ->
+        
         let worker = m.Worker
         let api = api.Apply m
         fun (data:DArray<'TI>) ->
@@ -34,6 +35,7 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
+        
         
         fun (data:DArray<'TI>) ->
             pcalc {

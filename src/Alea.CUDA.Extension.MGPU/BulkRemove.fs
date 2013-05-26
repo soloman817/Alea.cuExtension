@@ -75,7 +75,7 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         let begin' = p0
         let indexCount = p1 - begin'
         let indices = __local__<'TI>(VT).Ptr(0)
-        deviceGlobalToReg indexCount (indices_global + begin') tid indices false
+        deviceGlobalToReg indexCount (indices_global + begin') tid indices 0
 
         for i = 0 to VT - 1 do
             if (NT * i + tid) < indexCount then
@@ -89,7 +89,8 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         __syncthreads()
 
         let passTotal = __local__<'TV>(1).Ptr(0)
-        let mutable s = scan tid x sharedScan passTotal ExclusiveScan
+//        let mutable s = scan tid x sharedScan passTotal ExclusiveScan
+        let mutable s = scan tid x sharedScan passTotal 0
         for i = 0 to VT - 1 do
             if indices.[i] > 0 then
                 s <- s + 1
@@ -98,12 +99,12 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
 
         // should be shared to reg here
         // need to fix these
-        deviceGlobalToReg NV sharedIndices tid indices false
+        deviceGlobalToReg NV sharedIndices tid indices 0
 
         let source_global = source_global + gid
         let count = sourceCount - indexCount
         let values = __local__<'TV>(VT).Ptr(0)
-        deviceGather count source_global indices tid values false
+        deviceGather count source_global indices tid values 0
 
         deviceRegToGlobal count values tid (dest_global + gid - begin') @>
 

@@ -15,6 +15,8 @@ open Alea.CUDA.Extension.MGPU.Reduce
 let [<ReflectedDefinition>] ExclusiveScan = 0
 let [<ReflectedDefinition>] InclusiveScan = 1
 
+ 
+
 // this maps to scan.cuh
 
 type Plan =
@@ -46,7 +48,9 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
 
-    <@ fun (cta_global:DevicePtr<'TI>) (count:int) (total_global:DevicePtr<'TV>) (end_global:DevicePtr<'TR>) (dest_global:DevicePtr<'TI>) ->
+
+
+    <@ fun (cta_global:DevicePtr<'TI>) (count:int) (total_global:DevicePtr<'TV>) (end_global:DevicePtr<'TI>) (dest_global:DevicePtr<'TV>) ->
         let extract = %extract
         let combine = %combine
         let plus = %plus
@@ -60,15 +64,17 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         let sharedResults = shared.Reinterpret<'TR>()
 
         let tid = threadIdx.x
-
-        let mutable total : 'TV = extract identity -1
+        
+        let mutable total = extract identity -1
         let mutable totalDefined = 0 //false
         let mutable start = 0
+
         while(start < count) do
             let count2 = min NV (count - start)
             let inputs = __local__<'TI>(VT).Ptr(0)
             let values = __local__<'TV>(VT).Ptr(0)
-            deviceGlobalToReg count2 (cta_global + start) tid inputs false
+            deviceGlobalToReg count2 (cta_global + start) tid inputs 0
+            
             
             let mutable x = extract identity -1
             for i = 0 to VT-1 do
@@ -76,18 +82,20 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                 if(index < count2) then
                     inputs.[i] <- inputs.[index]
                     values.[i] <- extract inputs.[i] (start + index)
-                    x <- if x = i then plus x values.[i] else values.[i]
+                    x <- if i.Equals(x) then plus x values.[i] else values.[i]
             __syncthreads()
 
+            
             let passTotal = __local__<'TV>(1).Ptr(0)
-            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+//            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+            let mutable x = scan tid x sharedScan passTotal 0
             if totalDefined = 1 then
                 x <- plus total x
                 total <- plus total passTotal.[0]
             else
                 total <- passTotal.[0]
 
-            let mutable x2 : 'TV = 0
+            let mutable x2 = 0
             for i = 0 to VT-1 do
                 let index = VT * tid + i
                 if (index < count2) then
@@ -98,14 +106,17 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                         
                     // For inclusive scan, set the new value then store
                     // For exclusive scan, store the old value then set the new one
-                    if(ST = InclusiveScan) then 
+//                    if(ST = InclusiveScan) then 
+                    if(ST = 1) then 
                         x <- x2
                         sharedResults.[index] <- combine inputs.[i] x
-                    if(ST = ExclusiveScan) then 
+//                    if(ST = ExclusiveScan) then 
+                    if(ST = 0) then 
                         x <- x2
             __syncthreads()
 
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) true
+            
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) 1
             start <- start + NV
             totalDefined <- 1
 
@@ -113,7 +124,8 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             total_global.Ref(0) := total
 
         if (end_global.[0] > 0) && (tid = 0) then
-            end_global.Ref(0) := combine identity total @>
+            end_global.Ref(0) := combine identity total 
+            @>
 
 
 let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
@@ -159,10 +171,11 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         let mutable nextDefined = 0
         if block <> 0 then nextDefined <- 1
 
+        
         while (range.x < range.y) do
             let count2 = min NV (count - range.x)
             
-            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs false
+            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs 0
 
             let inputs = __local__<'TI>(VT).Ptr(0)
             let values = __local__<'TV>(VT).Ptr(0)
@@ -173,39 +186,44 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                 if index < count2 then
                     inputs.[i] <- sharedInputs.[index]
                     values.[i] <- extract inputs.[i] (range.x + index)
-                    if x = i then x <- plus x values.[i] else x <- values.[i]
+                    if i.Equals(x) then x <- plus x values.[i] else x <- values.[i]
             __syncthreads()
 
             let passTotal = __local__<'TV>(1).Ptr(0)
-            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+//            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+            let mutable x = scan tid x sharedScan passTotal 0
             if (nextDefined = 1) then
                 x <- plus next x
                 next <- plus next passTotal.[0]
             else
                 next <- passTotal.[0]
 
-            let mutable x2 : 'TV = 0
+            let mutable x2 = x  // keeps x's type
             for i = 0 to VT - 1 do
                 let index = VT * tid + i
                 if index < count2 then
-                    if ((x2 = i || x2 = tid) || nextDefined = 1) then
-                        x2 <- plus x values.[i]
+                    if ((i.Equals(x2) || tid.Equals(x2)) || nextDefined = 1) then
+                        let y = values.Reinterpret<'TV>()
+                        x2 <- plus x y.[i]
                     else
                         x2 <- values.[i]
 
                     // For inclusive scan, set the new value then store.
                     // For exclusive scan, store the old value then set the new one
-                    if (ST = InclusiveScan) then
+//                    if (ST = InclusiveScan) then
+                    if (ST = 1) then
                         x <- x2
                         sharedResults.[index] <- combine inputs.[i] x
-                    if (ST = ExclusiveScan) then
+//                    if (ST = ExclusiveScan) then
+                    if (ST = 0) then
                         x <- x2
             __syncthreads()
 
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) false
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) 0
             range.x <- range.x + NV
             nextDefined <- 1
-             // fix totalAtEnd  
+                                
+
         if (((block <> 0) = (((gridDim.x - 1) <> 0)) && (tid <> 0))) then
             dest_global.[count] <- combine identity next @>
 
@@ -221,20 +239,22 @@ type IScan<'TI, 'TV> =
 let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
     let cutOff = 20000
     // count < cutOff, do parallel scan
-    let psPlan = { NT = 512; VT = 3; ST = ExclusiveScan} 
+//    let psPlan = { NT = 512; VT = 3; ST = ExclusiveScan} 
+    let psPlan = { NT = 512; VT = 3; ST = 0} 
     
     // count >= cutOff, do parallel raking reduce as an upsweep, then
     // do parallel latency-oriented scan to reduce the spine of the 
     // raking reduction, then do a raking scan as downsweep
     let rrUpsweepPlan : Reduce.Plan = { NT = 128; VT = 7 }
-    let plosPlan = { NT = 256; VT = 3; ST = ExclusiveScan}
+    //let plosPlan = { NT = 256; VT = 3; ST = ExclusiveScan}
+    let plosPlan = { NT = 256; VT = 3; ST = 0}
     let rsDownsweepPlan = plosPlan
 
     let! kernelPS = kernelParallelScan psPlan op |> defineKernelFunc
     let! kernelRRUpsweep = Reduce.kernelReduce rrUpsweepPlan op |> defineKernelFunc
     let! kernelPLOS = kernelParallelScan plosPlan op |> defineKernelFunc
     let! kernelRSDownsweep = kernelScanDownsweep rsDownsweepPlan op |> defineKernelFunc
-
+    
     let hplus = op.HPlus
 
     return PFunc(fun (m:Module) ->

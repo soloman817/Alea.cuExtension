@@ -38,5 +38,6 @@ let ``sum int``() =
 
     let test = testScan op gold verify
 
-    sizes |> Seq.iter (fun count ->
-        (test (Array.init count (fun i -> i))) )
+    test (Array.init 12 (fun i -> i))
+//    sizes |> Seq.iter (fun count ->
+//        (test (Array.init count (fun i -> i))) )

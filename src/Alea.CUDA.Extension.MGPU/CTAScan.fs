@@ -19,7 +19,7 @@ let [<ReflectedDefinition>] InclusiveScan = 1
 // have template, so we have to use a template. Please read carefully
 // on the ctascan.cuh, and see how I mapped them into interface.
 type IScanOp<'TI, 'TV, 'TR> =
-    abstract Commutative : bool
+    abstract Commutative : int
     abstract Identity : 'TI // the init value
     abstract HExtract : ('TI -> int -> 'TV)
     abstract DExtract : Expr<'TI -> int -> 'TV>
@@ -36,7 +36,7 @@ type ScanOpType =
 
 let inline scanOp (opType:ScanOpType) (ident:'T) =
     { new IScanOp<'T, 'T, 'T> with
-        member this.Commutative = true
+        member this.Commutative = 1
         member this.Identity = ident
         member this.HExtract = fun t index -> t
         member this.DExtract = <@ fun t index -> t @>
@@ -59,7 +59,7 @@ let inline scanOp (opType:ScanOpType) (ident:'T) =
 let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let size = NT
     let capacity = NT + NT / WARP_SIZE
-    let _, sLogPow2OfNT = sLogPow2 NT true
+    let _, sLogPow2OfNT = sLogPow2 NT 1
     let plus = op.DPlus
 
     let reduce =
@@ -110,18 +110,19 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
             let mutable offset = 1
             while offset < NT do 
                 if(tid >= offset) then
-                    x <- plus x storage.[first + tid - offset]
+                    x <- plus x storage.[(first + tid) - offset]
                     first <- NT - first
                     storage.[first + tid] <- x
                     __syncthreads()
                     offset <- offset + offset
 
             
-            total.[0] <- storage.[first + NT - 1]
-            if(stype = ExclusiveScan) then
-                if( x = tid ) then
-                    x <- storage.[first + tid - 1]
-                else
+            total.[0] <- storage.[(first + NT) - 1]
+            //if(stype = ExclusiveScan) then
+            if (stype = 0) then
+//                if( tid = x ) then
+//                    x <- storage.[(first + tid) - 1]
+//                else
                     x <- extract identity -1
                         
             __syncthreads()

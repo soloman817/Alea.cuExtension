@@ -67,7 +67,7 @@ type IterativeMean =
 [<Test>]
 let ``mean float (iteratively)``() =
     let op = { new IScanOp<float, IterativeMean, float> with
-                 member this.Commutative = true
+                 member this.Commutative = 1
                  member this.Identity = CUDART_NAN
                  member this.HExtract = fun t index -> if index >= 0 then IterativeMean(t, 1.0) else IterativeMean(CUDART_NAN, 0.0)
                  member this.DExtract = <@ fun t index -> if index >= 0 then IterativeMean(t, 1.0) else IterativeMean(CUDART_NAN, 0.0) @>
@@ -90,7 +90,7 @@ let ``mean float (iteratively)``() =
 [<Test>] // uhmm, this is a little wrong, need check where it is
 let ``mean float (non-iteratively)``() =
     let op = { new IScanOp<float, float, float> with
-                 member this.Commutative = true
+                 member this.Commutative = 1
                  member this.Identity = CUDART_NAN
                  member this.HExtract = fun t index -> if index >= 0 then t else CUDART_NAN
                  member this.DExtract = <@ fun t index -> if index >= 0 then t else CUDART_NAN @>

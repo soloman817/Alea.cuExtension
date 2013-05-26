@@ -42,15 +42,15 @@ type SearchOpType =
 let inline BinarySearch (bounds:MgpuBounds) =
         { new IBinarySearch<'TN, 'TI, 'T, 'TC> with
             member this.HBinarySearchIt =
-                fun (data:'TI[]) (begin':RPtr<int>) (end':RPtr<int>) (key:'T) (shift:int) (comp:'TC) ->
-                    let scale : 'TN = (1 <<< shift) - 1
+                fun (data:'TI[]) (begin':RPtr<int>) (end':RPtr<int>) (key:'T) (shift:int) ->
+                    let scale = (1 <<< shift) - 1
                     let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
                     let key2 = data.[mid]
-                    let mutable pred = false
-                    match bounds with
-                    | MgpuBoundsUpper -> pred <- comp key key2
-                    | _ -> pred <- comp key2 key
-                    if pred then 
+                    let mutable pred = 0
+//                    match bounds with
+//                    | MgpuBoundsUpper -> pred <- key.CompareTo(key2)
+//                    | _ -> pred <- key2 key
+                    if pred <> 0 then 
                         begin'.Ref(0) := mid + 1
                     else
                         end'.Ref(0) := mid
@@ -179,8 +179,9 @@ let inline MergeSearch (bounds:MgpuBounds) =
                             let ai = aOffset + mid
                             let bi = bOffset + diag - 1 - mid
 
-                            let pred : bool = not ( comp keys.[bi] keys.[ai] )
-                            if pred then begin' <- mid + 1
+                            //let pred : int = not ( comp keys.[bi] keys.[ai] )
+                            let pred = 1//not (keys.[bi] <> keys.[ai])
+                            if pred = 1 then begin' <- mid + 1
                             else end' <- mid
                         result <- begin'
                                                 
@@ -204,14 +205,15 @@ let inline MergeSearch (bounds:MgpuBounds) =
                             let ai = aOffset + mid
                             let bi = bOffset + diag - 1 - mid
 
-                            let pred : bool = not ( comp keys.[bi] keys.[ai] )
-                            if pred then begin' <- mid + 1
+                            //let pred : int = not ( comp keys.[bi] keys.[ai] )
+                            let pred = 1//not (keys.[bi] <> keys.[ai])
+                            if pred = 1 then begin' <- mid + 1
                             else end' <- mid
                         result <- begin'
                                                 
                     result @> }
 
-let inline BalancedPathSearch (duplicates:bool) (bounds:MgpuBounds) =
+let inline BalancedPathSearch (duplicates:int) (bounds:MgpuBounds) =
         { new IBalancedPathSearch<'TI, 'TC> with
             member this.HBalancedPath =
                 fun (a:'TI[]) (aCount:int) (b:'TI[]) (bCount:int) (diag:int) (levels:int) (comp:'TC) ->
@@ -221,7 +223,7 @@ let inline BalancedPathSearch (duplicates:bool) (bounds:MgpuBounds) =
 
                     let mutable star = false
                     if bIndex < bCount then
-                        if duplicates then
+                        if duplicates <> 0 then
                             let x = b.[bIndex]
 
                             let aStart = (BinarySearch MgpuBounds.MgpuBoundsLower).HBiasedBinarySearch a aIndex x levels comp
@@ -268,7 +270,7 @@ let inline BalancedPathSearch (duplicates:bool) (bounds:MgpuBounds) =
 
                     let mutable star = false
                     if bIndex < bCount then
-                        if duplicates then
+                        if duplicates <> 0 then
                             let x = b.[bIndex]
 
                             let aStart = %((BinarySearch MgpuBounds.MgpuBoundsLower).DBiasedBinarySearch)
