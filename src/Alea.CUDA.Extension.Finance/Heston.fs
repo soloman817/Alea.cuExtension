@@ -224,6 +224,124 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let uShared = __extern_shared__<float>()
 
     // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
+    //let mutable j = blockIdx.y * by + ty + 1
+    let mutable j = blockIdx.y * by + ty
+
+    // Dirichlet boundary at v = max, so we do not need to process j = nv
+    //while j <= jMax do 
+    while j <= nv do 
+
+        // Dirichlet boundary at s = 0, so we do not need to process i = 0, we start i at 1
+        //let mutable i = blockIdx.x * bx + tx + 1
+        let mutable i = blockIdx.x * bx + tx 
+                                            
+        //while i <= iMax do
+        while i <= ns do
+
+            // find out the tile in which we are working because the grid may not cover all of the matrix u
+            //let itile = (i - 1) / bx
+            //let jtile = (j - 1) / by
+            let itile = i / bx
+            let jtile = j / by
+            let i0 = itile * bx
+            let j0 = jtile * by
+ 
+            // use all threads of block to load bx*by elements of u 
+            let l = ty*bx + tx
+            let I = l % (bx + 2)
+            let J = l / (bx + 2)
+ 
+            let mutable test = float(l)
+ 
+            if i0 + I < ns + 1 && j0 + J < nv + 1 then
+                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+
+            // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
+            let l = bx*by + ty*bx + tx
+            let I = l % (bx + 2)
+            let J = l / (bx + 2)
+
+            //test <- test + 1000.0 * float(i0 + I)
+
+            if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
+                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+
+            __syncthreads()
+
+            //let vj = v.[j]       
+            //let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
+
+            // relative index into submatrix copied into shared memory 
+            let k = i - i0
+            let l = j - j0
+
+            // we add a ghost points of zero value around u to have no memory access issues
+            let umm = uShared.[(l-1)*(bx+2) + (k-1)]
+            let ump = uShared.[(l+1)*(bx+2) + (k-1)]
+            let um0 = uShared.[ l   *(bx+2) + (k-1)]
+            let u0m = uShared.[(l-1)*(bx+2) +  k   ]
+            let u00 = uShared.[ l   *(bx+2) +  k   ]
+            let u0p = uShared.[(l+1)*(bx+2) +  k   ]
+            let upm = uShared.[(l-1)*(bx+2) + (k+1)]
+            let up0 = uShared.[ l   *(bx+2) + (k+1)]
+            let upp = uShared.[(l+1)*(bx+2) + (k+1)]
+
+            // if we loop over all threads need to check j <= jMax, i <= iMax
+
+//            // we add a ghost points of zero value around u to have no memory access issues
+//            let umm = get u (i-1) (j-1)
+//            let ump = get u (i-1) (j+1)
+//            let um0 = get u (i-1) j 
+//            let u0m = get u i     (j-1)
+//            let u00 = get u i     j
+//            let u0p = get u i     (j+1)
+//            let upm = get u (i+1) (j-1)
+//            let up0 = get u (i+1) j
+//            let upp = get u (i+1) (j+1)
+
+//            let si = s.[i]
+//            let ds = si - s.[i-1]
+//
+//            let b1 = b1Value i iMax heston si vj ds
+//            let b2 = b2Value j jMax heston t si vj a2op.w3 a2op.v3
+//                
+//            let a1op = a1Operator i ns heston si vj ds (s.[i+1] - si)
+//                    
+//            // a0 <> 0 only on jMin < j <= jMax && iMin < i < iMax
+//            let mixed = 
+//                // we do not need to test for j > jMin because at jMin vj = 0 hend a0 becomes zero there too
+//                if i < iMax then                     
+//                    a1op.v1*a2op.v1*umm + a1op.v2*a2op.v1*u0m + a1op.v3*a2op.v1*upm +
+//                    a1op.v1*a2op.v2*um0 + a1op.v2*a2op.v2*u00 + a1op.v3*a2op.v2*up0 + 
+//                    a1op.v1*a2op.v3*ump + a1op.v2*a2op.v3*u0p + a1op.v3*a2op.v3*upp
+//                else
+//                    0.0   
+//            
+//            let a0 = heston.rho*heston.sigma*si*vj*mixed                    
+//            let a1 = A.apply a1op um0 u00 up0 // A1*u                    
+//            let a2 = A.apply a2op u0m u00 u0p // A2*u    
+//            
+//            // set u for i = 1,...,iMax, j = 1,...,jMax
+//            set u i j (u00 + dt*(a0+a1+a2+b1+b2))
+
+            set u i j test
+
+            i <- i + bx * gridDim.x
+               
+        j <- j + by * gridDim.y   
+
+let [<ReflectedDefinition>] applyFDeviceMem (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
+    let tx = threadIdx.x
+    let ty = threadIdx.y
+    let bx = blockDim.x
+    let by = blockDim.y
+    
+    let jMin = 1
+    let jMax = nv - 1
+    let iMin = 1
+    let iMax = ns - 1
+
+    // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
     let mutable j = blockIdx.y * by + ty + 1
 
     // Dirichlet boundary at v = max, so we do not need to process j = nv
@@ -234,29 +352,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                                             
         while i <= iMax do
 
-            // find out the tile in which we are working because the grid may not cover all of the matrix u
-            let i0 = (i - 1) / bx
-            let j0 = (j - 1) / by
-
-            // use all threads of block to load bx*by elements of u 
-            let l = ty*bx + tx
-            let I = l % (bx + 2)
-            let J = l / (bx + 2)
-            if i0 + I < ns + 1 && j0 + J < nv + 1 then
-                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
-
-            // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
-            let l = bx * by + ty*bx + tx
-            let I = l % (bx + 2)
-            let J = l / (bx + 2)
-            if J < by + 2 && i0 + I < ns + 1 && j0 + J < nv + 1 then
-                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
-
-            __syncthreads()
-
-
-            let vj = v.[j]
-        
+            let vj = v.[j]       
             let a2op = a2Operator j jMin nv heston vj (vj - v.[j-1]) (v.[j+1] - vj)
 
             // we add a ghost points of zero value around u to have no memory access issues
@@ -363,7 +459,7 @@ type EulerSolverParam =
 /// Solve Hesten with explicit Euler scheme.
 /// Because the time stepping has to be selected according to the state discretization
 /// we may need to have small time steps to maintain stability.
-let eulerSolver = cuda {
+let eulerSolverShared = cuda {
 
     // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
@@ -428,8 +524,8 @@ let eulerSolver = cuda {
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
                 
                 do! PCalc.action (fun hint ->
-                    let sharedSize = 18 * 18 * sizeof<float>
-                    let lpms = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16), sharedSize) |> hint.ModifyLaunchParam
+                    let sharedSize = 10 * 10 * sizeof<float>
+                    let lpms = LaunchParam(dim3(divup ns1 8, divup nv1 8), dim3(8, 8), sharedSize) |> hint.ModifyLaunchParam
                     let lpm = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16)) |> hint.ModifyLaunchParam
                     let lpb = LaunchParam(divup (max ns1 nv1) 256, 256) |> hint.ModifyLaunchParam
 
@@ -447,6 +543,100 @@ let eulerSolver = cuda {
 
                         boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
                         appFKernel.Launch lpms heston t0 dt u s.Ptr v.Ptr param.ns param.nv
+
+                    // copy solution, later we could use a view on it
+                    //copyValuesKernel.Launch lpm param.ns param.nv u ured
+                    //copyGridsKernel.Launch lpb param.ns param.nv s.Ptr v.Ptr sred.Ptr vred.Ptr
+                )
+                
+                //return sred, vred, ured } ) }
+                return s, v, u } ) }
+                
+/// Solve Hesten with explicit Euler scheme.
+/// Because the time stepping has to be selected according to the state discretization
+/// we may need to have small time steps to maintain stability.
+let eulerSolver = cuda {
+
+    // we add artifical zeros to avoid access violation in the kernel
+    let! initCondKernel =     
+        <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
+            initConditionVanilla ns nv s u optionType strike @> |> defineKernelFuncWithName "initCondition"
+
+    let! boundaryCondKernel =     
+        <@ fun (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) ->
+            boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFuncWithName "boundaryCondition"
+   
+    let! appFKernel =
+        <@ fun (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
+            applyFDeviceMem heston t dt (ref u) s v ns nv @> |> defineKernelFuncWithName "applyF"
+    
+    let! copyValuesKernel = 
+        <@ fun ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) ->
+            copyValues ns nv u0 u1 @> |> defineKernelFuncWithName "copyValues"    
+
+    let! copyGridsKernel = 
+        <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
+            copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
+                         
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let initCondKernel = initCondKernel.Apply m
+        let boundaryCondKernel = boundaryCondKernel.Apply m
+        let appFKernel = appFKernel.Apply m
+        let copyValuesKernel = copyValuesKernel.Apply m
+        let copyGridsKernel = copyGridsKernel.Apply m
+
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
+
+            // we add one more point to the state grids because the value surface has a ghost aerea as well
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
+
+            // extend grids for ghost points
+            let sGhost = 2.0*s.[s.Length - 1] - s.[s.Length - 2]
+            let s = Array.append s [|sGhost|]
+            let vLowerGhost = 2.0*v.[0] - v.[1]
+            let v = Array.append [|vLowerGhost|] v
+
+            // calculate a time step which is compatible with the space discretization
+            let dt = ds*ds/100.0
+            let nt = int(timeToMaturity/dt) + 1
+            let t, dt = homogeneousGrid nt 0.0 timeToMaturity
+
+            pcalc {
+                let! s = DArray.scatterInBlob worker s
+                let! v = DArray.scatterInBlob worker v
+
+                // add zero value ghost points to the value surface to allow simpler access in the kernel
+                // one ghost point at s = smax and v = 0
+                // no ghost point needed at v = vmax and s = 0 because there we have Dirichlet boundary 
+                let ns1 = param.ns+1
+                let nv1 = param.nv+1
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder ns1 nv1
+
+                // storage for reduced values
+                let! sred = DArray.createInBlob<float> worker param.ns
+                let! vred = DArray.createInBlob<float> worker param.nv
+                let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.ns param.nv
+                
+                do! PCalc.action (fun hint ->
+                    let lpm = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let lpb = LaunchParam(divup (max ns1 nv1) 256, 256) |> hint.ModifyLaunchParam
+
+                    let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
+                    let ured = RMatrixRowMajor(ured.NumRows, ured.NumCols, ured.Storage.Ptr)
+
+                    initCondKernel.Launch lpm param.ns param.nv s.Ptr u optionType.sign strike
+
+                    for ti = 0 to nt-2 do
+
+                        let t0 = t.[ti]
+                        let t1 = t.[ti + 1]
+                        let dt = t1 - t0
+                        let thetaDt = dt * param.theta
+
+                        boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
+                        appFKernel.Launch lpm heston t0 dt u s.Ptr v.Ptr param.ns param.nv
 
                     // copy solution, later we could use a view on it
                     copyValuesKernel.Launch lpm param.ns param.nv u ured
