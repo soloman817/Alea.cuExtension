@@ -120,8 +120,8 @@ let ``Euler scheme plotting`` () =
             let theta = 0.5
             let sMax = 220.0
             let vMax = 4.0
-            let ns = 48
-            let nv = 32
+            let ns = 9 + 8
+            let nv = 9
             let cS = strike/5.0
             let cV = vMax/5.0
             let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
@@ -136,9 +136,9 @@ let ``Euler scheme plotting`` () =
                 printfn "v = %A" vv
                 printfn "u.Lx %d" (uu.GetLength(0))
                 printfn "u.Ly %d" (uu.GetLength(1))
-                for i = 0 to ns-1 do
+                for i = 0 to ns do
                     printf "[i = %d] " i
-                    for j = 0 to nv-1 do
+                    for j = 0 to nv do
                         printf "%.4f, " uu.[i,j]
                     printf "\n"
 

@@ -39,6 +39,7 @@
   <ItemGroup>
     <Compile Include="Grid.fs" />
     <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="MatrixTiling.fs" />
     <Compile Include="Heston.fs" />
     <None Include="packages.config" />
   </ItemGroup>
