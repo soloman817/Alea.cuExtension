@@ -47,16 +47,16 @@ let inline BinarySearch (bounds:MgpuBounds) =
                     let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
                     let key2 = data.[mid]
                     let mutable pred = 0
-//                    match bounds with
-//                    | MgpuBoundsUpper -> pred <- key.CompareTo(key2)
-//                    | _ -> pred <- key2 key
+                    match bounds with
+                    | MgpuBoundsUpper -> if key < key2 then pred <- key2 else pred <- key
+                    | _ -> if key2 <> key then pred <- key
                     if pred <> 0 then 
                         begin'.Ref(0) := mid + 1
                     else
                         end'.Ref(0) := mid
 
             member this.DBinarySearchIt = 
-                <@ fun (data:DevicePtr<'TI>) (begin':RPtr<int>) (end':RPtr<int>) (key:'T) (shift:int) (comp:'TC) ->
+                <@ fun (data:DevicePtr<'TI>) (begin':RPtr<int>) (end':RPtr<int>) (key:'T) (shift:int) ->
                     let scale : 'TN = (1 <<< shift) - 1
                     let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
                     let key2 = data.[mid]

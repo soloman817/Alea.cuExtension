@@ -16,7 +16,6 @@ type Int2 =
 type int2 = Int2
 
 
-
 let divideTaskRange (numItems:int) (numWorkers:int) =
     let quot = numItems / numWorkers
     let rem = numItems % numWorkers

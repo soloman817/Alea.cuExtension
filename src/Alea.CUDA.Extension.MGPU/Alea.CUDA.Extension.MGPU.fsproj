@@ -44,7 +44,7 @@
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
     <Compile Include="CTAMerge.fs" />
-    <Compile Include="CTASearch.fs" />
+    <None Include="CTASearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="PArray.fs" />

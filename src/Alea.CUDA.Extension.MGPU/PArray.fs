@@ -41,16 +41,15 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
             pcalc {
                 let count = data.Length
                 let api = api count
-                let! reduction = DArray.createInBlob worker api.NumBlocks
                 let! scanned = DArray.createInBlob worker count
                 let! total = DArray.createInBlob worker 1
-                let! end' = DArray.createInBlob worker 1
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr reduction.Ptr total.Ptr end'.Ptr scanned.Ptr)
+                let totalAtEnd = true
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr totalAtEnd)
                 let result =
                     fun () ->
                         pcalc {
                             let! scanned = scanned.Gather()
-                            let! total = total.Gather()
-                            return api.Result total.[0] scanned }
+                            return scanned }
                     |> Lazy.Create
                 return result} ) }
+
