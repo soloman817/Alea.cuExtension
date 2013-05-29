@@ -52,7 +52,6 @@ let ``Matrix tiling`` () =
                 printf "\n"
     } |> PCalc.runWithKernelTiming(1)
 
-
 [<Test>]
 let ``Matrix tiling plotting`` () =
     
