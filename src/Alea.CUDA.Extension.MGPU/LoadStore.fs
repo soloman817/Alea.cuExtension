@@ -6,6 +6,9 @@
 
 open Alea.CUDA
 
+let [<ReflectedDefinition>] doSync = 1
+let [<ReflectedDefinition>] dontSync = 0
+
 let deviceSharedToReg (NT:int) (VT:int) =
     <@ fun (count:int) (data:RWPtr<'T>) (tid:int) (reg:RWPtr<'T>) (sync:int) ->
         if count >= NT * VT then

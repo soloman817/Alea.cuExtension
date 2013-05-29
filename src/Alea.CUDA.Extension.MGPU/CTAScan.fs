@@ -110,31 +110,17 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
             let mutable offset = 1
             while offset < NT do 
                 if(tid >= offset) then
-                    x <- plus storage.[(first + tid) - offset] x
+                    x <- plus storage.[first + tid - offset] x
                 first <- NT - first
                 storage.[first + tid] <- x
-                __syncthreads()
                 offset <- offset + offset
-
+                __syncthreads()
             
-            total.[0] <- storage.[(first + NT) - 1]
-//            //if(stype = ExclusiveScan) then
-//            let stype = 0
-            if (stype = 0) then
-                if( tid > 0 ) then
-                    x <- storage.[(first + tid) - 1]
-                else
-                    x <- extract identity -1
-                        
+            total.[0] <- storage.[first + NT - 1]
+            if(stype = ExclusiveScan) then
+                x <- if( tid <> 0 ) then storage.[first + tid - 1] else extract identity -1                        
             __syncthreads()
             x @>
     capacity, scan
 
-
-
-//    let scan =
-//        let total = RWPtr(int64(0))        
-//        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) (stype:int) ->
-//            let scanA = %scanA
-//            scanA tid x storage total stype @>
 
