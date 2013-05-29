@@ -286,7 +286,7 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
 
             let action (hint:ActionHint) (data:DevicePtr<'TI>) (total:DevicePtr<'TV>) (dest:DevicePtr<'TV>) (totalAtEnd:int) =
                 if count < cutOff then
-                    printfn "branch1, kernelParallelScan"
+                    //printfn "branch1, kernelParallelScan"
                     
                     let plan = psPlan
                     let NV = plan.NT * plan.VT
@@ -299,7 +299,7 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                     let end' = if totalAtEnd = 1 then dest + count else DevicePtr<'TR>(0n)
                     kernelPS.Launch lp data count total end' dest                    
                 else
-                    printfn "branch2"
+                    //printfn "branch2"
                     let plan = rrUpsweepPlan
                     let NV = plan.NT * plan.VT
                     let numTiles = divup count NV
