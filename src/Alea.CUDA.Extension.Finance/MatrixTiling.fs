@@ -21,119 +21,103 @@ let [<ReflectedDefinition>] elem (u:RMatrixRowMajor ref) (si:int) (vi:int) =
 let [<ReflectedDefinition>] set (u:RMatrixRowMajor ref) (si:int) (vi:int) (value:float) =
     RMatrixRowMajor.Set(u, si, vi, value)
 
-/// Explicit apply operator for Euler scheme.
-/// We require ghost points at j = 0 and s = smax and require that the grids are properly extended as well.
-///
-///     V                             
-///                                    
-///     ^                             
-///  nv |****************************O 
-///     |*...........................O  <--- jMax = nv - 1
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O  <--- jMin = 1 
-///  0  |OOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-///     ---------------------------------->   S
-///     0                            ns
-///      ^                          ^
-///      |                          |
-///      iMin = 1                   iMax = ns - 1
-///
-/// Total dimension of solution matrix (ns+1) x (nv+1) 
-/// Meaning of points:
-///     - O     ghost points added to unify memory reading without bound checks, must remain zero 
-///             will be removed by copying to a reduced matrix
-///     - *     Dirichelt boundary points, which are not going into equation and are fixed
-///     - .     Innter points, which are effectively updated by the solver
-///
-let [<ReflectedDefinition>] tiling (u:RMatrixRowMajor ref) ns nv =
+/// Tiling of a matrix
+/// The rows of the matrix u have to be padded so that ld-2 is a multiple of blockDim.x 
+let [<ReflectedDefinition>] tiling nRows nCols ld (u:RMatrixRowMajor ref) (o1:RMatrixRowMajor ref) (o2:RMatrixRowMajor ref) =
     let tx = threadIdx.x
     let ty = threadIdx.y
     let bx = blockDim.x
     let by = blockDim.y
-    
-    let jMin = 1
-    let jMax = nv - 1
-    let iMin = 1
-    let iMax = ns - 1
 
     let uPtr = u.contents.Storage
     let uShared = __extern_shared__<float>()
 
-    let mutable j = blockIdx.y * by + ty
+    // need to map x to columns and y to rows of the matrix
+    // i / y -> row
+    // j / x -> col
 
-    while j < nv - 2 do 
+    // we need to have enough threads to load the elements so we need to loop 
+    // possibly over more than nRows - 2 
+    let nby = (nRows - 2) / by
+    let n = nby * by
 
-        let mutable i = blockIdx.x * bx + tx 
-                                            
-        while i < ns - 2 do
+    let mutable i = blockIdx.y * by + ty                                           
+    while i < n do
+
+        let mutable j = blockIdx.x * bx + tx 
+        while j < ld - 2 do 
 
             // find out the tile in which we are working because the grid may not cover all of the matrix u
-            let itile = i / bx
-            let jtile = j / by
-            let i0 = itile * bx
-            let j0 = jtile * by
+            let itile = i / by    
+            let jtile = j / bx    
+            let i0 = itile * by
+            let j0 = jtile * bx
+            let I0 = i0 * ld + j0
  
             // use all threads of block to load bx*by elements of u 
             let l = ty*bx + tx
-            let I = l % (bx + 2)
-            let J = l / (bx + 2)
+            let I = l / (bx + 2)  // row
+            let J = l % (bx + 2)  // col
  
-            let mutable test = float(l)
- 
-            if i0 + I < ns + 1 && j0 + J < nv + 1 then
-                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
+            let mutable test = -1.0
+
+            if i0 + I < nRows + 1 && j0 + J < nCols + 1 then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*ld + J]
+                set o1 i j (float(I0 + I*ld + J))
+            else 
+                set o1 i j -1.0
 
             // second round to load remaining (bx+2)*(by+2) - bx*by elements of u, some threads do not need to load
             let l = bx*by + ty*bx + tx
-            let I = l % (bx + 2)
-            let J = l / (bx + 2)
+            let I = l / (bx + 2)
+            let J = l % (bx + 2)
 
-            //test <- float(J)
-
-            if l < (bx + 2)*(by + 2) && i0 + I < ns && j0 + J < nv then
-                uShared.[J*(bx+2) + I] <- get u (i0 + I) (j0 + J)
-
-            __syncthreads()
-
-            // relative index into submatrix copied into shared memory 
-            let k = i - i0
-            let l = j - j0
-
-            // we add a ghost points of zero value around u to have no memory access issues
-//            let umm = uShared.[(l-1)*(bx+2) + (k-1)]
-//            let ump = uShared.[(l+1)*(bx+2) + (k-1)]
-//            let um0 = uShared.[ l   *(bx+2) + (k-1)]
-//            let u0m = uShared.[(l-1)*(bx+2) +  k   ]
-//            let u00 = uShared.[ l   *(bx+2) +  k   ]
-//            let u0p = uShared.[(l+1)*(bx+2) +  k   ]
-//            let upm = uShared.[(l-1)*(bx+2) + (k+1)]
-//            let up0 = uShared.[ l   *(bx+2) + (k+1)]
-//            let upp = uShared.[(l+1)*(bx+2) + (k+1)]
-
-            let u00 = uShared.[ j   *(bx+2) +  i   ]
-            //test <- get u (i) (j)
-            test <- u00 + 100.0
-
-            set u i j test
+            if l < (bx + 2)*(by + 2) && i0 + I < nRows && j0 + J < nCols then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*ld + J]
+                set o2 i j (float(I0 + I*ld + J))
+            else
+                set o2 i j -1.0
 
             __syncthreads()
 
-            i <- i + bx * gridDim.x
-               
-        j <- j + by * gridDim.y   
+            if i < nRows - 2 && j < nCols - 2 then 
 
+                // relative index into submatrix copied into shared memory
+                // shift by one to account for translation into interior domain
+                let k = i - i0 + 1
+                let l = j - j0 + 1
+
+                let umm = uShared.[(k-1)*(bx+2) + (l-1)]
+                let ump = uShared.[(k+1)*(bx+2) + (l-1)]
+                let um0 = uShared.[ k   *(bx+2) + (l-1)]
+                let u0m = uShared.[(k-1)*(bx+2) +  l   ]
+                let u00 = uShared.[ k   *(bx+2) +  l   ]
+                let u0p = uShared.[(k+1)*(bx+2) +  l   ]
+                let upm = uShared.[(k-1)*(bx+2) + (l+1)]
+                let up0 = uShared.[ k   *(bx+2) + (l+1)]
+                let upp = uShared.[(k+1)*(bx+2) + (l+1)]
+
+                set u (i+1) (j+1) u00
+
+                __syncthreads()
+              
+            j <- j + bx * gridDim.x   
+
+        i <- i + by * gridDim.y
 
 /// Initial condition for vanilla call put option.
-/// We add artifical zeros to avoid access violation in the kernel. See the documentation above.
-let [<ReflectedDefinition>] init ns nv (u:RMatrixRowMajor) =    
-    let i = blockIdx.x*blockDim.x + threadIdx.x
-    let j = blockIdx.y*blockDim.y + threadIdx.y
-    if i < ns && j < nv then
-        set (ref u) i j (float(j*nv+i)) 
+/// We add artifical zeros to avoid access violation in the kernel.  
+let [<ReflectedDefinition>] init nRows nCols ld (u:RMatrixRowMajor) (o1:RMatrixRowMajor) (o2:RMatrixRowMajor)=    
+    let i = blockIdx.y*blockDim.y + threadIdx.y
+    let j = blockIdx.x*blockDim.x + threadIdx.x
+    if i < nRows then
+        if j < ld then
+            set (ref o1) i j -1.0
+            set (ref o2) i j -1.0
+        if j < nCols then
+            set (ref u) i j (float(i*nCols+j))
+        else if j < ld then
+            set (ref u) i j -1.0
 
 /// Solve Hesten with explicit Euler scheme.
 /// Because the time stepping has to be selected according to the state discretization
@@ -142,41 +126,49 @@ let matrixTiling = cuda {
 
     // we add artifical zeros to avoid access violation in the kernel
     let! initKernel =     
-        <@ fun ns nv (u:RMatrixRowMajor) ->
-            init ns nv u @> |> defineKernelFuncWithName "init"
+        <@ fun nRows nCols ld (u:RMatrixRowMajor) (o1:RMatrixRowMajor) (o2:RMatrixRowMajor) ->
+            init nRows nCols ld u o1 o2 @> |> defineKernelFuncWithName "init"
    
     let! tilingKernel =
-        <@ fun (u:RMatrixRowMajor) ns nv ->
-            tiling (ref u) ns nv @> |> defineKernelFuncWithName "tiling"
+        <@ fun nRows nCols ld (u:RMatrixRowMajor) (o1:RMatrixRowMajor) (o2:RMatrixRowMajor) ->
+            tiling nRows nCols ld (ref u) (ref o1) (ref o2) @> |> defineKernelFuncWithName "tiling"
                                      
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initKernel = initKernel.Apply m
         let tilingKernel = tilingKernel.Apply m
 
-        fun (ns:int) (nv:int) ->
+        fun (nRows:int) (nCols:int) ->
 
             pcalc {
-                let! u = DMatrix.createInBlob<float> worker RowMajorOrder ns nv
-                
+                // we have halo, one to each side
+                let nRows2 = nRows - 2
+                let nCols2 = nCols - 2
+
                 // block / tile size
                 let bx = 8
                 let by = 8
 
-                // we have halo, one to each side
-                let ns2 = ns - 2
-                let nv2 = nv - 2
+                // create row padding 
+                let nbx = divup nCols2 bx
+                let ld = nbx * bx + 2
+
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder nRows ld  
+                let! o1 = DMatrix.createInBlob<float> worker RowMajorOrder nRows ld               
+                let! o2 = DMatrix.createInBlob<float> worker RowMajorOrder nRows ld               
 
                 do! PCalc.action (fun hint ->
                     let sharedSize = (bx+2) * (by+2) * sizeof<float>
-                    let lpm = LaunchParam(dim3(divup ns bx, divup nv by), dim3(bx, by)) |> hint.ModifyLaunchParam
-                    let lpms = LaunchParam(dim3(divup ns2 bx, divup nv2 by), dim3(bx, by), sharedSize) |> hint.ModifyLaunchParam
+                    let lpm = LaunchParam(dim3(nbx + 1, divup nRows by), dim3(bx, by)) |> hint.ModifyLaunchParam
+                    let lpms = LaunchParam(dim3(nbx, divup nRows2 by), dim3(bx, by), sharedSize) |> hint.ModifyLaunchParam
 
                     let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
+                    let o1 = RMatrixRowMajor(o1.NumRows, o1.NumCols, o1.Storage.Ptr)
+                    let o2 = RMatrixRowMajor(o2.NumRows, o2.NumCols, o2.Storage.Ptr)
 
-                    initKernel.Launch lpm ns nv u
-                    tilingKernel.Launch lpms u ns nv
+                    initKernel.Launch lpm nRows nCols ld u o1 o2
+                    tilingKernel.Launch lpms nRows nCols ld u o1 o2
                 )
                 
-                return u } ) }
+                return u, o1, o2 } ) }
                 

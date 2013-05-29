@@ -21,17 +21,33 @@ let ``Matrix tiling`` () =
         let matrixTiling = worker.LoadPModule(matrixTiling).Invoke
         printfn "[OK]"
 
-        let ns = 10
-        let nv = 10
-        let! u = matrixTiling ns nv
+        let halo = 2
+        let nRows = 8 + 7 + halo
+        let nCols = 15 + halo
+        let! u, o1, o2 = matrixTiling nRows nCols
 
         if verbose then
             let! uu = u.ToArray2D();
-            printfn "u.Lx %d" (uu.GetLength(0))
-            printfn "u.Ly %d" (uu.GetLength(1))
-            for i = 0 to ns-1 do
+            let! o1 = o1.ToArray2D();
+            let! o2 = o2.ToArray2D();
+            printfn "Rows = %d, Cols = %d" nRows nCols
+            printfn "u.Rows %d, u.Cols %d" (uu.GetLength(0)) (uu.GetLength(1))
+            printfn "offsets first round"
+            for i = 0 to o1.GetLength(0)-1 do
                 printf "[i = %d] " i
-                for j = 0 to nv-1 do
+                for j = 0 to o1.GetLength(1)-1 do
+                    printf "%.4f, " o1.[i,j]
+                printf "\n"
+            printfn "offsets second round"
+            for i = 0 to o2.GetLength(0)-1 do
+                printf "[i = %d] " i
+                for j = 0 to o2.GetLength(1)-1 do
+                    printf "%.4f, " o2.[i,j]
+                printf "\n"
+            printfn "values"
+            for i = 0 to uu.GetLength(0)-1 do
+                printf "[i = %d] " i
+                for j = 0 to uu.GetLength(1)-1 do
                     printf "%.4f, " uu.[i,j]
                 printf "\n"
     } |> PCalc.runWithKernelTiming(1)
@@ -52,12 +68,12 @@ let ``Matrix tiling plotting`` () =
 
             let ns = 10
             let nv = 10
-            let! u = matrixTiling ns nv
+            let! u, o1, o2 = matrixTiling ns nv
 
             if verbose then
                 let! uu = u.ToArray2D();
-                printfn "u.Lx %d" (uu.GetLength(0))
-                printfn "u.Ly %d" (uu.GetLength(1))
+                printfn "u.Rows %d" (uu.GetLength(0))
+                printfn "u.Cols %d" (uu.GetLength(1))
                 for i = 0 to ns-1 do
                     printf "[i = %d] " i
                     for j = 0 to nv-1 do
