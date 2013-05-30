@@ -11,7 +11,6 @@ open Alea.CUDA.Extension.Finance.Grid
 open Util 
 
 // shorthands 
-// TODO refactor / move
 let [<ReflectedDefinition>] get (u:RMatrixRowMajor ref) (si:int) (vi:int) =
     RMatrixRowMajor.Get(u, si, vi)
 
@@ -118,29 +117,29 @@ type A =
     static member apply (a:A) um u0 up = a.al*um + a.ad*u0 + a.au*up
 
 /// Operator A1 i-th row  
-let [<ReflectedDefinition>] a1Operator (i:int) (ns:int) (heston:HestonModel) si vj ds dsp =   
+let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) sj vi ds dsp =   
     let fd = centralWeights ds dsp  
                   
-    if i < ns-1 then
+    if j < ns-1 then
         
         // Dirichlet boundary at s = 0 for i = 1
-        let al = if i = 1 then 0.0 else 0.5*si*si*vj*fd.w1 + (heston.rd-heston.rf)*si*fd.v1          
-        let ad = 0.5*si*si*vj*fd.w2 + (heston.rd-heston.rf)*si*fd.v2 - 0.5*heston.rd
-        let au = 0.5*si*si*vj*fd.w3 + (heston.rd-heston.rf)*si*fd.v3 
+        let al = if j = 1 then 0.0 else 0.5*sj*sj*vi*fd.w1 + (heston.rd-heston.rf)*sj*fd.v1          
+        let ad = 0.5*sj*sj*vi*fd.w2 + (heston.rd-heston.rf)*sj*fd.v2 - 0.5*heston.rd
+        let au = 0.5*sj*sj*vi*fd.w3 + (heston.rd-heston.rf)*sj*fd.v3 
 
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
     else
         // Neumann boundary with additonal ghost point and extrapolation
-        let al = 0.5*si*si*vj*fd.w1 + (heston.rd-heston.rf)*si*fd.v1
-        let ad = 0.5*si*si*vj*(fd.w2+fd.w3) + (heston.rd-heston.rf)*si*(fd.v2+fd.v3) - 0.5*heston.rd
+        let al = 0.5*sj*sj*vi*fd.w1 + (heston.rd-heston.rf)*sj*fd.v1
+        let ad = 0.5*sj*sj*vi*(fd.w2+fd.w3) + (heston.rd-heston.rf)*sj*(fd.v2+fd.v3) - 0.5*heston.rd
         let au = 0.0
     
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
 
 /// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v   
-let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:HestonModel) vj dv dvp =   
-    // j = jMin, special boundary at v = 0, one sided forward difference quotient 
-    if j = jMin then
+let [<ReflectedDefinition>] a2Operator (i:int) (iMin:int) (nv:int) (heston:HestonModel) vi dv dvp =   
+    // i = iMin, special boundary at v = 0, one sided forward difference quotient 
+    if i = iMin then
         let fd = forwardWeightsSimple dvp         
 
         let al = 0.0
@@ -151,18 +150,18 @@ let [<ReflectedDefinition>] a2Operator (j:int) (jMin:int) (nv:int) (heston:Hesto
     else               
         let fd = centralWeights dv dvp
 
-        if j < nv-1 then
-            let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
-            let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
-            let au = 0.5*heston.sigma*vj*fd.w3 + heston.kappa*(heston.eta - vj)*fd.v3
+        if i < nv-1 then
+            let al = 0.5*heston.sigma*vi*fd.w1 + heston.kappa*(heston.eta - vi)*fd.v1
+            let ad = 0.5*heston.sigma*vi*fd.w2 + heston.kappa*(heston.eta - vi)*fd.v2 - 0.5*heston.rd
+            let au = 0.5*heston.sigma*vi*fd.w3 + heston.kappa*(heston.eta - vi)*fd.v3
 
             A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
         else
             // Dirichlet boundary at v = max, the constant term 
             //   (0.5*sigma*v(j)*wp2 + kappa*(eta - v(j))*wp1)*s(i)*exp(-t*rf)
             // is absorbed into b2
-            let al = 0.5*heston.sigma*vj*fd.w1 + heston.kappa*(heston.eta - vj)*fd.v1
-            let ad = 0.5*heston.sigma*vj*fd.w2 + heston.kappa*(heston.eta - vj)*fd.v2 - 0.5*heston.rd
+            let al = 0.5*heston.sigma*vi*fd.w1 + heston.kappa*(heston.eta - vi)*fd.v1
+            let ad = 0.5*heston.sigma*vi*fd.w2 + heston.kappa*(heston.eta - vi)*fd.v2 - 0.5*heston.rd
             let au = 0.0
 
             A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)               
@@ -180,7 +179,7 @@ let [<ReflectedDefinition>] b2Value i iMax (heston:HestonModel) t sj vi w3 v3 =
     else
         0.0
 
-/// Explicit apply operator for Euler scheme.
+/// Explicit apply operator for Euler scheme using optimized loads through shared memory.
 /// We introduce ghost points at v = 0 (i = 0) and s = smax (j = ns) in order to simplify
 /// the memory access pattern so that no additional checks at the boundary are required.
 /// The grids have to be extended properly as well.
@@ -217,6 +216,9 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let by = blockDim.y
     let gx = gridDim.x
     let gy = gridDim.y
+ 
+    let uPtr = u.contents.Storage
+    let uShared = __extern_shared__<float>()
     
     // for coalesicing access we need to map x to columns and y to rows of the matrix because threads are aligned that way
     // i, k / y -> row -> v
@@ -226,6 +228,121 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
     let jMax = ns - 1 
     let iMin = 1
     let iMax = nv - 1
+
+    let nRows = nv + 1
+    let nCols = ns + 1
+
+    let mutable k = blockIdx.y * by + ty 
+                                                
+    while k <= gy*by do
+
+        let mutable l = blockIdx.x * bx + tx
+
+        while l <= gx*bx do 
+
+            // find out the tile in which we are working because the grid may not cover all of the matrix u
+            let ktile = k / by    
+            let ltile = l / bx    
+            let i0 = ktile * by
+            let j0 = ltile * bx
+            let I0 = i0 * nCols + j0
+ 
+            // use all threads of block to load bx*by elements of u 
+            let offset = ty*bx + tx
+            let I = offset / (bx + 2)  // row
+            let J = offset % (bx + 2)  // col
+
+            if i0 + I < nRows && j0 + J < nCols then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*nCols + J]
+
+            // second round to load remaining (bx+2)*(by+2) - bx*by elements of u
+            // note that some threads do not need to load data anymore
+            let offset = bx*by + ty*bx + tx
+            let I = offset / (bx + 2)
+            let J = offset % (bx + 2)
+
+            if offset < (bx + 2)*(by + 2) && i0 + I < nRows && j0 + J < nCols then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*nCols + J]
+
+            __syncthreads()
+
+            // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
+            let i = k + 1
+            let j = l + 1
+
+            // Dirichlet boundary at s = 0, so we do not need to process 0, we start 1
+            // Dirichlet boundary at v = max, so we do not need to process nv
+            if i <= iMax && j <= jMax then
+
+                let vi = v.[i]       
+                let a2op = a2Operator i iMin nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+
+                // relative addressing in the shared memory tile
+                let ir = i - i0  
+                let jr = j - j0 
+
+                // we add a ghost points of zero value around u to have no memory access issues
+                let umm = uShared.[(ir-1)*(bx+2) + (jr-1)]
+                let u0m = uShared.[ ir   *(bx+2) + (jr-1)]
+                let upm = uShared.[(ir+1)*(bx+2) + (jr-1)]
+                let um0 = uShared.[(ir-1)*(bx+2) +  jr   ]
+                let u00 = uShared.[ ir   *(bx+2) +  jr   ]
+                let up0 = uShared.[(ir+1)*(bx+2) +  jr   ]
+                let ump = uShared.[(ir-1)*(bx+2) + (jr+1)]
+                let u0p = uShared.[ ir   *(bx+2) + (jr+1)]
+                let upp = uShared.[(ir+1)*(bx+2) + (jr+1)]
+
+                let sj = s.[j]
+                let ds = sj - s.[j-1]
+
+                let b1 = b1Value j jMax heston sj vi ds
+                let b2 = b2Value i iMax heston t sj vi a2op.w3 a2op.v3
+                
+                let a1op = a1Operator j ns heston sj vi ds (s.[j+1] - sj)
+                    
+                // a0 <> 0 only on iMin < i <= iMax && jMin < j < jMax
+                let mixed = 
+                    // we do not need to test for i > iMin because at iMin vi = 0 hend a0 becomes zero there too
+                    if j < jMax then                     
+                        a1op.v1*a2op.v1*umm + a1op.v1*a2op.v2*u0m + a1op.v1*a2op.v3*upm +
+                        a1op.v2*a2op.v1*um0 + a1op.v2*a2op.v2*u00 + a1op.v2*a2op.v3*up0 + 
+                        a1op.v3*a2op.v1*ump + a1op.v3*a2op.v2*u0p + a1op.v3*a2op.v3*upp
+                    else
+                        0.0   
+            
+                let a0 = heston.rho*heston.sigma*sj*vi*mixed                    
+                let a1 = A.apply a1op u0m u00 u0p                    
+                let a2 = A.apply a2op um0 u00 up0         
+            
+                // set u for i = 1,...,iMax, j = 1,...,jMax
+                set u i j (u00 + dt*(a0+a1+a2+b1+b2))
+
+                __syncthreads()
+               
+            l <- l + bx * gridDim.x   
+
+        k <- k + by * gridDim.y
+
+/// Explicit apply operator for Euler scheme.
+let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
+    let tx = threadIdx.x
+    let ty = threadIdx.y
+    let bx = blockDim.x
+    let by = blockDim.y
+    let gx = gridDim.x
+    let gy = gridDim.y
+     
+    // for coalesicing access we need to map x to columns and y to rows of the matrix because threads are aligned that way
+    // i, k / y -> row -> v
+    // j, l / x -> col -> s
+
+    let jMin = 1
+    let jMax = ns - 1 
+    let iMin = 1
+    let iMax = nv - 1
+
+    let nRows = nv + 1
+    let nCols = ns + 1
 
     let mutable k = blockIdx.y * by + ty 
                                                 
@@ -248,13 +365,13 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
                 // we add a ghost points of zero value around u to have no memory access issues
                 let umm = get u (i-1) (j-1)
-                let ump = get u (i-1) (j+1)
-                let um0 = get u (i-1) j 
-                let u0m = get u i     (j-1)
-                let u00 = get u i     j
-                let u0p = get u i     (j+1)
+                let u0m = get u  i    (j-1)
                 let upm = get u (i+1) (j-1)
-                let up0 = get u (i+1) j
+                let um0 = get u (i-1)  j 
+                let u00 = get u  i     j
+                let up0 = get u (i+1)  j
+                let ump = get u (i-1) (j+1)
+                let u0p = get u  i    (j+1)
                 let upp = get u (i+1) (j+1)
 
                 let sj = s.[j]
@@ -276,8 +393,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                         0.0   
             
                 let a0 = heston.rho*heston.sigma*sj*vi*mixed                    
-                let a1 = A.apply a1op u0m u00 u0p // A1*u                    
-                let a2 = A.apply a2op um0 u00 up0 // A2*u       
+                let a1 = A.apply a1op u0m u00 u0p                    
+                let a2 = A.apply a2op um0 u00 up0         
             
                 // set u for i = 1,...,iMax, j = 1,...,jMax
                 set u i j (u00 + dt*(a0+a1+a2+b1+b2))
