@@ -120,6 +120,71 @@ let ``Euler scheme plotting`` () =
             let theta = 0.5
             let sMax = 220.0
             let vMax = 4.0
+            let ns = 48
+            let nv = 32
+            let cS = strike/5.0
+            let cV = vMax/5.0
+            let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
+
+            let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
+
+            if verbose then
+                let! ss = s.Gather();
+                let! vv = v.Gather();
+                let! uu = u.ToArray2D();
+                printfn "s = %A" ss
+                printfn "v = %A" vv
+                printfn "u.Lx %d" (uu.GetLength(0))
+                printfn "u.Ly %d" (uu.GetLength(1))
+                for i = 0 to uu.GetLength(0)-1 do
+                    printf "[i = %d] " i
+                    for j = 0 to uu.GetLength(1)-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
+
+            let extend minv maxv = let maxv', _ = Graphics.Direct3D9.SurfacePlotter.defaultExtend minv maxv in maxv', 1.0
+            let renderType = Graphics.Direct3D9.SurfacePlotter.RenderType.Mesh
+            do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context v s u extend extend extend renderType }
+        |> PCalc.run
+
+    let cudaDevice = Device.AllDevices.[0]
+    let param = Graphics.Direct3D9.Application.Param.Create(cudaDevice)
+    let param = { param with FormTitle = "Euler Scheme"
+                             DrawingSize = System.Drawing.Size(1024, 768) }
+    let application = Graphics.Direct3D9.Application.Application(param, loop)
+    application.Start()
+
+[<Test>]
+let ``Euler scheme plotting device memory`` () =
+    
+    let verbose = true
+
+    let loop (context:Graphics.Direct3D9.Application.Context) =
+        pcalc {
+            // in real app, we will first compile template into irm, and load here
+            // this worker from context, which is capable interop with graphics
+            printf "Compiling..."
+            let eulerSolver = context.Worker.LoadPModule(eulerSolverDevMemory).Invoke
+            printfn "[OK]"
+
+            // Heston model params
+            let rho = -0.6133
+            let sigma = 0.3920
+            let kappa = 1.1954
+            let eta = 0.0677
+            let rd = 0.02
+            let rf = 0.01
+            let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
+
+            // contract params
+            let timeToMaturity = 1.0
+            let strike = 55.0
+            let optionType = Call
+
+            // PDE solver params
+            let theta = 0.5
+            let sMax = 220.0
+            let vMax = 4.0
             let ns = 9 + 8
             let nv = 9
             let cS = strike/5.0
@@ -136,9 +201,9 @@ let ``Euler scheme plotting`` () =
                 printfn "v = %A" vv
                 printfn "u.Lx %d" (uu.GetLength(0))
                 printfn "u.Ly %d" (uu.GetLength(1))
-                for i = 0 to ns do
+                for i = 0 to ns-1 do
                     printf "[i = %d] " i
-                    for j = 0 to nv do
+                    for j = 0 to nv-1 do
                         printf "%.4f, " uu.[i,j]
                     printf "\n"
 
@@ -153,7 +218,6 @@ let ``Euler scheme plotting`` () =
                              DrawingSize = System.Drawing.Size(1024, 768) }
     let application = Graphics.Direct3D9.Application.Application(param, loop)
     application.Start()
-
 [<Test>]
 let ``Douglas scheme plotting`` () =
 

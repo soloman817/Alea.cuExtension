@@ -36,7 +36,7 @@ let [<ReflectedDefinition>] tiling nRows nCols nbx nby (u:RMatrixRowMajor ref) (
     let nx = nbx * bx
     let ny = nby * by
 
-    // for coalesicing acess we need to map x to columns and y to rows of the matrix because threads are aligned that way
+    // for coalesicing access we need to map x to columns and y to rows of the matrix because threads are aligned that way
     // i / y -> row
     // j / x -> col
 
