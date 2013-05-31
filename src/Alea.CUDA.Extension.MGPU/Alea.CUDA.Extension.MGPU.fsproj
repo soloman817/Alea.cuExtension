@@ -44,9 +44,10 @@
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
     <Compile Include="CTAMerge.fs" />
-    <None Include="CTASearch.fs" />
+    <Compile Include="CTASearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
+    <Compile Include="Search.fs" />
     <Compile Include="PArray.fs" />
     <Compile Include="BulkRemove.fs" />
     <None Include="packages.config" />

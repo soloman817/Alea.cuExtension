@@ -11,8 +11,9 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
+open Alea.CUDA.Extension.MGPU.CTASearch
 open Alea.CUDA.Extension.MGPU.CTAScan
-open Alea.CUDA.Extension.MGPU.Reduce
+open Alea.CUDA.Extension.MGPU.Search
 
 
 // this is plan
@@ -22,23 +23,19 @@ type Plan =
         VT : int
     }
 
-let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
+let kernelBulkRemove (plan:Plan) =
     let NT = plan.NT
     let VT = plan.VT
     let NV = NT * VT
 
-    let capacity, scan = ctaScan NT op
+    let capacity, scan = ctaScan NT (scanOp ScanOpTypeAdd 0)
     let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
     let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
     let sharedAlign = max alignOfTI alignOfTV
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
     let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
-    let commutative = op.Commutative
-    let identity = op.Identity
-    let extract = op.DExtract
-    let combine = op.DCombine
-    let plus = op.DPlus
+        
 
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceSharedToReg = deviceSharedToReg NT VT
@@ -47,9 +44,7 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         
 
     <@ fun (source_global:DevicePtr<'TI>) (sourceCount:int) (indices_global:DevicePtr<'TI>) (indicesCount:int) (p_global:DevicePtr<'TV>) (dest_global:DevicePtr<'TV>) ->
-        let extract = %extract
-        let combine = %combine
-        let plus = %plus
+        
         let deviceGather = %deviceGather
         
         let deviceGlobalToReg = %deviceGlobalToReg
@@ -57,11 +52,11 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         let deviceRegToGlobal = %deviceRegToGlobal
 
         let scan = %scan
-
+//
         let shared = %(createSharedExpr)
         let sharedScan = shared.Reinterpret<'TV>()
         let sharedIndices = shared.Reinterpret<'TI>()
-        let sharedResults = shared.Reinterpret<'TR>()
+//        let sharedResults = shared.Reinterpret<'TR>()
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -120,9 +115,34 @@ let kernelBulkRemove (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         // Store all the valid registers to dest_global
         deviceRegToGlobal count values tid (dest_global + gid - begin') @>
 
+type IBulkRemove<'TI> =
+    {
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> DevicePtr<'TI> -> int -> unit        
+    }
 
-//let bulkRemove (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
-//    let plan = { NT = 128; VT = 11 }
-//    let NV = plan.NT * plan.VT
-//
-//    let kernelBulkRemove = kernelBulkRemove 
+let bulkRemove = cuda {
+    let plan = { NT = 128; VT = 11 }
+    let NV = plan.NT * plan.VT
+    
+
+    let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFunc
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let kernelBulkRemove = kernelBulkRemove.Apply m
+
+        fun (sourceCount:int) (indicesCount:int) ->
+            let numBlocks = divup sourceCount NV
+            let lp = LaunchParam(numBlocks, plan.NT)
+            //(source_global:DevicePtr<'TI>) (sourceCount:int) (indices_global:DevicePtr<'TI>) (indicesCount:int) (p_global:DevicePtr<'TV>) (dest_global:DevicePtr<'TV>)
+            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'TI>) =
+                let lp = lp |> hint.ModifyLaunchParam
+                let partitionsDevice = worker.LoadPModule(PArray.binarySearchPartitions MgpuBoundsLower CompTypeLess).Invoke
+                let calc = pcalc { 
+                    let! result = partitionsDevice source_global sourceCount indicesCount ((divup sourceCount NV) + 1)
+                    return! result.Value }
+                let partitionsDevice = PCalc.run calc
+                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount partitionsDevice dest_global
+
+            { Action = action } ) }
+            

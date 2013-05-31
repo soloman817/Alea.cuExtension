@@ -3,6 +3,7 @@
 // This file maps to the deviceutil.cuh file in mgpu, just some utilities.
 
 open Alea.CUDA
+open Microsoft.FSharp.Quotations
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
@@ -39,30 +40,53 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range
 
 
-// found in mgpudevice.cuh
-type MgpuBounds =
-    | MgpuBoundsLower
-    | MgpuBoundsUpper
+//[<ReflectedDefinition>] let Comp (a:'T) (b:'T) = if a <> b then 0 else 1
 
 
 
-type MgpuSearchType =
-    | MgpuSearchTypeNone
-    | MgpuSearchTypeIndex
-    | MgpuSearchTypeMatch
-    | MgpuSearchTypeIndexMatch
 
+//type IComp<'T> =
+//    abstract HLess : ('T -> 'T -> int)
+//    abstract DLess : Expr<'T -> 'T -> int>
+//    abstract HLess_Equal : ('T -> 'T -> int)
+//    abstract DLess_Equal : Expr<'T -> 'T -> int>
+//    abstract HGreater : ('T -> 'T -> int)
+//    abstract DGreater : Expr<'T -> 'T -> int>
+//    abstract HGreater_Equal : ('T -> 'T -> int)
+//    abstract DGreater_Equal : Expr<'T -> 'T -> int>
 
-type MgpuJoinKind =
-    | MgpuJoinKindInner
-    | MgpuJoinKindLeft
-    | MgpuJoinKindRight
-    | MgpuJoinKindOuter
+type IComp<'T> =
+    abstract Host : ('T -> 'T -> int)
+    abstract Device : Expr<'T -> 'T -> int>
 
+type CompType =
+    | CompTypeLess
+    | CompTypeLess_Equal
+    | CompTypeGreater
+    | CompTypeGreater_Equal
 
-type MgpuSetOp =
-    | MgpuSetOpIntersection
-    | MgpuSetOpUnion
-    | MgpuSetOpDiff
-    | MgpuSetOpSymDiff
+//let inline comp = 
+//    { new IComp<'T> with
+//        member this.HLess = fun a b -> if a < b then 1 else 0
+//        member this.DLess = <@ fun a b -> if a < b then 1 else 0 @>
+//        member this.HLess_Equal = fun a b -> if a <= b then 1 else 0
+//        member this.DLess_Equal = <@ fun a b -> if a <= b then 1 else 0 @>
+//        member this.HGreater = fun a b -> if a > b then 1 else 0
+//        member this.DGreater = <@ fun a b -> if a > b then 1 else 0 @>
+//        member this.HGreater_Equal = fun a b -> if a >= b then 1 else 0
+//        member this.DGreater_Equal = <@ fun a b -> if a >= b then 1 else 0 @> }
 
+let inline comp (compType:CompType) = 
+    { new IComp<'T> with
+        member this.Host = 
+            match compType with
+            | CompTypeLess -> fun a b -> if a < b then 1 else 0
+            | CompTypeLess_Equal -> fun a b -> if a <= b then 1 else 0
+            | CompTypeGreater -> fun a b -> if a > b then 1 else 0
+            | CompTypeGreater_Equal -> fun a b -> if a >= b then 1 else 0
+        member this.Device =
+            match compType with
+            | CompTypeLess -> <@ fun a b -> if a < b then 1 else 0 @>
+            | CompTypeLess_Equal -> <@ fun a b -> if a <= b then 1 else 0 @>
+            | CompTypeGreater -> <@ fun a b -> if a > b then 1 else 0 @>
+            | CompTypeGreater_Equal -> <@ fun a b -> if a >= b then 1 else 0 @> }
