@@ -90,9 +90,9 @@ let ``Euler scheme plotting`` () =
             let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
 
             if verbose then
-                let! ss = s.Gather();
-                let! vv = v.Gather();
-                let! uu = u.ToArray2D();
+                let! ss = s.Gather()
+                let! vv = v.Gather()
+                let! uu = u.ToArray2D()
                 printfn "s = %A" ss
                 printfn "v = %A" vv
                 printfn "u.Lx %d" (uu.GetLength(1))
@@ -116,46 +116,9 @@ let ``Euler scheme plotting`` () =
     application.Start()
 
 [<Test>]
-let ``Douglas scheme`` () =
-
-    let worker = getDefaultWorker()
-    let douglasSolver = worker.LoadPModule(douglasSolver).Invoke
-
-    // Heston model params
-    let rho = -0.5
-    let sigma = 0.2
-    let kappa = 0.2
-    let eta = 0.2
-    let rd = 0.05
-    let rf = 0.01
-    let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
-
-    // contract params
-    let timeToMaturity = 1.0
-    let strike = 100.0
-    let optionType = Call
-
-    // PDE solver params
-    let theta = 0.5
-    let sMax = 1000.0
-    let vMax = 16.0
-    let ns = 128
-    let nv = 64
-    let nt = 100
-    let cS = 8.0
-    let cV = 15.0
-    let param = DouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
-
-    let pricer = pcalc {
-        let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
-        return! v.Gather()
-    }
-
-    let result = pricer |> PCalc.runWithKernelTiming(5)
-    printfn "%A" result
-
-[<Test>]
 let ``Douglas scheme plotting`` () =
+    
+    let verbose = true
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
@@ -166,40 +129,75 @@ let ``Douglas scheme plotting`` () =
             printfn "[OK]"
 
             // Heston model params
-            let rho = -0.5
-            let sigma = 0.2
-            let kappa = 0.2
-            let eta = 0.2
-            let rd = 0.05
+            let rho = -0.6133
+            let sigma = 0.3920
+            let kappa = 1.1954
+            let eta = 0.0677
+            let rd = 0.02
             let rf = 0.01
             let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
 
             // contract params
             let timeToMaturity = 1.0
-            let strike = 100.0
+            let strike = 55.0
             let optionType = Call
 
             // PDE solver params
             let theta = 0.5
-            let sMax = 1000.0
-            let vMax = 16.0
-            let ns = 256
-            let nv = 128
-            let nt = 100
-            let cS = 8.0
-            let cV = 15.0
-            let param = DouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+            let sMax = 220.0
+            let vMax = 4.0
+            let ns = 126
+            let nv = 62
+            let cS = strike/5.0
+            let cV = vMax/5.0
+            let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
-            let! s, u, v = douglasSolver heston optionType strike timeToMaturity param
+            let! s, v, u, y0, y1corr, y1 = douglasSolver heston optionType strike timeToMaturity param
+
+            if verbose then
+                let! ss = s.Gather()
+                let! vv = v.Gather()
+                let! uu = u.ToArray2D()
+                printfn "s = %A" ss
+                printfn "v = %A" vv
+                printfn "u.Lx %d" (uu.GetLength(1))
+                printfn "u.Ly %d" (uu.GetLength(0))
+                for i = 0 to uu.GetLength(0)-1 do
+                    printf "[i = %d] " i
+                    for j = 0 to uu.GetLength(1)-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
+                printfn "y0"
+                let! uu = y0.ToArray2D()
+                for i = 0 to uu.GetLength(0)-1 do
+                    printf "[i = %d] " i
+                    for j = 0 to uu.GetLength(1)-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
+                printfn "y1corr"
+                let! uu = y1corr.ToArray2D()
+                for i = 0 to uu.GetLength(0)-1 do
+                    printf "[i = %d] " i
+                    for j = 0 to uu.GetLength(1)-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
+                printfn "y1"
+                let! uu = y1.ToArray2D()
+                for i = 0 to uu.GetLength(0)-1 do
+                    printf "[i = %d] " i
+                    for j = 0 to uu.GetLength(1)-1 do
+                        printf "%.4f, " uu.[i,j]
+                    printf "\n"
 
             let extend minv maxv = let maxv', _ = Graphics.Direct3D9.SurfacePlotter.defaultExtend minv maxv in maxv', 1.0
             let renderType = Graphics.Direct3D9.SurfacePlotter.RenderType.Mesh
-            do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context s u v extend extend extend renderType }
+            do! Graphics.Direct3D9.SurfacePlotter.plottingXYLoop context v s u extend extend extend renderType }
         |> PCalc.run
 
     let cudaDevice = Device.AllDevices.[0]
     let param = Graphics.Direct3D9.Application.Param.Create(cudaDevice)
-    let param = { param with FormTitle = "Douglas Scheme"
+    let param = { param with FormTitle = "Euler Scheme"
                              DrawingSize = System.Drawing.Size(1024, 768) }
     let application = Graphics.Direct3D9.Application.Application(param, loop)
     application.Start()
+

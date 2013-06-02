@@ -14,9 +14,6 @@ open Util
 let [<ReflectedDefinition>] get (u:RMatrixRowMajor ref) (si:int) (vi:int) =
     RMatrixRowMajor.Get(u, si, vi)
 
-let [<ReflectedDefinition>] elem (u:RMatrixRowMajor ref) (si:int) (vi:int) =
-    RMatrixRowMajor.Get(u, si, vi)
-
 let [<ReflectedDefinition>] set (u:RMatrixRowMajor ref) (si:int) (vi:int) (value:float) =
     RMatrixRowMajor.Set(u, si, vi, value)
 
@@ -136,10 +133,11 @@ let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) sj 
     
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
 
-/// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v   
-let [<ReflectedDefinition>] a2Operator (i:int) (iMin:int) (nv:int) (heston:HestonModel) vi dv dvp =   
+/// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v  
+/// Note that by assumption iMin = 1 
+let [<ReflectedDefinition>] a2Operator (i:int) (nv:int) (heston:HestonModel) vi dv dvp =   
     // i = iMin, special boundary at v = 0, one sided forward difference quotient 
-    if i = iMin then
+    if i = 1 then
         let fd = forwardWeightsSimple dvp         
 
         let al = 0.0
@@ -275,7 +273,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             if i <= iMax && j <= jMax then
 
                 let vi = v.[i]       
-                let a2op = a2Operator i iMin nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
 
                 // relative addressing in the shared memory tile
                 let ir = i - i0  
@@ -361,7 +359,7 @@ let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u
             if i <= iMax && j <= jMax then
 
                 let vi = v.[i]       
-                let a2op = a2Operator i iMin nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
 
                 // we add a ghost points of zero value around u to have no memory access issues
                 let umm = get u (i-1) (j-1)
@@ -403,6 +401,219 @@ let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u
 
         k <- k + by * gridDim.y
 
+/// Explicit part for Douglas and other schemes which require intermediate results
+let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (y0:RMatrixRowMajor ref) (y1corr:RMatrixRowMajor ref) =
+    let tx = threadIdx.x
+    let ty = threadIdx.y
+    let bx = blockDim.x
+    let by = blockDim.y
+    let gx = gridDim.x
+    let gy = gridDim.y
+ 
+    let uPtr = u.contents.Storage
+    let uShared = __extern_shared__<float>()
+    
+    // for coalesicing access we need to map x to columns and y to rows of the matrix because threads are aligned that way
+    // i, k / y -> row -> v
+    // j, l / x -> col -> s
+
+    let jMin = 1
+    let jMax = ns - 1 
+    let iMin = 1
+    let iMax = nv - 1
+
+    let nRows = nv + 1
+    let nCols = ns + 1
+
+    let mutable k = blockIdx.y * by + ty 
+                                                
+    while k <= gy*by do
+
+        let mutable l = blockIdx.x * bx + tx
+
+        while l <= gx*bx do 
+
+            // find out the tile in which we are working because the grid may not cover all of the matrix u
+            let ktile = k / by    
+            let ltile = l / bx    
+            let i0 = ktile * by
+            let j0 = ltile * bx
+            let I0 = i0 * nCols + j0
+ 
+            // use all threads of block to load bx*by elements of u 
+            let offset = ty*bx + tx
+            let I = offset / (bx + 2)  // row
+            let J = offset % (bx + 2)  // col
+
+            if i0 + I < nRows && j0 + J < nCols then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*nCols + J]
+
+            // second round to load remaining (bx+2)*(by+2) - bx*by elements of u
+            // note that some threads do not need to load data anymore
+            let offset = bx*by + ty*bx + tx
+            let I = offset / (bx + 2)
+            let J = offset % (bx + 2)
+
+            if offset < (bx + 2)*(by + 2) && i0 + I < nRows && j0 + J < nCols then
+                uShared.[I*(bx+2) + J] <- uPtr.[I0 + I*nCols + J]
+
+            __syncthreads()
+
+            // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
+            let i = k + 1
+            let j = l + 1
+
+            // Dirichlet boundary at s = 0, so we do not need to process 0, we start 1
+            // Dirichlet boundary at v = max, so we do not need to process nv
+            if i <= iMax && j <= jMax then
+
+                let vi = v.[i]       
+                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+
+                // relative addressing in the shared memory tile
+                let ir = i - i0  
+                let jr = j - j0 
+
+                // we add a ghost points of zero value around u to have no memory access issues
+                let umm = uShared.[(ir-1)*(bx+2) + (jr-1)]
+                let u0m = uShared.[ ir   *(bx+2) + (jr-1)]
+                let upm = uShared.[(ir+1)*(bx+2) + (jr-1)]
+                let um0 = uShared.[(ir-1)*(bx+2) +  jr   ]
+                let u00 = uShared.[ ir   *(bx+2) +  jr   ]
+                let up0 = uShared.[(ir+1)*(bx+2) +  jr   ]
+                let ump = uShared.[(ir-1)*(bx+2) + (jr+1)]
+                let u0p = uShared.[ ir   *(bx+2) + (jr+1)]
+                let upp = uShared.[(ir+1)*(bx+2) + (jr+1)]
+
+                let sj = s.[j]
+                let ds = sj - s.[j-1]
+
+                let b1 = b1Value j jMax heston sj vi ds
+                let b2 = b2Value i iMax heston t sj vi a2op.w3 a2op.v3
+                let b2next = b2Value i iMax heston tnext sj vi a2op.w3 a2op.v3
+                
+                let a1op = a1Operator j ns heston sj vi ds (s.[j+1] - sj)
+                    
+                // a0 <> 0 only on iMin < i <= iMax && jMin < j < jMax
+                let mixed = 
+                    // we do not need to test for i > iMin because at iMin vi = 0 hend a0 becomes zero there too
+                    if j < jMax then                     
+                        a1op.v1*a2op.v1*umm + a1op.v1*a2op.v2*u0m + a1op.v1*a2op.v3*upm +
+                        a1op.v2*a2op.v1*um0 + a1op.v2*a2op.v2*u00 + a1op.v2*a2op.v3*up0 + 
+                        a1op.v3*a2op.v1*ump + a1op.v3*a2op.v2*u0p + a1op.v3*a2op.v3*upp
+                    else
+                        0.0   
+            
+                let a0 = heston.rho*heston.sigma*sj*vi*mixed                    
+                let a1 = A.apply a1op u0m u00 u0p                    
+                let a2 = A.apply a2op um0 u00 up0         
+            
+                // set u for i = 1,...,iMax, j = 1,...,jMax
+                set y0 i j (u00 + dt*(a0+a2+b1+b2) + (1.0 - theta)*dt*a1)
+                set y1corr i j (theta*dt*(a2 + b2 - b2next))                   
+                 
+            __syncthreads()
+               
+            l <- l + bx * gridDim.x   
+
+        k <- k + by * gridDim.y
+
+[<ReflectedDefinition>]
+let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
+    let rdt = heston.rd 
+    let rft = heston.rf 
+
+    let shared = __extern_shared__<float>()
+    let h = shared
+    let d = h + (ns-1)
+    let l = d + (ns-1)
+    let u = l + (ns-1)
+
+    let mutable i = blockIdx.x + 1
+    while i < nv do
+        
+        let vi = v.[i]
+
+        let mutable j = threadIdx.x + 1
+        while j < ns do
+       
+            let sj = s.[j]
+
+            let a1op = a1Operator j ns heston sj vi (sj - s.[j-1]) (s.[j+1] - sj)
+
+            l.[j-1] <- -thetaDt*a1op.al
+            d.[j-1] <- 1.0 - thetaDt*a1op.ad
+            u.[j-1] <- -thetaDt*a1op.au
+            h.[j-1] <- rhs i j
+
+            j <- j + blockDim.x
+
+        __syncthreads()
+
+        triDiagPcrSingleBlock (ns-1) l d u h
+
+        j <- threadIdx.x + 1
+        while j < ns do       
+            set result i j h.[j-1] 
+            j <- j + blockDim.x
+
+        __syncthreads()
+
+        i <- i + gridDim.x
+
+[<ReflectedDefinition>]
+let rhsSolveF1 (y0:RMatrixRowMajor ref) i j =
+    get y0 i j  
+
+[<ReflectedDefinition>]
+let solveF2 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
+    let rdt = heston.rd 
+    let rft = heston.rf 
+    let sigmat = heston.sigma 
+    let kappat = heston.kappa 
+    let etat = heston.eta 
+
+    let shared = __extern_shared__<float>()
+    let h = shared
+    let d = h + (nv-1)
+    let l = d + (nv-1)
+    let u = l + (nv-1)
+
+    let mutable j = blockIdx.x + 1
+    while j < ns do
+
+        let sj = s.[j]
+
+        let mutable i = threadIdx.x + 1
+        while i < nv do
+
+            let vi = v.[i]
+            let dv = vi - v.[i-1]
+
+            let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+
+            l.[i-1] <- -thetaDt*a2op.al
+            d.[i-1] <- 1.0 - thetaDt*a2op.ad
+            u.[i-1] <- -thetaDt*a2op.au
+            h.[i-1] <- rhs i j
+                        
+            i <- i + blockDim.x
+
+        __syncthreads()
+
+        triDiagPcrSingleBlock (nv-1) l d u h
+
+        i <- threadIdx.x + 1   
+        while i < nv do  
+            set result i j h.[i-1]
+            i <- i + blockDim.x
+
+        j <- j + gridDim.x
+
+[<ReflectedDefinition>]
+let rhsSolveF2 (y1:RMatrixRowMajor ref) (y:RMatrixRowMajor ref) i j =
+    (get y1 i j) - (get y i j)  
+
 type OptionType =
 | Call
 | Put
@@ -435,6 +646,13 @@ let [<ReflectedDefinition>] boundaryConditionVanilla (rf:float) t ns nv (s:Devic
         set (ref u) nv i (exp(-rf*t)*s.[i])
     if i < nv then
         set (ref u) i 0 0.0
+
+/// Set all values to zero.
+let [<ReflectedDefinition>] zeros ns nv (u:RMatrixRowMajor) =    
+    let i = blockIdx.y*blockDim.y + threadIdx.y
+    let j = blockIdx.x*blockDim.x + threadIdx.x
+    if i < nv + 1 && j < ns + 1 then
+        set (ref u) i j 0.0 
 
 /// Copy kernel to copy data on device to reduce to valid range
 let [<ReflectedDefinition>] copyValues ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) =    
@@ -478,7 +696,7 @@ let eulerSolver = cuda {
         <@ fun (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) ->
             boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFuncWithName "boundaryCondition"
    
-    let! appFKernel =
+    let! applyFKernel =
         <@ fun (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
             applyF heston t dt (ref u) s v ns nv @> |> defineKernelFuncWithName "applyF"
     
@@ -494,7 +712,7 @@ let eulerSolver = cuda {
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
         let boundaryCondKernel = boundaryCondKernel.Apply m
-        let appFKernel = appFKernel.Apply m
+        let applyFKernel = applyFKernel.Apply m
         let copyValuesKernel = copyValuesKernel.Apply m
         let copyGridsKernel = copyGridsKernel.Apply m
 
@@ -547,10 +765,9 @@ let eulerSolver = cuda {
                         let t0 = t.[ti]
                         let t1 = t.[ti + 1]
                         let dt = t1 - t0
-                        let thetaDt = dt * param.theta
 
                         boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
-                        appFKernel.Launch lpms heston t0 dt u s.Ptr v.Ptr param.ns param.nv
+                        applyFKernel.Launch lpms heston t0 dt u s.Ptr v.Ptr param.ns param.nv
 
                     // copy solution, later we could use a view on it
                     copyValuesKernel.Launch lpm param.ns param.nv u ured
@@ -558,7 +775,133 @@ let eulerSolver = cuda {
                 )
                 
                 return sred, vred, ured } ) }
+  
+/// Solve Hesten with Douglas scheme.
+let douglasSolver = cuda {
+
+    // we add artifical zeros to avoid access violation in the kernel
+    let! initCondKernel =     
+        <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
+            initConditionVanilla ns nv s u optionType strike @> |> defineKernelFuncWithName "initCondition"
+
+    let! boundaryCondKernel =     
+        <@ fun (rf:float) t ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) ->
+            boundaryConditionVanilla rf t ns nv s u @> |> defineKernelFuncWithName "boundaryCondition"
+   
+    let! applyFKernel =
+        <@ fun (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (y0:RMatrixRowMajor) (y1corr:RMatrixRowMajor) ->
+            applyFDouglas heston t tnext dt theta (ref u) s v ns nv (ref y0) (ref y1corr) @> |> defineKernelFuncWithName "applyF"
+
+    let! solveF1Kernel =
+        <@ fun (heston:HestonModel) (t:float) (thetaDt:float) (y0:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor) ->
+            solveF1 heston t thetaDt (rhsSolveF1 (ref y0)) s v ns nv (ref result) @> |> defineKernelFuncWithName "solveF1"
+
+    let! solveF2Kernel =
+        <@ fun (heston:HestonModel) (t:float) (thetaDt:float) (y1:RMatrixRowMajor) (y1corr:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor) ->
+            solveF2 heston t thetaDt (rhsSolveF2 (ref y1) (ref y1corr)) s v ns nv (ref result) @> |> defineKernelFuncWithName "solveF2"
+
+    let! zerosKernel = 
+        <@ fun ns nv (u:RMatrixRowMajor) ->
+            zeros ns nv u @> |> defineKernelFuncWithName "zeros"    
+    
+    let! copyValuesKernel = 
+        <@ fun ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) ->
+            copyValues ns nv u0 u1 @> |> defineKernelFuncWithName "copyValues"    
+
+    let! copyGridsKernel = 
+        <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
+            copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
+                         
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let initCondKernel = initCondKernel.Apply m
+        let boundaryCondKernel = boundaryCondKernel.Apply m
+        let appFKernel = applyFKernel.Apply m
+        let zerosKernel = zerosKernel.Apply m
+        let copyValuesKernel = copyValuesKernel.Apply m
+        let copyGridsKernel = copyGridsKernel.Apply m
+        let solveF1Kernel = solveF1Kernel.Apply m
+        let solveF2Kernel = solveF2Kernel.Apply m
+
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
+
+            // we add one more point to the state grids because the value surface has a ghost aerea as well
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
+
+            // extend grids for ghost points
+            let sGhost = 2.0*s.[s.Length - 1] - s.[s.Length - 2]
+            let s = Array.append s [|sGhost|]
+            let vLowerGhost = 2.0*v.[0] - v.[1]
+            let v = Array.append [|vLowerGhost|] v
+
+            // calculate a time step which is compatible with the space discretization
+            let dt = ds*ds/100.0
+            let nt = int(timeToMaturity/dt) + 1
+            let t, dt = homogeneousGrid nt 0.0 timeToMaturity
+
+            pcalc {
+                let! s = DArray.scatterInBlob worker s
+                let! v = DArray.scatterInBlob worker v
+
+                // add zero value ghost points to the value surface to allow simpler access in the kernel
+                // one ghost point at s = smax and v = 0
+                // no ghost point needed at v = vmax and s = 0 because there we have Dirichlet boundary 
+                let ns1 = param.ns+1
+                let nv1 = param.nv+1
+                let! u = DMatrix.createInBlob<float> worker RowMajorOrder nv1 ns1 
+                let! y0 = DMatrix.createInBlob<float> worker RowMajorOrder nv1 ns1 
+                let! y1 = DMatrix.createInBlob<float> worker RowMajorOrder nv1 ns1 
+                let! y1corr = DMatrix.createInBlob<float> worker RowMajorOrder nv1 ns1 
+
+                // storage for reduced values
+                let! sred = DArray.createInBlob<float> worker param.ns
+                let! vred = DArray.createInBlob<float> worker param.nv
+                let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
                 
+                do! PCalc.action (fun hint ->
+                    let sharedSize = 10 * 10 * sizeof<float>
+                    let lpms = LaunchParam(dim3(divup ns1 8, divup nv1 8), dim3(8, 8), sharedSize) |> hint.ModifyLaunchParam
+                    let lpm = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let lpb = LaunchParam(divup (max ns1 nv1) 256, 256) |> hint.ModifyLaunchParam
+                    let lps = LaunchParam(param.nv, param.ns-1, 4*(param.ns-1)*sizeof<float>) |> hint.ModifyLaunchParam
+                    let lpv = LaunchParam(param.ns, param.nv-1, 4*(param.nv-1)*sizeof<float>) |> hint.ModifyLaunchParam
+
+                    let u = RMatrixRowMajor(u.NumRows, u.NumCols, u.Storage.Ptr)
+                    let y0 = RMatrixRowMajor(y0.NumRows, y0.NumCols, y0.Storage.Ptr)
+                    let y1 = RMatrixRowMajor(y1.NumRows, y1.NumCols, y1.Storage.Ptr)
+                    let y1corr = RMatrixRowMajor(y1corr.NumRows, y1corr.NumCols, y1corr.Storage.Ptr)
+                    let ured = RMatrixRowMajor(ured.NumRows, ured.NumCols, ured.Storage.Ptr)
+
+                    initCondKernel.Launch lpm param.ns param.nv s.Ptr u optionType.sign strike
+
+                    zerosKernel.Launch lpm param.ns param.nv y0
+                    zerosKernel.Launch lpm param.ns param.nv y1
+                    zerosKernel.Launch lpm param.ns param.nv y1corr
+
+                    for ti = 0 to nt-2 do
+
+                        let t0 = t.[ti]
+                        let t1 = t.[ti + 1]
+                        let dt = t1 - t0
+
+                        let dt = 3.3984e-4
+
+                        let thetaDt = param.theta*dt
+
+                        boundaryCondKernel.Launch lpb heston.rf t0 param.ns param.nv s.Ptr u
+                        appFKernel.Launch lpms heston t0 t1 dt param.theta u s.Ptr v.Ptr param.ns param.nv y0 y1corr
+
+                        solveF1Kernel.Launch lps heston t0 thetaDt y0 s.Ptr v.Ptr param.ns param.nv y1
+                        solveF2Kernel.Launch lps heston t0 thetaDt y1 y1corr s.Ptr v.Ptr param.ns param.nv u
+
+                    // copy solution, later we could use a view on it
+                    copyValuesKernel.Launch lpm param.ns param.nv u ured
+                    copyGridsKernel.Launch lpb param.ns param.nv s.Ptr v.Ptr sred.Ptr vred.Ptr
+                )
+                
+                return sred, vred, ured, y0, y1corr, y1 } ) }
+                                
 //****** Refactor below, some problem with boundary conditons
 
 [<Struct>]
@@ -819,15 +1162,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
 
     if si = 0 && vi = 0 then  // 1 corner
 
-        let u00 = elem u (si  ) (vi  )
-        let u01 = elem u (si  ) (vi+1)
-        let u02 = elem u (si  ) (vi+2)
-        let u10 = elem u (si+1) (vi  )
-        let u11 = elem u (si+1) (vi+1)
-        let u12 = elem u (si+1) (vi+2)
-        let u20 = elem u (si+2) (vi  )
-        let u21 = elem u (si+2) (vi+1)
-        let u22 = elem u (si+2) (vi+2)
+        let u00 = get u (si  ) (vi  )
+        let u01 = get u (si  ) (vi+1)
+        let u02 = get u (si  ) (vi+2)
+        let u10 = get u (si+1) (vi  )
+        let u11 = get u (si+1) (vi+1)
+        let u12 = get u (si+1) (vi+2)
+        let u20 = get u (si+2) (vi  )
+        let u21 = get u (si+2) (vi+1)
+        let u22 = get u (si+2) (vi+2)
         
         stencil.ds0 <- gamma0 ds si; stencil.ds1 <- gammaP1 ds si; stencil.ds2 <- gammaP2 ds si
         stencil.dv0 <- gamma0 dv vi; stencil.dv1 <- gammaP1 dv vi; stencil.dv2 <- gammaP2 dv vi
@@ -846,15 +1189,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
 
     else if si = ds.n - 1 && vi = 0 then // 2 corner
 
-        let u00 = elem u (si-2) (vi  )
-        let u01 = elem u (si-2) (vi+1)
-        let u02 = elem u (si-2) (vi+2)
-        let u10 = elem u (si-1) (vi  )
-        let u11 = elem u (si-1) (vi+1)
-        let u12 = elem u (si-1) (vi+2)
-        let u20 = elem u (si  ) (vi  )
-        let u21 = elem u (si  ) (vi+1)
-        let u22 = elem u (si  ) (vi+2)
+        let u00 = get u (si-2) (vi  )
+        let u01 = get u (si-2) (vi+1)
+        let u02 = get u (si-2) (vi+2)
+        let u10 = get u (si-1) (vi  )
+        let u11 = get u (si-1) (vi+1)
+        let u12 = get u (si-1) (vi+2)
+        let u20 = get u (si  ) (vi  )
+        let u21 = get u (si  ) (vi+1)
+        let u22 = get u (si  ) (vi+2)
 
         stencil.ds0 <- alphaM2 ds si; stencil.ds1 <- alphaM1 ds si; stencil.ds2 <- alpha0 ds si
         stencil.dv0 <- gamma0 dv vi; stencil.dv1 <- gammaP1 dv vi; stencil.dv2 <- gammaP2 dv vi
@@ -873,15 +1216,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
 
     else if si = 0 && vi = dv.n - 1 then // 3 corner
 
-        let u00 = elem u (si  ) (vi-2)
-        let u01 = elem u (si  ) (vi-1)
-        let u02 = elem u (si  ) (vi  )
-        let u10 = elem u (si+1) (vi-2)
-        let u11 = elem u (si+1) (vi-1)
-        let u12 = elem u (si+1) (vi  )
-        let u20 = elem u (si+2) (vi-2)
-        let u21 = elem u (si+2) (vi-1)
-        let u22 = elem u (si+2) (vi  )
+        let u00 = get u (si  ) (vi-2)
+        let u01 = get u (si  ) (vi-1)
+        let u02 = get u (si  ) (vi  )
+        let u10 = get u (si+1) (vi-2)
+        let u11 = get u (si+1) (vi-1)
+        let u12 = get u (si+1) (vi  )
+        let u20 = get u (si+2) (vi-2)
+        let u21 = get u (si+2) (vi-1)
+        let u22 = get u (si+2) (vi  )
 
         stencil.ds0 <- gamma0 ds si; stencil.ds1 <- gammaP1 ds si; stencil.ds2 <- gammaP2 ds si
         stencil.dv0 <- alphaM2 dv vi; stencil.dv1 <- alphaM1 dv vi; stencil.dv2 <- alpha0 dv vi
@@ -900,15 +1243,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
     
     else if si = ds.n - 1 && vi = dv.n - 1 then // 4 corner
 
-        let u00 = elem u (si-2) (vi-2)
-        let u01 = elem u (si-2) (vi-1)
-        let u02 = elem u (si-2) (vi  )
-        let u10 = elem u (si-1) (vi-2)
-        let u11 = elem u (si-1) (vi-1)
-        let u12 = elem u (si-1) (vi  )
-        let u20 = elem u (si  ) (vi-2)
-        let u21 = elem u (si  ) (vi-1)
-        let u22 = elem u (si  ) (vi  )
+        let u00 = get u (si-2) (vi-2)
+        let u01 = get u (si-2) (vi-1)
+        let u02 = get u (si-2) (vi  )
+        let u10 = get u (si-1) (vi-2)
+        let u11 = get u (si-1) (vi-1)
+        let u12 = get u (si-1) (vi  )
+        let u20 = get u (si  ) (vi-2)
+        let u21 = get u (si  ) (vi-1)
+        let u22 = get u (si  ) (vi  )
 
         stencil.ds0 <- alphaM2 ds si; stencil.ds1 <- alphaM1 ds si; stencil.ds2 <- alpha0 ds si
         stencil.dv0 <- alphaM2 dv vi; stencil.dv1 <- alphaM1 dv vi; stencil.dv2 <- alpha0 dv vi
@@ -927,15 +1270,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
     
     else if si = 0 then // 5 face
     
-        let u00 = elem u (si  ) (vi-1)
-        let u01 = elem u (si  ) (vi  )
-        let u02 = elem u (si  ) (vi+1)
-        let u10 = elem u (si+1) (vi-1)
-        let u11 = elem u (si+1) (vi  )
-        let u12 = elem u (si+1) (vi+1)
-        let u20 = elem u (si+2) (vi-1)
-        let u21 = elem u (si+2) (vi  )
-        let u22 = elem u (si+2) (vi+1)
+        let u00 = get u (si  ) (vi-1)
+        let u01 = get u (si  ) (vi  )
+        let u02 = get u (si  ) (vi+1)
+        let u10 = get u (si+1) (vi-1)
+        let u11 = get u (si+1) (vi  )
+        let u12 = get u (si+1) (vi+1)
+        let u20 = get u (si+2) (vi-1)
+        let u21 = get u (si+2) (vi  )
+        let u22 = get u (si+2) (vi+1)
 
         stencil.ds0 <- gamma0  ds si; stencil.ds1 <- gammaP1 ds si; stencil.ds2 <- gammaP2 ds si;
         stencil.dv0 <- betaM dv vi; stencil.dv1 <- beta0 dv vi; stencil.dv2 <- betaP dv vi;
@@ -954,15 +1297,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
 
     else if si = ds.n - 1 then // 6 face
 
-        let u00 = elem u (si-2) (vi-1)
-        let u01 = elem u (si-2) (vi  )
-        let u02 = elem u (si-2) (vi+1)
-        let u10 = elem u (si-1) (vi-1)
-        let u11 = elem u (si-1) (vi  )
-        let u12 = elem u (si-1) (vi+1)
-        let u20 = elem u (si  ) (vi-1)
-        let u21 = elem u (si  ) (vi  )
-        let u22 = elem u (si  ) (vi+1)
+        let u00 = get u (si-2) (vi-1)
+        let u01 = get u (si-2) (vi  )
+        let u02 = get u (si-2) (vi+1)
+        let u10 = get u (si-1) (vi-1)
+        let u11 = get u (si-1) (vi  )
+        let u12 = get u (si-1) (vi+1)
+        let u20 = get u (si  ) (vi-1)
+        let u21 = get u (si  ) (vi  )
+        let u22 = get u (si  ) (vi+1)
 
         stencil.ds0 <- alphaM2 ds si; stencil.ds1 <- alphaM1 ds si; stencil.ds2 <- alpha0 ds si
         stencil.dv0 <- betaM dv vi; stencil.dv1 <- beta0 dv vi; stencil.dv2 <- betaP dv vi
@@ -981,15 +1324,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
     
     else if vi = dv.n - 1 then // 7 face
 
-        let u00 = elem u (si-1) (vi-2)
-        let u01 = elem u (si-1) (vi-1)
-        let u02 = elem u (si-1) (vi  )
-        let u10 = elem u (si  ) (vi-2)
-        let u11 = elem u (si  ) (vi-1)
-        let u12 = elem u (si  ) (vi  )
-        let u20 = elem u (si+1) (vi-2)
-        let u21 = elem u (si+1) (vi-1)
-        let u22 = elem u (si+1) (vi  )
+        let u00 = get u (si-1) (vi-2)
+        let u01 = get u (si-1) (vi-1)
+        let u02 = get u (si-1) (vi  )
+        let u10 = get u (si  ) (vi-2)
+        let u11 = get u (si  ) (vi-1)
+        let u12 = get u (si  ) (vi  )
+        let u20 = get u (si+1) (vi-2)
+        let u21 = get u (si+1) (vi-1)
+        let u22 = get u (si+1) (vi  )
 
         stencil.ds0 <- betaM ds si; stencil.ds1 <- beta0 ds si; stencil.ds2 <- betaP ds si
         stencil.dv0 <- alphaM2 dv vi; stencil.dv1 <- alphaM1 dv vi; stencil.dv2 <- alpha0  dv vi
@@ -1008,15 +1351,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
     
     else if vi = 0 then // 8 face
 
-        let u00 = elem u (si-1) (vi  )
-        let u01 = elem u (si-1) (vi+1)
-        let u02 = elem u (si-1) (vi+2)
-        let u10 = elem u (si  ) (vi  )
-        let u11 = elem u (si  ) (vi+1)
-        let u12 = elem u (si  ) (vi+2)
-        let u20 = elem u (si+1) (vi  )
-        let u21 = elem u (si+1) (vi+1)
-        let u22 = elem u (si+1) (vi+2)
+        let u00 = get u (si-1) (vi  )
+        let u01 = get u (si-1) (vi+1)
+        let u02 = get u (si-1) (vi+2)
+        let u10 = get u (si  ) (vi  )
+        let u11 = get u (si  ) (vi+1)
+        let u12 = get u (si  ) (vi+2)
+        let u20 = get u (si+1) (vi  )
+        let u21 = get u (si+1) (vi+1)
+        let u22 = get u (si+1) (vi+2)
 
         stencil.ds0 <- betaM ds si; stencil.ds1 <- beta0 ds si; stencil.ds2 <- betaP ds si
         stencil.dv0 <- gamma0  dv vi; stencil.dv1 <- gammaP1 dv vi; stencil.dv2 <- gammaP2 dv vi
@@ -1035,15 +1378,15 @@ let [<ReflectedDefinition>] stencil si vi (ds:RFiniteDifferenceWeights) (dv:RFin
     
     else // 9 inner
 
-        let u00 = elem u (si-1) (vi-1)
-        let u01 = elem u (si-1) (vi  )
-        let u02 = elem u (si-1) (vi+1)
-        let u10 = elem u (si  ) (vi-1)
-        let u11 = elem u (si  ) (vi  )
-        let u12 = elem u (si  ) (vi+1)
-        let u20 = elem u (si+1) (vi-1)
-        let u21 = elem u (si+1) (vi  )
-        let u22 = elem u (si+1) (vi+1)
+        let u00 = get u (si-1) (vi-1)
+        let u01 = get u (si-1) (vi  )
+        let u02 = get u (si-1) (vi+1)
+        let u10 = get u (si  ) (vi-1)
+        let u11 = get u (si  ) (vi  )
+        let u12 = get u (si  ) (vi+1)
+        let u20 = get u (si+1) (vi-1)
+        let u21 = get u (si+1) (vi  )
+        let u22 = get u (si+1) (vi+1)
 
         stencil.ds0 <- betaM ds si; stencil.ds1 <- beta0 ds si; stencil.ds2 <- betaP ds si
         stencil.dv0 <- betaM dv vi; stencil.dv1 <- beta0 dv vi; stencil.dv2 <- betaP dv vi
@@ -1182,7 +1525,7 @@ let appF (heston:HestonModel) (t:float) (ds:RFiniteDifferenceWeights) (dv:RFinit
         si <- si + blockDim.x * gridDim.x
 
 [<ReflectedDefinition>]
-let solveF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit) =
+let solF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit) =
     let ns = ds.n
     let nv = dv.n
     let rdt = heston.rd 
@@ -1236,7 +1579,7 @@ let solveF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
                     d.[si] <- 1.0 - (-v - 0.5 * rdt) * thetaDt
                     u.[si] <- 0.0
 
-                h.[si] <- elem b si vi
+                h.[si] <- get b si vi
 
             si <- si + blockDim.x
 
@@ -1254,7 +1597,7 @@ let solveF1 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
         vi <- vi + gridDim.x
    
 [<ReflectedDefinition>]
-let solveF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit)  =
+let solF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFiniteDifferenceWeights) (dv:RFiniteDifferenceWeights) (b:RMatrixRowMajor ref) (func:int -> int -> float -> unit)  =
     let ns = ds.n
     let nv = dv.n
     let rdt = heston.rd 
@@ -1286,7 +1629,7 @@ let solveF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
                     l.[vi] <- 0.0
                     d.[vi] <- 1.0
                     u.[vi] <- 0.0
-                    h.[vi] <- elem b si vi
+                    h.[vi] <- get b si vi
                 else if vi = nv - 1 then
                     l.[vi] <- 0.0
                     d.[vi] <- 1.0
@@ -1307,7 +1650,7 @@ let solveF2 (heston:HestonModel) (t:float) (t1:float) (thetaDt:float) (ds:RFinit
                     l.[vi] <- -thetaDt * v1 * deltaVM - thetaDt * v2 * betaVM
                     d.[vi] <- 1.0 - thetaDt * (v1 * deltaV0 + v2 * betaV0 - 0.5 * rdt)
                     u.[vi] <- -thetaDt * (v1 * deltaVP + v2 * betaVP)
-                    h.[vi] <- elem b si vi
+                    h.[vi] <- get b si vi
 
             vi <- vi + blockDim.x
 
@@ -1331,11 +1674,11 @@ module DouglasScheme =
         set u si vi u2
 
     [<ReflectedDefinition>]
-    let solveF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
-        set b si vi (x - thetaDt * elem u si vi)
+    let solF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
+        set b si vi (x - thetaDt * get u si vi)
 
     [<ReflectedDefinition>]
-    let solveF2 (heston:HestonModel) (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
+    let solF2 (heston:HestonModel) (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
         set u si vi x
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x)
@@ -1350,15 +1693,15 @@ module HVScheme =
 
     [<ReflectedDefinition>]
     let appF2 dt thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) (y:RMatrixRowMajor ref) si vi vu u0 u1 u2 =
-        set b si vi ((elem y si vi) + dt * (u0 + u1 + u2) - thetaDt * u1)
+        set b si vi ((get y si vi) + dt * (u0 + u1 + u2) - thetaDt * u1)
         set u si vi u2
 
     [<ReflectedDefinition>]
-    let solveF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
-        set b si vi (x - thetaDt * elem u si vi)
+    let solF1 thetaDt (u:RMatrixRowMajor ref) (b:RMatrixRowMajor ref) si vi x =
+        set b si vi (x - thetaDt * get u si vi)
 
     [<ReflectedDefinition>]
-    let solveF2 (heston:HestonModel) t thetaDt t1 (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
+    let solF2 (heston:HestonModel) t thetaDt t1 (ds:RFiniteDifferenceWeights) (u:RMatrixRowMajor ref) si vi x =
         set u si vi x
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x) 
@@ -1379,7 +1722,7 @@ type DouglasSolverParam =
 
 
 /// Solve Hesten pde.
-let douglasSolver = cuda {
+let douglasSolverWrong = cuda {
 
     let! initCondKernel =     
         <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
@@ -1396,13 +1739,13 @@ let douglasSolver = cuda {
         <@ fun heston t dt thetaDt ds dv u u2 b ->
             appF heston t ds dv (ref u) (DouglasScheme.appF dt thetaDt (ref u2) (ref b)) @> |> defineKernelFuncWithName "applyF"
                 
-    let! solveF1Kernel =
+    let! solF1Kernel =
         <@ fun heston t t1 thetaDt ds dv u2 b ->
-            solveF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFuncWithName "solveF1"
+            solF1 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solF1 thetaDt (ref u2) (ref b)) @> |> defineKernelFuncWithName "solF1"
 
-    let! solveF2Kernel =
+    let! solF2Kernel =
         <@ fun heston t t1 thetaDt ds dv u b ->
-            solveF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solveF2 heston ds (ref u)) @> |> defineKernelFuncWithName "solveF2"
+            solF2 heston t t1 thetaDt ds dv (ref b) (DouglasScheme.solF2 heston ds (ref u)) @> |> defineKernelFuncWithName "solF2"
 
     let! finiteDifferenceWeights = finiteDifferenceWeights
 
@@ -1410,8 +1753,8 @@ let douglasSolver = cuda {
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
         let appFKernel = appFKernel.Apply m
-        let solveF1Kernel = solveF1Kernel.Apply m
-        let solveF2Kernel = solveF2Kernel.Apply m
+        let solF1Kernel = solF1Kernel.Apply m
+        let solF2Kernel = solF2Kernel.Apply m
         let finiteDifferenceWeights = finiteDifferenceWeights.Apply m
          
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:DouglasSolverParam) ->
@@ -1454,9 +1797,9 @@ let douglasSolver = cuda {
 
                         appFKernel.Launch lpm heston t0 dt thetaDt sDiff vDiff u u2 b
 
-                        solveF1Kernel.Launch lps heston t0 t1 thetaDt sDiff vDiff u2 b
+                        solF1Kernel.Launch lps heston t0 t1 thetaDt sDiff vDiff u2 b
 
-                        solveF2Kernel.Launch lpv heston t0 t1 thetaDt sDiff vDiff u b
+                        solF2Kernel.Launch lpv heston t0 t1 thetaDt sDiff vDiff u b
                 )
                     
                 return s, v, u } ) }
