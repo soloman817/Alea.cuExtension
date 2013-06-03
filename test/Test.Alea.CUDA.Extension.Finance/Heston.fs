@@ -38,7 +38,7 @@ let ``Euler scheme`` () =
     let nv = 32
     let cS = strike/5.0
     let cV = vMax/5.0
-    let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
+    let param = HestonEulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
     let pricer = pcalc {
         let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
@@ -85,7 +85,7 @@ let ``Euler scheme plotting`` () =
             let nv = 32
             let cS = strike/5.0
             let cV = vMax/5.0
-            let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
+            let param = HestonEulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
 
             let! s, v, u = eulerSolver heston optionType strike timeToMaturity param
 
@@ -116,9 +116,49 @@ let ``Euler scheme plotting`` () =
     application.Start()
 
 [<Test>]
+let ``Douglas scheme`` () =
+
+    let worker = getDefaultWorker()
+    let douglasSolver = worker.LoadPModule(douglasSolver).Invoke
+
+    // Heston model params
+    let rho = -0.6133
+    let sigma = 0.3920
+    let kappa = 1.1954
+    let eta = 0.0677
+    let rd = 0.02
+    let rf = 0.01
+    let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
+
+    // contract params
+    let timeToMaturity = 1.0
+    let strike = 55.0
+    let optionType = Call
+
+    // PDE solver params
+    let theta = 0.5
+    let sMax = 220.0
+    let vMax = 4.0
+    let ns = 48
+    let nv = 32
+    let nt = 100
+    let cS = strike/5.0
+    let cV = vMax/5.0
+    let param = HestonDouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
+
+    let pricer = pcalc {
+        let! s, v, u = douglasSolver heston optionType strike timeToMaturity param
+        return! u.Gather()
+    }
+
+    let result = pricer |> PCalc.runWithKernelTiming(10)
+//    let result, loggers = pricer |> PCalc.runWithTimingLogger
+//    loggers.["default"].DumpLogs()
+    printfn "%A" result
+[<Test>]
 let ``Douglas scheme plotting`` () =
     
-    let verbose = true
+    let verbose = false
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
@@ -148,11 +188,12 @@ let ``Douglas scheme plotting`` () =
             let vMax = 4.0
             let ns = 126
             let nv = 62
+            let nt = 100
             let cS = strike/5.0
             let cV = vMax/5.0
-            let param = EulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
+            let param = HestonDouglasSolverParam(theta, 0.0, sMax, vMax, ns, nv, nt, cS, cV)
 
-            let! s, v, u, y0, y1corr, y1 = douglasSolver heston optionType strike timeToMaturity param
+            let! s, v, u = douglasSolver heston optionType strike timeToMaturity param
 
             if verbose then
                 let! ss = s.Gather()
@@ -162,27 +203,6 @@ let ``Douglas scheme plotting`` () =
                 printfn "v = %A" vv
                 printfn "u.Lx %d" (uu.GetLength(1))
                 printfn "u.Ly %d" (uu.GetLength(0))
-                for i = 0 to uu.GetLength(0)-1 do
-                    printf "[i = %d] " i
-                    for j = 0 to uu.GetLength(1)-1 do
-                        printf "%.4f, " uu.[i,j]
-                    printf "\n"
-                printfn "y0"
-                let! uu = y0.ToArray2D()
-                for i = 0 to uu.GetLength(0)-1 do
-                    printf "[i = %d] " i
-                    for j = 0 to uu.GetLength(1)-1 do
-                        printf "%.4f, " uu.[i,j]
-                    printf "\n"
-                printfn "y1corr"
-                let! uu = y1corr.ToArray2D()
-                for i = 0 to uu.GetLength(0)-1 do
-                    printf "[i = %d] " i
-                    for j = 0 to uu.GetLength(1)-1 do
-                        printf "%.4f, " uu.[i,j]
-                    printf "\n"
-                printfn "y1"
-                let! uu = y1.ToArray2D()
                 for i = 0 to uu.GetLength(0)-1 do
                     printf "[i = %d] " i
                     for j = 0 to uu.GetLength(1)-1 do

@@ -181,24 +181,26 @@ let [<ReflectedDefinition>] b2Value i iMax (heston:HestonModel) t sj vi w3 v3 =
 /// We introduce ghost points at v = 0 (i = 0) and s = smax (j = ns) in order to simplify
 /// the memory access pattern so that no additional checks at the boundary are required.
 /// The grids have to be extended properly as well.
+///                                 
+///      jMin = 1                   jMax = ns - 1
+///      |                          |
+///      v                          v
+///                               
+///     0                            ns
+///     ---------------------------------->   S (j, x, columns)
+///  0  |OOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+///     |*...........................O  <--- iMin = 1 
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O    
+///     |*...........................O  <--- iMax = nv - 1
+///  nv |****************************O 
+///     |
+///     v
 ///
 ///     V (i, y, rows)                            
-///                                    
-///     ^                             
-///  nv |****************************O 
-///     |*...........................O  <--- iMax = nv - 1
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O    
-///     |*...........................O  <--- iMin = 1 
-///  0  |OOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-///     ---------------------------------->   S (j, x, columns)
-///     0                            ns
-///      ^                          ^
-///      |                          |
-///      jMin = 1                   jMax = ns - 1
 ///
 /// Total dimension of solution matrix (nv+1) x (ns+1)  
 /// Meaning of points:
@@ -321,7 +323,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
         k <- k + by * gridDim.y
 
-/// Explicit apply operator for Euler scheme.
+/// Explicit apply operator for Euler scheme with all data loaded directly from global device memory.
 let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
     let tx = threadIdx.x
     let ty = threadIdx.y
@@ -401,7 +403,7 @@ let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u
 
         k <- k + by * gridDim.y
 
-/// Explicit part for Douglas and other schemes which require intermediate results
+/// Explicit part for Douglas and other schemes which require intermediate results.
 let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (y0:RMatrixRowMajor ref) (y1corr:RMatrixRowMajor ref) =
     let tx = threadIdx.x
     let ty = threadIdx.y
@@ -518,6 +520,8 @@ let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float
 
         k <- k + by * gridDim.y
 
+/// Sweep over the volatility grid and solve for each volatility value a system of ns-1 variables for the inner spot points.
+/// The kernel requires 4*(ns-1)*sizeof<float> shared memory. 
 [<ReflectedDefinition>]
 let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
     let rdt = heston.rd 
@@ -565,6 +569,8 @@ let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> fl
 let rhsSolveF1 (y0:RMatrixRowMajor ref) i j =
     get y0 i j  
 
+/// Sweep over the spot grid and solve for each spot value a system of nv-1 variables for the inner volatility points.
+/// The kernel requires 4*(nv-1)*sizeof<float> shared memory. 
 [<ReflectedDefinition>]
 let solveF2 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
     let rdt = heston.rd 
@@ -669,7 +675,7 @@ let [<ReflectedDefinition>] copyGrids ns nv (s0:DevicePtr<float>) (v0:DevicePtr<
     if i < nv+2 then
         v1.[i] <- v0.[i+1]
 
-type EulerSolverParam =
+type HestonEulerSolverParam =
     val theta:float
     val sMin:float
     val sMax:float
@@ -716,7 +722,7 @@ let eulerSolver = cuda {
         let copyValuesKernel = copyValuesKernel.Apply m
         let copyGridsKernel = copyGridsKernel.Apply m
 
-        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonEulerSolverParam) ->
 
             // we add one more point to the state grids because the value surface has a ghost aerea as well
             let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
@@ -775,6 +781,20 @@ let eulerSolver = cuda {
                 )
                 
                 return sred, vred, ured } ) }
+
+type HestonDouglasSolverParam =
+    val theta:float
+    val sMin:float
+    val sMax:float
+    val vMax:float
+    val ns:int
+    val nv:int
+    val nt:int
+    val sC:float
+    val vC:float
+
+    new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, nt:int, sC:float, vC:float) =
+        {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
   
 /// Solve Hesten with Douglas scheme.
 let douglasSolver = cuda {
@@ -823,7 +843,7 @@ let douglasSolver = cuda {
         let solveF1Kernel = solveF1Kernel.Apply m
         let solveF2Kernel = solveF2Kernel.Apply m
 
-        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:EulerSolverParam) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonDouglasSolverParam) ->
 
             // we add one more point to the state grids because the value surface has a ghost aerea as well
             let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
@@ -835,10 +855,7 @@ let douglasSolver = cuda {
             let vLowerGhost = 2.0*v.[0] - v.[1]
             let v = Array.append [|vLowerGhost|] v
 
-            // calculate a time step which is compatible with the space discretization
-            let dt = ds*ds/100.0
-            let nt = int(timeToMaturity/dt) + 1
-            let t, dt = homogeneousGrid nt 0.0 timeToMaturity
+            let t, dt = homogeneousGrid param.nt 0.0 timeToMaturity
 
             pcalc {
                 let! s = DArray.scatterInBlob worker s
@@ -860,9 +877,10 @@ let douglasSolver = cuda {
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
                 
                 do! PCalc.action (fun hint ->
-                    let sharedSize = 10 * 10 * sizeof<float>
-                    let lpms = LaunchParam(dim3(divup ns1 8, divup nv1 8), dim3(8, 8), sharedSize) |> hint.ModifyLaunchParam
-                    let lpm = LaunchParam(dim3(divup ns1 16, divup nv1 16), dim3(16, 16)) |> hint.ModifyLaunchParam
+                    let blockSize = 16
+                    let sharedSize = (blockSize + 2) * (blockSize + 2) * sizeof<float>
+                    let lpms = LaunchParam(dim3(divup ns1 blockSize, divup nv1 blockSize), dim3(blockSize, blockSize), sharedSize) |> hint.ModifyLaunchParam
+                    let lpm = LaunchParam(dim3(divup ns1 blockSize, divup nv1 blockSize), dim3(blockSize, blockSize)) |> hint.ModifyLaunchParam
                     let lpb = LaunchParam(divup (max ns1 nv1) 256, 256) |> hint.ModifyLaunchParam
                     let lps = LaunchParam(param.nv, param.ns-1, 4*(param.ns-1)*sizeof<float>) |> hint.ModifyLaunchParam
                     let lpv = LaunchParam(param.ns, param.nv-1, 4*(param.nv-1)*sizeof<float>) |> hint.ModifyLaunchParam
@@ -879,7 +897,7 @@ let douglasSolver = cuda {
                     zerosKernel.Launch lpm param.ns param.nv y1
                     zerosKernel.Launch lpm param.ns param.nv y1corr
 
-                    for ti = 0 to nt-2 do
+                    for ti = 0 to param.nt-2 do
 
                         let t0 = t.[ti]
                         let t1 = t.[ti + 1]
@@ -900,9 +918,9 @@ let douglasSolver = cuda {
                     copyGridsKernel.Launch lpb param.ns param.nv s.Ptr v.Ptr sred.Ptr vred.Ptr
                 )
                 
-                return sred, vred, ured, y0, y1corr, y1 } ) }
+                return sred, vred, ured } ) }
                                 
-//****** Refactor below, some problem with boundary conditons
+//****** Refactor/remove code below, some problem with boundary conditions
 
 [<Struct>]
 type RFiniteDifferenceWeights =
@@ -1706,21 +1724,6 @@ module HVScheme =
         if si = ds.n - 2 then 
             set u (si+1) vi ((delta ds (ds.n-1)) * exp(-heston.rf) + x) 
 
-type DouglasSolverParam =
-    val theta:float
-    val sMin:float
-    val sMax:float
-    val vMax:float
-    val ns:int
-    val nv:int
-    val nt:int
-    val sC:float
-    val vC:float
-
-    new(theta:float, sMin:float, sMax:float, vMax:float, ns:int, nv:int, nt:int, sC:float, vC:float) =
-        {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
-
-
 /// Solve Hesten pde.
 let douglasSolverWrong = cuda {
 
@@ -1757,7 +1760,7 @@ let douglasSolverWrong = cuda {
         let solF2Kernel = solF2Kernel.Apply m
         let finiteDifferenceWeights = finiteDifferenceWeights.Apply m
          
-        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:DouglasSolverParam) ->
+        fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonDouglasSolverParam) ->
 
             let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
             let v, dt = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
