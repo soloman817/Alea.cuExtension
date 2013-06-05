@@ -4,31 +4,34 @@ open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
+open Test.Alea.CUDA.Extension.TestUtilities.General
 open NUnit.Framework
 
 
+let bulkRemove =
+    let br = worker.LoadPModule(MGPU.PArray.bulkRemove).Invoke
+    fun (data:'TI[]) (indices:int[]) ->
+        let calc = pcalc {
+            let! data = DArray.scatterInBlob worker data
+            let! indices = DArray.scatterInBlob worker indices
+            let! result = br data indices
+            return! result.Value }
+        let dResult = PCalc.run calc
+        dResult
 
-//[<Test>]
-//let ``bulkRemove`` () =
-//    let pfunct (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
-//        let identity = op.Identity
-//
-//        let! kernel =
-//            <@ fun (output:DevicePtr<'TI>) ->
-//                let i = threadIdx.x
-//                output.[i] <- identity @>
-//            |> defineKernelFunc
-//
-//        return PFunc(fun (m:Module) (n:int) ->
-//            use output = m.Worker.Malloc(n)
-//            let lp = LaunchParam(1, n)
-//            kernel.Launch m lp output.Ptr
-//            output.ToHost() ) }
-//
-//    let scanOp = scanOp ScanOpTypeAdd 1.1
-//    let pfunct = pfunct scanOp
-//
-//    let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
-//
-//    let output = pfuncm.Invoke 100
-//    printfn "%A" output
+
+[<Test>]
+let ``simple bulkRemove`` () =
+    let hValues = Array.init 20 (fun i -> i)
+    printfn "Initial Array:  %A" hValues
+    let hIndices = [| 2; 3; 8; 11; 14; 13 |]
+    printfn "Indices to remove: %A" hIndices
+    let hResult = Set.difference (hValues |> Set.ofArray) (hIndices |> Set.ofArray) |> Set.toArray
+    printfn "Host Result After Removal:  %A" hResult
+    let dResult = bulkRemove hValues hIndices
+    printfn "Device Result After Removal:  %A" dResult
+
+    displayHandD hResult dResult
+
+    
+    

@@ -48,8 +48,8 @@
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="Search.fs" />
-    <Compile Include="PArray.fs" />
     <Compile Include="BulkRemove.fs" />
+    <Compile Include="PArray.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
@@ -66,8 +66,6 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>

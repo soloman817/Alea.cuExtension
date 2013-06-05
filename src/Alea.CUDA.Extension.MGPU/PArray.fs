@@ -4,6 +4,7 @@ open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
+//open Alea.CUDA.Extension.MGPU.BuklRemove
 
 // one wrapper for reduce, in this wrapper, the memory is created on the
 // fly.
@@ -29,8 +30,8 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                 return result} ) }
 
 
-let scan (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
-    let! api = Scan.scan op
+let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
+    let! api = Scan.scan mgpuScanType op totalAtEnd
     
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -44,14 +45,12 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
                 let! scanned = DArray.createInBlob worker count
                 let! total = DArray.createInBlob worker 1
                 
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr totalAtEnd)
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )
                 let result =
                     fun () ->
                         pcalc {
-                            
-                            //printfn "DATA - from PFunc in PArray: %A" derp
                             let! scanned = scanned.Gather()
-                            //let! total = total.Gather()
+                            let! total = total.Gather()
                             //printfn "Scanned - from PFunc in PArray: %A" scanned
                             //printfn "Total - from PFunc in PArray: %A" total
                             return scanned }
@@ -84,5 +83,26 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
                     |> Lazy.Create
                 return result} ) }
 
-//let bulkRemove = cuda {
-//    let! api = BulkRemove
+let bulkRemove = cuda {
+    let! api = BulkRemove.bulkRemove
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+
+        fun (data:DArray<'TI>) (indices:DArray<int>) ->
+            pcalc {
+                let sourceCount = data.Length
+                let indicesCount = indices.Length
+                let api = api sourceCount indicesCount
+
+                let! dest = DArray.createInBlob worker (sourceCount - indicesCount)
+
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr dest.Ptr)
+                let result =
+                    fun () ->
+                        pcalc {
+                            let! indRemoved = dest.Gather()
+                            return indRemoved }
+                    |> Lazy.Create
+                return result } ) }

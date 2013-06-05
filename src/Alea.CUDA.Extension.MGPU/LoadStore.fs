@@ -63,7 +63,7 @@ let deviceRegToGlobal (NT:int) (VT:int) =
         if sync <> 0 then __syncthreads() @>
 
 let deviceGather (NT:int) (VT:int) =
-    <@ fun (count:int) (data:RWPtr<'T>) (indices:RWPtr<'T>) (tid:int) (reg:RWPtr<'T>) (sync:int) ->
+    <@ fun (count:int) (data:RWPtr<'T>) (indices:RWPtr<int>) (tid:int) (reg:RWPtr<'T>) (sync:int) ->
         if count >= (NT * VT) then
             for i = 0 to VT - 1 do
                 reg.[i] <- data.[indices.[i]]

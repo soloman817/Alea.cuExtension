@@ -43,10 +43,9 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     
     let deviceGlobalToShared = deviceGlobalToShared NT VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
+    
 
-
-
-    <@ fun (cta_global:DevicePtr<'TI>) (count:int) (total_global:DevicePtr<'TV>) (end_global:DevicePtr<'TV>) (dest_global:DevicePtr<'TV>) ->
+    <@ fun (cta_global:DevicePtr<'TI>) (count:int) (total_global:DevicePtr<'TV>) (end_global:DevicePtr<'TR>) (dest_global:DevicePtr<'TV>) ->
         let extract = %extract
         let combine = %combine
         let plus = %plus
@@ -68,15 +67,10 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
 
         
         while(start < count) do
-            
-
             // load data in to shared memory
             let count2 = min NV (count - start)
             deviceGlobalToShared count2 (cta_global + start) tid sharedInputs doSync
-            
-//            for i = 0 to count2 - 1 do
-//                dest_global.[i] <- sharedInputs.[i]    
-            
+                        
             // Transpose data into register in thread order.  Reduce terms serially
             let inputs = __local__<'TI>(VT).Ptr(0)
             let values = __local__<'TV>(VT).Ptr(0)
@@ -89,7 +83,7 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                     x <- if i <> 0 then plus x values.[i] else values.[i]                    
             __syncthreads()
             
-            let passTotal = __local__<'TV>(1).Ptr(0)
+            let passTotal = __local__<'T>(1).Ptr(0)
             let mutable x = scan tid x sharedScan passTotal ExclusiveScan
             
             if totalDefined then
@@ -148,7 +142,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
     let deviceGlobalToShared = deviceGlobalToShared NT VT
 
-    <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'TV>) (dest_global:DevicePtr<'TI>) (totalAtEnd:int) ->
+    <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'T>) (dest_global:DevicePtr<'TI>) (totalAtEnd:int) ->
         let extract = %extract
         let combine = %combine
         let plus = %plus
@@ -186,7 +180,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                     if i > 0 then x <- plus x values.[i] else x <- values.[i]
             __syncthreads()
 
-            let passTotal = __local__<'TV>(1).Ptr(0)
+            let passTotal = __local__<'T>(1).Ptr(0)
             let mutable x = scan tid x sharedScan passTotal ExclusiveScan
 
             if nextDefined then
@@ -220,35 +214,34 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                                 
         // need totalAtEnd
         // infact, this usage of int as bool is not effiecient, you should also check xor bitwise operator
-        let a = if (block > 0) && (totalAtEnd <> 0) then 1 else 0
+        let a = if (block <> 0) && (totalAtEnd <> 0) then 1 else 0
         let b = (gridDim.x - 1) > 0
         let c = tid = 0
         if (a = (if (b && c) then 1 else 0)) then
             dest_global.[count] <- combine identity next @>
-
+        
 
 type IScan<'TI, 'TV, 'TR> =
     {
         NumBlocks: int
-        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TV> -> DevicePtr<'TV> -> int -> unit
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TV> -> DevicePtr<'TR> -> unit
         //Result : 'TI -> 'TV[] -> 'TV[]
         //Total : 'TR
     }
 
 
-let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
+let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let cutOff = 20000
     // count < cutOff, do parallel scan
-    let psPlan = { NT = 512; VT = 3; ST = ExclusiveScan} 
-    //let psPlan = { NT = 512; VT = 3; ST = 0} 
-    
+    let psPlan = { NT = 512; VT = 3; ST = mgpuScanType} 
+        
     // count >= cutOff, do parallel raking reduce as an upsweep, then
     // do parallel latency-oriented scan to reduce the spine of the 
     // raking reduction, then do a raking scan as downsweep
     let rrUpsweepPlan : Reduce.Plan = { NT = 128; VT = 7 }
     let plosPlan = { NT = 256; VT = 3; ST = ExclusiveScan}
     //let plosPlan = { NT = 256; VT = 3; ST = 0}
-    let rsDownsweepPlan = plosPlan
+    let rsDownsweepPlan = {NT = 256; VT = 3; ST = mgpuScanType}
 
     let kernelPS = kernelParallelScan psPlan op
     //printfn "1111"
@@ -284,7 +277,7 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
             let numBlocks = 1
             
 
-            let action (hint:ActionHint) (data:DevicePtr<'TI>) (total:DevicePtr<'TV>) (dest:DevicePtr<'TV>) (totalAtEnd:int) =
+            let action (hint:ActionHint) (data:DevicePtr<'TI>) (total:DevicePtr<'TV>) (dest:DevicePtr<'TV>) =
                 if count < cutOff then
                     //printfn "branch1, kernelParallelScan"
                     
@@ -294,8 +287,8 @@ let scan (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                     let task = int2(numTiles, 1)
                     let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
                     let totalDevice = worker.Malloc(1).Ptr
-                    //let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
-                    let total = if total.Handle <> 0n then totalDevice else total
+                    let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
+                    //let total = if total.Handle <> 0n then totalDevice else total
                     let end' = if totalAtEnd = 1 then dest + count else DevicePtr<'TR>(0n)
                     kernelPS.Launch lp data count total end' dest                    
                 else

@@ -53,7 +53,7 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
         fun (count:int) (numItems:int) (nv:int) ->
             let numBlocks = divup count nv
             let numPartitionBlocks = divup (numBlocks + 1) plan.NT
-            let partitionsDevice = worker.Malloc(numBlocks + 1)
+            let partitionsDevice = worker.Malloc<int>(numBlocks + 1)
             let lp = LaunchParam(numPartitionBlocks, plan.NT)
 
             let action (hint:ActionHint) (data_global:DevicePtr<'TI>) =
