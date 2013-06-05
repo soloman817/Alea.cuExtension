@@ -55,12 +55,14 @@ let kernelBulkRemove (plan:Plan) =
 //
         let shared = %(createSharedExpr)
         let sharedScan = shared.Reinterpret<'TV>()
-        let sharedIndices = shared.Reinterpret<'TI>()
+        let sharedIndices = shared.Reinterpret<int>()
 
         let tid = threadIdx.x
         let block = blockIdx.x
         let gid = block * NV
         let sourceCount = min NV (sourceCount - gid)
+
+        let mutable source_global = source_global
 
         // search for begin and end iterators of interval to load
         let p0 = p_global.[block]
@@ -76,7 +78,7 @@ let kernelBulkRemove (plan:Plan) =
         let begin' = p0
         let indexCount = p1 - begin'
         let indices = __local__<int>(VT).Ptr(0)
-        deviceGlobalToReg indexCount (indices_global + begin') tid indices doSync
+        deviceGlobalToReg indexCount (indices_global + begin') tid indices dontSync
 
         // Set the counter to 0 for each index we've loaded
         for i = 0 to VT - 1 do
@@ -93,12 +95,12 @@ let kernelBulkRemove (plan:Plan) =
         __syncthreads()
 
         // Run a CTA scan and scatter the gather indices to shared memory
-        let passTotal = __local__<'TV>(1).Ptr(0)
+        let passTotal = __local__<int>(1).Ptr(0)
         let mutable s = scan tid x sharedScan passTotal ExclusiveScan
         for i = 0 to VT - 1 do
-            if indices.[i] <> 0 then
-                s <- s + 1
+            if indices.[i] = 1 then                
                 sharedIndices.[s] <- VT * tid + i
+                s <- s + 1                
         __syncthreads()
 
         // Load the gather indices into register
@@ -106,29 +108,47 @@ let kernelBulkRemove (plan:Plan) =
         
         // Gather the data into register.  The number of values to copy
         // is sourceCount - indexCount
-        let source_global = source_global + gid
+        source_global <- source_global + gid
         let count = sourceCount - indexCount
-        let values = __local__<'TV>(VT).Ptr(0)
+        let values = __local__<'T>(VT).Ptr(0)
         deviceGather count source_global indices tid values dontSync
 
         // Store all the valid registers to dest_global
-        deviceRegToGlobal count values tid (dest_global + gid - begin') doSync @>
+        deviceRegToGlobal count values tid (dest_global + gid - begin') dontSync  @>
 
 type IBulkRemove<'TI> =
     {
         Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> DevicePtr<'TI> -> unit        
     }
 
+
 let partitionDevice = cuda {
     let! api = Search.binarySearchPartitions MgpuBoundsLower CompTypeLess
+
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-        fun (data:DevicePtr<int>) (count:int) (indicesCount:int) (nv:int) ->
+
+        fun (data:DevicePtr<'TI>) (count:int) (indicesCount:int) (nv:int) ->
             pcalc {                
                 let api = api count indicesCount nv
-                do! PCalc.action (fun hint -> api.Action hint data)
-                return api.Partitions } ) }
+                let! parts = DArray.createInBlob worker ((divup count nv) + 1)
+                do! PCalc.action (fun hint -> api.Action hint data parts.Ptr)
+                let result =
+                    fun () ->
+                        pcalc { return parts }
+                    |> Lazy.Create
+                return result} ) }
+
+let getPartitions =
+    let worker = Engine.workers.DefaultWorker
+    let p = worker.LoadPModule(partitionDevice).Invoke
+    fun (data:DevicePtr<'TI>) (count:int) (indicesCount:int) (nv:int) ->
+        let calc = pcalc {                    
+                    let! result = p data count indicesCount nv
+                    return! result.Value }
+        let parts = PCalc.run calc
+        parts
 
 let bulkRemove = cuda {
     let plan = { NT = 128; VT = 11 }
@@ -146,9 +166,10 @@ let bulkRemove = cuda {
             
             let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'TI>) =
                 let lp = lp |> hint.ModifyLaunchParam
-                let pDev = worker.LoadPModule(partitionDevice).Invoke indices_global sourceCount indicesCount NV
-                let partitions = PCalc.runInWorker worker pDev                
-                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount partitions dest_global
+                let partitions = getPartitions indices_global sourceCount indicesCount NV                
+                
+                //printfn "before kernelBulkRemove launch"                
+                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount partitions.Ptr dest_global
 
             { Action = action } ) }
             

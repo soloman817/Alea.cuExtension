@@ -37,9 +37,9 @@ let kernelBinarySearch (plan:Plan) (compOp:CompType) =
 
 type IBinarySearchPartitions<'TI> =
     {
-        NumBlocks : int
-        Action : ActionHint -> DevicePtr<'TI> -> unit
-        Partitions : DevicePtr<'TI>
+        NV : int
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TI> -> unit
+        (*Partitions : DevicePtr<'TI>*)
     }
 
 let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda { 
@@ -49,18 +49,19 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let kernelBinarySearch = kernelBinarySearch.Apply m
-        
+        //printfn "BSP PFUNC!!!!!!!!!!!!!!"
         fun (count:int) (numItems:int) (nv:int) ->
             let numBlocks = divup count nv
             let numPartitionBlocks = divup (numBlocks + 1) plan.NT
-            let partitionsDevice = worker.Malloc<int>(numBlocks + 1)
+            
             let lp = LaunchParam(numPartitionBlocks, plan.NT)
 
-            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) =
+            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) (partitionsDevice:DevicePtr<int>) =
                 let lp = lp |> hint.ModifyLaunchParam
-                kernelBinarySearch.Launch lp count data_global numItems nv partitionsDevice.Ptr (numBlocks + 1)
+                printfn "bsp Action"
+                kernelBinarySearch.Launch lp count data_global numItems nv partitionsDevice (numBlocks + 1)
                 
-            { NumBlocks = numBlocks; Action = action; Partitions = partitionsDevice.Ptr} ) }
+            { NV = nv; Action = action; (*Partitions = partitionsDevice.Ptr*)} ) }
 
 
 //////////////////////////////////////////////////////////////////////////////////

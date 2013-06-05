@@ -59,6 +59,7 @@
     <Compile Include="CTASearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
+    <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />

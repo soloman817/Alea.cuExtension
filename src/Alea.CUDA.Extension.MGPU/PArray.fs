@@ -65,21 +65,16 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
         let worker = m.Worker
         let api = api.Apply m
 
-        fun (source_global:DevicePtr<'TI>) (count:int) (indicesCount:int) (nv:int) ->
-            pcalc {
-                
+        fun (data:DArray<'TI>) (count:int) (indicesCount:int) (nv:int) ->
+            pcalc {                
                 let api = api count indicesCount nv
-                //printfn "COUNT: %d" count
-                //let! data = DArray.createInBlob worker count
-                                
-                do! PCalc.action (fun hint -> api.Action hint source_global)
+                let! parts = DArray.createInBlob worker (count - indicesCount)
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr parts.Ptr)
                 let result =
                     fun () ->
-                        pcalc {
-                            //printfn "DATA - from PFunc in PArray: %A" derp
-                            let partitionsDevice = api.Partitions
-                            //printfn "Partitions Device - from PFunc in PArray: %A" partitionsDevice                            
-                            return partitionsDevice }
+                        pcalc {                            
+                            let! parts = parts.Gather()
+                            return parts }
                     |> Lazy.Create
                 return result} ) }
 
@@ -97,7 +92,7 @@ let bulkRemove = cuda {
                 let api = api sourceCount indicesCount
 
                 let! dest = DArray.createInBlob worker (sourceCount - indicesCount)
-
+                printfn "bulk remove PArray!!"
                 do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr dest.Ptr)
                 let result =
                     fun () ->

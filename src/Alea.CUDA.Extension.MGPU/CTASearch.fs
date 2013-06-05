@@ -71,10 +71,13 @@ let inline BinarySearch (bounds:int) (compOp:CompType) =
                     let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
                     let key2 = data.[mid]
                     let pred =
-                        match bounds with
-                            | MgpuBoundsUpper -> -(comp key key2)
-                            | _ -> comp key2 key
-                    if pred <> 0 then 
+                        if bounds = MgpuBoundsUpper then
+                            if (comp key key2) = 1 then 0 else 1
+                        else
+                            comp key2 key
+//                            | MgpuBoundsUpper -> if (comp key key2) = 1 then 0 else 1
+//                            | MgpuBoundsLower -> comp key2 key
+                    if pred = 1 then 
                         begin'.[0] <- mid + 1
                     else
                         end'.[0] <- mid @>
@@ -125,13 +128,16 @@ let inline BinarySearch (bounds:int) (compOp:CompType) =
                 let comp = (comp compOp).Device
                 <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) ->
                     let comp = %comp
-                    let begin' = 0
-                    let end' = count
                     let dbs = %(this.DBinarySearchIt)
-
-                    while begin' < end' do
-                        dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 1 //comp
-                    begin' @> }
+                    
+                    let begin' = __local__<int>(1).Ptr(0)
+                    begin'.[0] <- 0
+                    let end' = __local__<int>(1).Ptr(0)
+                    end'.[0] <- count
+                    
+                    while begin'.[0] < end'.[0] do
+                        dbs data begin' end' key 1 //comp
+                    begin'.[0] @> }
 
 let inline MergeSearch (bounds:int) (compOp:CompType) =
         { new IMergeSearch<'TI, 'TC> with

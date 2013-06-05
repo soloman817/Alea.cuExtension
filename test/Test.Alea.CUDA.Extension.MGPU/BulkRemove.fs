@@ -24,7 +24,7 @@ let bulkRemove =
 let ``simple bulkRemove`` () =
     let hValues = Array.init 20 (fun i -> i)
     printfn "Initial Array:  %A" hValues
-    let hIndices = [| 2; 3; 8; 11; 14; 13 |]
+    let hIndices = [| 2; 3; 8; 11; 13; 14 |]
     printfn "Indices to remove: %A" hIndices
     let hResult = Set.difference (hValues |> Set.ofArray) (hIndices |> Set.ofArray) |> Set.toArray
     printfn "Host Result After Removal:  %A" hResult
