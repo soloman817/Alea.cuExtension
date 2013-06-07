@@ -98,14 +98,14 @@ module ScanUtils =
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 //                               BULK REMOVE
-module BulkRemoveUtils = 
-    let bulkRemove =
-        let br = worker.LoadPModule(MGPU.PArray.bulkRemove).Invoke
-        fun (data:'TI[]) (indices:int[]) ->
-            let calc = pcalc {
-                let! data = DArray.scatterInBlob worker data
-                let! indices = DArray.scatterInBlob worker indices
-                let! result = br data indices
-                return! result.Value }
-            let dResult = PCalc.run calc
-            dResult
+//module BulkRemoveUtils = 
+//    let bulkRemove =
+//        let br = worker.LoadPModule(MGPU.PArray.bulkRemove).Invoke
+//        fun (data:'TI[]) (indices:int[]) ->
+//            let calc = pcalc {
+//                let! data = DArray.scatterInBlob worker data
+//                let! indices = DArray.scatterInBlob worker indices
+//                let! result = br data indices
+//                return! result.Value }
+//            let dResult = PCalc.run calc
+//            dResult

@@ -70,7 +70,7 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
         fun (count:int) (data_global:DArray<int>) (numItems:int) (nv:int) ->
             pcalc {                
                 let api = api count numItems nv
-                let n : int = ((divup count nv) + 1)
+                let n = ((divup count nv) + 1)
                 let! partData = DArray.createInBlob worker n
                 do! PCalc.action (fun hint -> api.Action hint data_global.Ptr partData.Ptr)
                                     
@@ -84,7 +84,7 @@ let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
                 return result} ) }
 
 
-let bulkRemove = cuda {
+let bulkRemove<'TI when 'TI : unmanaged> = cuda {
     let! api = BulkRemove.bulkRemove
 
     return PFunc(fun (m:Module) ->
@@ -95,11 +95,11 @@ let bulkRemove = cuda {
             pcalc {
                 let sourceCount = data.Length
                 let indicesCount = indices.Length
-                let api = api sourceCount indicesCount
+                let api = api sourceCount indices.Ptr indicesCount
 
                 let! dest = DArray.createInBlob worker (sourceCount - indicesCount)
                 //printfn "bulk remove PArray!!"
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr dest.Ptr)
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr dest.Ptr)
                 let result =
                     fun () ->
                         pcalc {
