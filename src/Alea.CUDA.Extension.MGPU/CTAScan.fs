@@ -123,4 +123,14 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
             x @>
     capacity, scan
 
+// CTAScan2
+let ctaScan2 (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
+    let capacity, scan = ctaScan NT op
+    let scan2 =
+        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) ->
+            let scan = %scan
+            let total = __local__<'TV>(1).Ptr(0) 
+            scan tid x storage total ExclusiveScan @>
+
+    capacity, scan2
 

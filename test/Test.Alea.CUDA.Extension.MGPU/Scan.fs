@@ -8,7 +8,7 @@ open Alea.CUDA.Extension.MGPU.Scan
 open Alea.CUDA.Extension.MGPU.CTAScan
 open NUnit.Framework
 open Test.Alea.CUDA.Extension.TestUtilities
-open Test.Alea.CUDA.Extension.TestUtilities.MGPU
+open Test.Alea.CUDA.Extension.TestUtilities.MGPU.ScanUtils
 
 
 let totalAtEnd = 1

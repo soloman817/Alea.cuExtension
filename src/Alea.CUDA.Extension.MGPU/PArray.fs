@@ -2,6 +2,7 @@
 
 open Alea.CUDA
 open Alea.CUDA.Extension
+open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
 //open Alea.CUDA.Extension.MGPU.BuklRemove
@@ -58,25 +59,30 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                 return result} ) }
 
 
+
 let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
     let! api = Search.binarySearchPartitions bounds compOp
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-
-        fun (data:DArray<'TI>) (count:int) (indicesCount:int) (nv:int) ->
+        
+        fun (count:int) (data_global:DArray<int>) (numItems:int) (nv:int) ->
             pcalc {                
-                let api = api count indicesCount nv
-                let! parts = DArray.createInBlob worker (count - indicesCount)
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr parts.Ptr)
+                let api = api count numItems nv
+                let n : int = ((divup count nv) + 1)
+                let! partData = DArray.createInBlob worker n
+                do! PCalc.action (fun hint -> api.Action hint data_global.Ptr partData.Ptr)
+                                    
                 let result =
                     fun () ->
-                        pcalc {                            
-                            let! parts = parts.Gather()
+                        pcalc { 
+                            //printfn "PARTITIONS: %A" api.Partitions
+                            let! parts = partData.Gather()
                             return parts }
                     |> Lazy.Create
                 return result} ) }
+
 
 let bulkRemove = cuda {
     let! api = BulkRemove.bulkRemove
@@ -92,7 +98,7 @@ let bulkRemove = cuda {
                 let api = api sourceCount indicesCount
 
                 let! dest = DArray.createInBlob worker (sourceCount - indicesCount)
-                printfn "bulk remove PArray!!"
+                //printfn "bulk remove PArray!!"
                 do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr dest.Ptr)
                 let result =
                     fun () ->
