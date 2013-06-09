@@ -345,16 +345,8 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
 let binarySearch (bsOp:IBinarySearch<'TN,'TI,'T>) =
     let bs = bsOp.DBinarySearchIt
 
-//    let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
-//    let sharedAlign = alignOfTI
-//    let sharedSize = 2
-//    let createSharedExpr = createSharedExpr sharedAlign sharedSize
-
     let search =
         <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) ->
-//            let shared = %(createSharedExpr)
-//            let begin' = shared.Reinterpret<'TI>()
-//            let end' = shared.Reinterpret<'TI>()
             
             let bs = %bs
             let begin' = __local__<int>(1).Ptr(0)

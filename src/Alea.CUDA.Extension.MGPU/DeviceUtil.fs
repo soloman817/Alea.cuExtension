@@ -39,22 +39,6 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range.y <- min count (range.y * blockSize)
     range
 
-
-//[<ReflectedDefinition>] let Comp (a:'T) (b:'T) = if a <> b then 0 else 1
-
-
-
-
-//type IComp<'T> =
-//    abstract HLess : ('T -> 'T -> int)
-//    abstract DLess : Expr<'T -> 'T -> int>
-//    abstract HLess_Equal : ('T -> 'T -> int)
-//    abstract DLess_Equal : Expr<'T -> 'T -> int>
-//    abstract HGreater : ('T -> 'T -> int)
-//    abstract DGreater : Expr<'T -> 'T -> int>
-//    abstract HGreater_Equal : ('T -> 'T -> int)
-//    abstract DGreater_Equal : Expr<'T -> 'T -> int>
-
 type IComp<'T> =
     abstract Host : ('T -> 'T -> int)
     abstract Device : Expr<'T -> 'T -> int>
@@ -64,17 +48,6 @@ type CompType =
     | CompTypeLess_Equal
     | CompTypeGreater
     | CompTypeGreater_Equal
-
-//let inline comp = 
-//    { new IComp<'T> with
-//        member this.HLess = fun a b -> if a < b then 1 else 0
-//        member this.DLess = <@ fun a b -> if a < b then 1 else 0 @>
-//        member this.HLess_Equal = fun a b -> if a <= b then 1 else 0
-//        member this.DLess_Equal = <@ fun a b -> if a <= b then 1 else 0 @>
-//        member this.HGreater = fun a b -> if a > b then 1 else 0
-//        member this.DGreater = <@ fun a b -> if a > b then 1 else 0 @>
-//        member this.HGreater_Equal = fun a b -> if a >= b then 1 else 0
-//        member this.DGreater_Equal = <@ fun a b -> if a >= b then 1 else 0 @> }
 
 let inline comp (compType:CompType) = 
     { new IComp<'T> with

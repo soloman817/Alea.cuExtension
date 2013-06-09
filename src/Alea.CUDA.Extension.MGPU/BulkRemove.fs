@@ -97,8 +97,7 @@ let kernelBulkRemove (plan:Plan) =
         __syncthreads()
 
         // Run a CTA scan and scatter the gather indices to shared memory
-        //let passTotal = __local__<int>(1).Ptr(0)
-        let mutable s = scan tid x sharedScan //passTotal ExclusiveScan
+        let mutable s = scan tid x sharedScan
         for i = 0 to VT - 1 do
             if indices.[i] = 1 then                
                 sharedIndices.[s] <- VT * tid + i
@@ -144,12 +143,9 @@ let bulkRemove<'TI> = cuda {
             let bsp = bsp sourceCount indicesCount NV
             let parts = worker.Malloc(numBlocks + 1)
             
-            //let partitions = pcalc { do! (PCalc.action (fun hint -> bsp.Action hint indices_global parts.Ptr)) } 
-
-            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (*(indices_global:DevicePtr<int>)*) (dest_global:DevicePtr<'TI>) =
+            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (dest_global:DevicePtr<'TI>) =
                 let lp = lp |> hint.ModifyLaunchParam
                 let partitions = (bsp.Action hint indices_global parts.Ptr)
-                //let partitions = partitions |> PCalc.run //|> PCalc.run
                 kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts.Ptr dest_global
 
             { Action = action } ) }

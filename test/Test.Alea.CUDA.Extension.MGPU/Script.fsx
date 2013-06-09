@@ -42,3 +42,24 @@ let hset = hval |> Set.ofArray
 let hrmv = set [2; 3; 8]
 
 let hres = Set.difference hset hrmv
+
+
+let rng = System.Random()
+
+
+let sourceCounts = [10e3; 50e3; 100e3; 200e3; 500e3; 1e6; 2e6; 5e6; 10e6; 20e6]
+let removeCounts = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
+let brParis = List.zip sourceCounts removeCounts
+
+let genItems sCount rCount =
+    let source = Array.init sCount (fun _ -> rng.NextDouble())
+    let indices = (Array.init rCount (fun _ -> rng.Next sCount)) |> Array.sort
+    source, indices
+
+let xs, xi = genItems 10 5
+printfn "source: %A" xs
+printfn "indices: %A" xi
+
+let stats = [[|1.0; 2.0; 3.0; 4.0|]]
+
+let xx = stats.[0].[1]
