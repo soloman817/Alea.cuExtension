@@ -8,6 +8,7 @@ open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
+open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.TestUtilities
 //open Test.Alea.CUDA.Extension.TestUtilities.MGPU.BulkRemoveUtils
 open NUnit.Framework
@@ -17,22 +18,88 @@ let rng = System.Random()
 let stopwatch = Stopwatch()
 
 
-
 //let sourceCounts = [10e3; 50e3; 100e3; 200e3; 500e3; 1e6; 2e6; 5e6; 10e6; 20e6]
 let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
 let nIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
 let srcItPairs = List.zip sourceCounts nIterations
 
+let removeAmount = 2 //half
+let verifyCount = 3
+
+
 let percentDiff x y = abs(x - y) / ((x + y) / 2.0)
 
-let genData sCount rCount =
-    let source = Array.init sCount (fun _ -> rng.Next())
-    let indices = Array.init rCount (fun _ -> rng.Next sCount) |> Array.sort
-    source, indices
+type Stats( numTests, mgpuStats : (float * float) list) =
+    let mutable myStats = 
+        let mutable r = []
+        for i = 0 to numTests - 1 do
+            let mutable a = Array.zeroCreate<float> 4
+            r <- r @ [a]
+        r
 
-let bulkRemove =
+    let resultSizes = sourceCounts |> List.collect (fun s -> [s - s/removeAmount])
+
+    let mutable myDeviceResults : 'T[] list = 
+        resultSizes |> List.collect (fun n -> [Array.zeroCreate<'T> n])       
+
+    let mutable myHostResults : 'T[] list = 
+        resultSizes |> List.collect (fun n -> [Array.zeroCreate<'T> n])     
+
+    let mutable dResultIdx = 0
+    let mutable hResultIdx = 0
+    let mutable statCount = 0
+
+    member s.AddStat (stat:float[]) =
+        if statCount < numTests then
+            for i = 0 to myStats.[statCount].Length - 1 do
+                myStats.[statCount].[i] <- stat.[i]
+                
+    member s.AddDeviceResult (result:'T[]) =
+        for i = 0 to myDeviceResults.[dResultIdx].Length - 1 do
+            myDeviceResults.[dResultIdx].[i] <- result.[i]
+        dResultIdx <- dResultIdx + 1
+
+    member s.AddHostResult (result:'T[]) =
+        for i = 0 to myHostResults.[hResultIdx].Length - 1 do
+            myHostResults.[hResultIdx].[i] <- result.[i]
+        hResultIdx <- hResultIdx + 1
+    
+    member s.GetResultIdx = hResultIdx
+
+    member s.GetResults : ('T[] list * 'T[] list) = myHostResults, myDeviceResults
+
+    member s.ithArrSize (i:int) = int(myStats.[i].[0])
+    member s.ithThrouputs (i:int) = fst mgpuStats.[i], myStats.[i].[1]
+    member s.ithBandwidths (i:int) = snd mgpuStats.[i], myStats.[i].[2]
+    member s.ithTiming (i:int) = myStats.[i].[3]
+
+    member s.CompareResults = 
+        printfn "\n****************** Comparison of Results to ModernGPU Library ********************"
+        printfn "COUNT\t\tMGPU Throughput\tMy Throughput\t\tMGPU Bandwidth\t\tMy Bandwidth"
+        for i = 0 to sourceCounts.Length - 1 do
+            let count = s.ithArrSize(i)
+            let mgpuTp, myTp = s.ithThrouputs(i)
+            let mgpuBw, myBw = s.ithBandwidths(i)
+            printfn "(%d)\t\t(%9.3f)\t\t(%9.3f)\t\t(%7.3f)\t\t(%7.3f)" count mgpuTp myTp mgpuBw myBw
+        printfn "\nCOUNT\tThroughput Percent Difference\t\tBandwidth Percent Difference"
+        for i = 0 to sourceCounts.Length - 1 do
+            let count = s.ithArrSize (i)
+            let thruDiff = s.ithThrouputs(i) ||> percentDiff
+            let bandDiff = s.ithBandwidths(i) ||> percentDiff
+            printfn "(%d)\t\t(%5.1f)\t\t\t\t(%5.1f)" count thruDiff bandDiff
+        printfn "\nCOUNT\t\tTIMING(Me Only)"
+        for i = 0 to sourceCounts.Length - 1 do
+            let count = s.ithArrSize(i)
+            let time = s.ithTiming(i)
+            printfn "(%d)\t\t(%7.3f s)" count time
+
+
+let inline hostRemove (data:'T[]) (indices:'T[]) =
+    Set.difference (data |> Set.ofArray<'T>) (indices |> Set.ofArray<'T>) |> Set.toArray
+
+let inline bulkRemove<'T when 'T : unmanaged> =
     let br = worker.LoadPModule(MGPU.PArray.bulkRemove).Invoke
-    fun (data:'TI[]) (indices:int[]) ->
+    fun (data:'T[]) (indices:int[]) ->
         let calc = pcalc {
             let! data = DArray.scatterInBlob worker data
             let! indices = DArray.scatterInBlob worker indices
@@ -41,57 +108,43 @@ let bulkRemove =
         let dResult = PCalc.run calc
         dResult
 
-let inline bulkRemove2<'TI when 'TI : unmanaged> = cuda {
+let inline bulkRemoveLoop<'T when 'T : unmanaged> = cuda {
     let! api = BulkRemove.bulkRemove
     
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
         
-        fun (data:DArray<'TI>) (indices:DArray<int>) (dest:DArray<'TI>) (numIt:int) ->
+        fun (data:DArray<'T>) (indices:DArray<int>) (dest:DArray<'T>) (numIt:int) ->
             pcalc {
                 let sourceCount = data.Length
-                //printfn "sourceCount = (%d)" sourceCount
                 let indicesCount = indices.Length
-                //printfn "indicesCount = (%d)" indicesCount
                 let api = api sourceCount indices.Ptr indicesCount
-                //let! stopwatch = DStopwatch.startNew worker
-                //do! PCalc.action (fun _ -> stopwatch.Start())
-                //do stopwatch.Reset()
-                
-//                let pLoop = pcalc { let stopwatch = new Stopwatch()
-//                                    stopwatch.Start()
                 for i = 0 to numIt - 1 do
-                    do! PCalc.action (fun hint -> api.Action hint data.Ptr dest.Ptr)
-//                                    let time = stopwatch.Elapsed.TotalMilliseconds / 1000.0
-//                                    stopwatch.Reset()
-//                                    return time }
-                    
-                    
-                    
-                //let _, ktc = pLoop |> PCalc.runWithKernelTiming numIt
+                    do! PCalc.action (fun hint -> api.Action hint data.Ptr dest.Ptr) } ) }
 
-                //let! timing = stopwatch.ElapsedMilliseconds
-                //do! PCalc.action (fun _ -> stopwatch.Elapsed.TotalMilliseconds)
-                //stopwatch.Stop()
-                //let! removed = dest.Gather()
-                //printfn "gather"
-                //printfn "timing"
-                //return removed, timing / 1000.0 } ) }
-                (*return! pLoop *)} ) }
-let mutable myStats = []
 
-let benchmarkBulkRemove =
-    fun (count:int) (numIt:int) (genData : int -> int -> ('T[] * int[] )) ->
+let inline verifyAll (h:'T[] list) (d:'T[] list) =
+    (h, d) ||> List.iteri2 (fun i hi di -> if i < verifyCount then Util.verify hi di)
+
+
+let inline benchmarkBulkRemove (stats:Stats) (typeId:'T) =
+    //fun (count:int) (numIt:int) (genData : int -> int -> ('T[] * int[] )) ->
+    fun (count:int) (numIt:int) ->
         //let bulkRemove = worker.LoadPModule(bulkRemove2).Invoke
-        let removeCount = count / 2
+        let removeCount = count / removeAmount
         let keepCount = count - removeCount
-        let source, indices = genData count removeCount
+        let (r : 'T[] * _) = rngGenericArrayI count removeCount
+        let source, indices = (fst r),(snd r)
         
+        if stats.GetResultIdx < verifyCount then
+            (source, indices) ||> hostRemove |> stats.AddHostResult
+
         let data = DArray.scatterInBlob worker source |> PCalc.run
         let indices = DArray.scatterInBlob worker indices |> PCalc.run
         let removed = DArray.createInBlob worker removeCount |> PCalc.run
 
+        
 //        let bulkRemove = pcalc {
 //            //let! data = DArray.scatterInBlob worker source
 //            //let! indices = DArray.scatterInBlob worker indices
@@ -100,102 +153,22 @@ let benchmarkBulkRemove =
         
         let timing = 
             stopwatch.Start()
-            (worker.LoadPModule(bulkRemove2).Invoke data indices removed numIt) |> PCalc.run
+            (worker.LoadPModule(bulkRemoveLoop).Invoke data indices removed numIt) |> PCalc.run
             stopwatch.Stop()
+            removed.Gather() |> PCalc.run |> stats.AddDeviceResult
             (stopwatch.Elapsed.TotalSeconds)
         
         //do stopwatch.Reset()
         let bytes = (sizeof<'T> * count + keepCount * sizeof<'T> + removeCount * sizeof<'T>) |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
-        let stats = 
-            let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]
-            myStats <- myStats @ [newstat]
-            newstat
-        printfn "(%d): %9.3f M/s \t %7.3f GB/s \t Time: %7.3f s" (int stats.[0]) stats.[1] stats.[2] stats.[3]
+        let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]            
+        stats.AddStat newstat
         
-
-[<Test>]
-let ``BulkRemove moderngpu benchmark int`` () =
-                            // throughtput, bandwidth
-    let mgpuStats_Int = [   (371.468, 2.972);
-                            (1597.495, 12.78);
-                            (3348.861, 26.791);
-                            (5039.794, 40.318);
-                            (7327.432, 58.619);
-                            (8625.687, 69.005);
-                            (9446.528, 75.572);
-                            (9877.425, 79.019);
-                            (9974.556, 79.796);
-                            (10060.556, 80.484)]
-    
-    let genData sCount rCount =
-        let source = Array.init sCount (fun _ -> rng.Next())
-        let indices = Array.init rCount (fun _ -> rng.Next sCount) |> Array.sort
-        source, indices
-
-    //let myStats = [||] // count; throughput; bandwidth; timing
-    //let addStat s = Array.append myStats s
-    //stopwatch.Reset()
-    (sourceCounts, nIterations) ||> List.iter2 (fun s i -> 
-                                                    stopwatch.Reset()
-                                                    benchmarkBulkRemove s i genData)
-    //printfn "My Stats: %A" myStats
-
-    let n i = int(myStats.[i].[0])
-    let tp i = fst mgpuStats_Int.[i], myStats.[i].[1]
-    let bw i = snd mgpuStats_Int.[i], myStats.[i].[2]
-    let t i = myStats.[i].[3]
-
-
-    let compareResults = 
-        printfn "\n****************** Comparison of Results to ModernGPU Library ********************"
-        printfn "COUNT\t\tMGPU Throughput\tMy Throughput\t\tMGPU Bandwidth\t\tMy Bandwidth"
-        for i = 0 to sourceCounts.Length - 1 do
-            let count = n i
-            let mgpuTp, myTp = tp i
-            let mgpuBw, myBw = bw i
-            printfn "(%d)\t\t(%9.3f)\t\t(%9.3f)\t\t(%7.3f)\t\t(%7.3f)" count mgpuTp myTp mgpuBw myBw
-        printfn "\nCOUNT\tThroughput Percent Difference\t\tBandwidth Percent Difference"
-        for i = 0 to sourceCounts.Length - 1 do
-            let count = n i
-            let thruDiff = tp i ||> percentDiff
-            let bandDiff = bw i ||> percentDiff
-            printfn "(%d)\t\t(%5.1f)\t\t\t\t(%5.1f)" count thruDiff bandDiff
-        printfn "\nCOUNT\t\tTIMING(Me Only)"
-        for i = 0 to sourceCounts.Length - 1 do
-            let count = n i
-            let time = t i
-            printfn "(%d)\t\t(%7.3f s)" count time
-    compareResults
-
-//[<Test>]
-//let ``BulkRemove moderngpu benchmark int64`` () =
-//    let mgpuStats_Int64 = [ (328.193, 4.595);
-//                            (1670.632, 23.389);
-//                            (2898.674, 40.581);
-//                            (3851.190, 53.917);
-//                            (5057.443, 70.804);
-//                            (5661.127, 79.256);
-//                            (6052.202, 84.731);
-//                            (6232.150, 87.250);
-//                            (6273.645, 87.831);
-//                            (6311.973, 88.638)]
-//[<Test>]
-//let ``simple bulkRemove`` () =
-//    let hValues = Array.init 1000 (fun i -> i)
-//    printfn "Initial Array:  %A" hValues
-//    let hIndices = [| 2; 3; 8; 11; 13; 14 |]
-//    printfn "Indices to remove: %A" hIndices
-//    let hResult = Set.difference (hValues |> Set.ofArray) (hIndices |> Set.ofArray) |> Set.toArray
-//    printfn "Host Result After Removal:  %A" hResult
-//    let dResult = bulkRemove hValues hIndices
-//    printfn "Device Result After Removal:  %A" dResult
-//
-//    displayHandD hResult dResult
-//
-
-
+        
+        printfn "(%d): %9.3f M/s \t %7.3f GB/s \t Time: %7.3f s" (int newstat.[0]) newstat.[1] newstat.[2] newstat.[3]
+ 
+ 
 [<Test>]
 let ``bulkRemove moderngpu web example`` () =
     let hValues = Array.init 100 (fun i -> i)
@@ -214,8 +187,7 @@ let ``bulkRemove moderngpu web example`` () =
                    73; 74; 75; 76; 77; 79; 80; 82; 84; 86;
                    87; 88; 89; 92; 93; 94; 95 |]
 
-
-    let hResult = Set.difference (hValues |> Set.ofArray) (hRemoveIndices |> Set.ofArray) |> Set.toArray
+    let hResult = hostRemove hValues hRemoveIndices
     //printfn "Host Result After Removal:  %A" hResult
     let dResult = bulkRemove hValues hRemoveIndices
     //printfn "Device Result After Removal:  %A" dResult
@@ -227,6 +199,80 @@ let ``bulkRemove moderngpu web example`` () =
     printfn "dResult == hResult?"
     verify hResult dResult
     printfn "yes"
+
+
+[<Test>]
+let ``BulkRemove moderngpu benchmark int`` () =
+    
+                            // throughtput, bandwidth
+    let mgpuStats_Int = [   (371.468, 2.972);
+                            (1597.495, 12.78);
+                            (3348.861, 26.791);
+                            (5039.794, 40.318);
+                            (7327.432, 58.619);
+                            (8625.687, 69.005);
+                            (9446.528, 75.572);
+                            (9877.425, 79.019);
+                            (9974.556, 79.796);
+                            (10060.556, 80.484)]
+    let intStats = Stats(sourceCounts.Length, mgpuStats_Int)
+    //let benchmarkBulkRemove = benchmarkBulkRemove intStats
+//    let genData sCount rCount =
+//        let source = Array.init sCount (fun _ -> rng.Next())
+//        let indices = Array.init rCount (fun _ -> rng.Next sCount) |> Array.sort
+//        source, indices
+    
+    //let myStats = [||] // count; throughput; bandwidth; timing
+    //let addStat s = Array.append myStats s
+    //stopwatch.Reset()
+    let intBenchmarkBulkRemove = benchmarkBulkRemove intStats 0
+    (sourceCounts, nIterations) ||> List.iter2 (fun s i -> 
+                                                    stopwatch.Reset()
+                                                    intBenchmarkBulkRemove s i)
+    //printfn "My Stats: %A" myStats
+
+    intStats.CompareResults
+    printfn "Verified?"
+    intStats.GetResults ||> verifyAll
+    printfn "yes"
+
+//[<Test>]
+//let ``BulkRemove moderngpu benchmark int64`` () =
+//    let mgpuStats_Int64 = [ (328.193, 4.595);
+//                            (1670.632, 23.389);
+//                            (2898.674, 40.581);
+//                            (3851.190, 53.917);
+//                            (5057.443, 70.804);
+//                            (5661.127, 79.256);
+//                            (6052.202, 84.731);
+//                            (6232.150, 87.250);
+//                            (6273.645, 87.831);
+//                            (6311.973, 88.638)]
+//
+//    let intStats = Stats(sourceCounts.Length, mgpuStats_Int64)
+//    let int64benchmarkBulkRemove = benchmarkBulkRemove intStats 0L
+//    
+//    (sourceCounts, nIterations) ||> List.iter2 (fun s i -> 
+//                                                    stopwatch.Reset()
+//                                                    benchmarkBulkRemove s i)
+//    intStats.CompareResults
+
+//[<Test>]
+//let ``simple bulkRemove`` () =
+//    let hValues = Array.init 1000 (fun i -> i)
+//    printfn "Initial Array:  %A" hValues
+//    let hIndices = [| 2; 3; 8; 11; 13; 14 |]
+//    printfn "Indices to remove: %A" hIndices
+//    let hResult = Set.difference (hValues |> Set.ofArray) (hIndices |> Set.ofArray) |> Set.toArray
+//    printfn "Host Result After Removal:  %A" hResult
+//    let dResult = bulkRemove hValues hIndices
+//    printfn "Device Result After Removal:  %A" dResult
+//
+//    displayHandD hResult dResult
+//
+
+
+
 
     
     

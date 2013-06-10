@@ -1,4 +1,41 @@
-﻿let values n = Array.init n (fun _ -> 1)
+﻿#r "System"
+open System
+open System.Diagnostics
+let stopwatch = Stopwatch()
+let rng = System.Random()
+
+let scount = 10000000
+let icount = scount / 2
+
+let mutable d = Array.init scount (fun i -> i)
+let ind = Array.init icount (fun _ -> rng.Next scount) |> Seq.distinct |> Seq.toArray |> Array.sort
+
+let htr sd id = Set.difference (sd |> Set.ofArray) (id |> Set.ofArray) |> Set.toArray
+
+let htr2 (sd:int[]) (id:int[]) =
+    let mutable newA = Array.zeroCreate icount
+    let mutable newN = 0
+    for i = 0 to sd.Length - 1 do
+        if (sd.[i] <> sd.[id.[newN]]) && (newN < id.Length - 1) then
+            newA.[newN] <- sd.[i]
+            newN <- newN + 1
+    newA
+
+stopwatch.Start()
+let a1 = htr d ind
+printfn "using sets: %6.3f" stopwatch.Elapsed.TotalMilliseconds
+stopwatch.Stop()
+stopwatch.Start()
+let a2 = htr2 d ind
+printfn "using 2nd method: %6.3f" stopwatch.Elapsed.TotalMilliseconds
+stopwatch.Reset()
+
+for i = 0 to icount - 1 do
+    if ((a1.[i] - a2.[i]) > 1) || ((a1.[i] - a2.[i]) < (-1)) then
+        printfn "POOP!!!!!!!!!"
+
+
+let values n = Array.init n (fun _ -> 1)
 let sizes = [0..10]
 
 let dispBeforeScan (x:int[]) = printfn "Before Scan ==> Count: (%d),  %A" x.Length x
