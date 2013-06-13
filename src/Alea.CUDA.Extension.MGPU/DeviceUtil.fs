@@ -3,6 +3,7 @@
 // This file maps to the deviceutil.cuh file in mgpu, just some utilities.
 
 open Alea.CUDA
+open Microsoft.FSharp.Quotations
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
@@ -14,6 +15,7 @@ type Int2 =
     new (x, y) = { x = x; y = y }
 
 type int2 = Int2
+
 
 let divideTaskRange (numItems:int) (numWorkers:int) =
     let quot = numItems / numWorkers
@@ -36,3 +38,28 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range.x <- range.x * blockSize
     range.y <- min count (range.y * blockSize)
     range
+
+type IComp<'T> =
+    abstract Host : ('T -> 'T -> int)
+    abstract Device : Expr<'T -> 'T -> int>
+
+type CompType =
+    | CompTypeLess
+    | CompTypeLess_Equal
+    | CompTypeGreater
+    | CompTypeGreater_Equal
+
+let inline comp (compType:CompType) = 
+    { new IComp<'T> with
+        member this.Host = 
+            match compType with
+            | CompTypeLess -> fun a b -> if a < b then 1 else 0
+            | CompTypeLess_Equal -> fun a b -> if a <= b then 1 else 0
+            | CompTypeGreater -> fun a b -> if a > b then 1 else 0
+            | CompTypeGreater_Equal -> fun a b -> if a >= b then 1 else 0
+        member this.Device =
+            match compType with
+            | CompTypeLess -> <@ fun a b -> if a < b then 1 else 0 @>
+            | CompTypeLess_Equal -> <@ fun a b -> if a <= b then 1 else 0 @>
+            | CompTypeGreater -> <@ fun a b -> if a > b then 1 else 0 @>
+            | CompTypeGreater_Equal -> <@ fun a b -> if a >= b then 1 else 0 @> }
