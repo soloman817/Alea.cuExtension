@@ -11,7 +11,7 @@ open NUnit.Framework
 [<Test>]
 let ``cta search`` () =
     let pfunct = cuda {
-        let binarySearch = (binarySearchFun MgpuBoundsLower CompTypeLess).DBinarySearch
+        let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kernel =
             <@ fun (data:DevicePtr<int>) (count:int) (key:int) (output:DevicePtr<int>) -> 
                 let bs = %binarySearch

@@ -20,7 +20,7 @@ type Plan =
         }
 
 
-let binarySearchPartitions (bounds:int) (compOp:CompType) =
+let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) =
     let bs = worker.LoadPModule(MGPU.PArray.binarySearchPartitions bounds compOp).Invoke
     
     fun (count:int) (data:'TI[]) (numItems:int) (nv:int) ->
@@ -36,14 +36,14 @@ let ``bsp direct kernel test`` () =
     let pfunct = cuda {
         //let plan : Alea.CUDA.Extension.MGPU.Search.Plan = {NT = 64; Bounds = MgpuBoundsLower}
         //let! kbsp = (kernelBinarySearch plan CompTypeLess) |> defineKernelFunc
-        let binarySearch = (binarySearchFun MgpuBoundsLower CompTypeLess).DBinarySearch
+        let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kbsp =
             <@ fun (count:int) (data_global:DevicePtr<'TI>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
                 let binarySearch = %binarySearch
           
                 let gid = 64 * blockIdx.x + threadIdx.x
                 if (gid < numSearches) then
-                    let p = binarySearch data_global numItems (min (nv * gid) count)
+                    let p = binarySearch (data_global.Reinterpret<int>()) numItems (min (nv * gid) count)
                     partitions_global.[gid] <- p @>
             |> defineKernelFunc
 
@@ -55,7 +55,7 @@ let ``bsp direct kernel test`` () =
             use parts = worker.Malloc<int>(numBlocks + 1)
             use data = worker.Malloc(indices_global)
             let lp = LaunchParam(numPartBlocks, 64)
-            kbsp.Launch lp 100 data.Ptr 33 1408 parts.Ptr (numBlocks + 1)
+            kbsp.Launch lp 100 (data.Ptr.Reinterpret<'TI>()) 33 1408 parts.Ptr (numBlocks + 1)
             parts.ToHost() ) }
 
     let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
@@ -72,7 +72,7 @@ let ``bsp direct kernel test`` () =
     let hbs = 
         fun (count:int) (data:int[]) (numItems:int) (nv:int) (parts:int List) (numSearches:int) ->
             let mutable parts = parts
-            let bs = (binarySearchFun MgpuBoundsLower CompTypeLess).HBinarySearch
+            let bs = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).HBinarySearch
             for gid = 0 to 1 do
                 let p = bs data numItems (min (nv * gid) count)
                 parts <- parts @ [p]
@@ -97,7 +97,7 @@ let ``bsp test - mgpu example`` () =
     printfn "Indices to remove: %A" indices_global
     let nItems = indices_global.Length
     printfn "Num Items: ( %d )" nItems
-    let bsp = binarySearchPartitions MgpuBoundsLower CompTypeLess
+    let bsp = binarySearchPartitions MgpuBoundsLower (comp CompTypeLess 0)
     let dResult = (bsp sCount indices_global nItems nv)
 
 //    let hResult = Array.init 100 (fun _ -> 1)

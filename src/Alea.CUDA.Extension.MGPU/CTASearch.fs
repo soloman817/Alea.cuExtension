@@ -15,7 +15,8 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
-type IBinarySearch<'TN, 'TI, 'T> =
+type IBinarySearch<'TI, 'T> =
+    abstract Identity : 'TI
     abstract HBinarySearchIt : ('TI[] -> int ref -> int ref -> 'T -> int -> unit)
     abstract DBinarySearchIt : Expr<DevicePtr<'TI> -> RWPtr<int> -> RWPtr<int> -> 'T -> int -> unit>    
     //abstract HBiasedBinarySearch : ('TI[] -> int -> 'T -> int -> int)
@@ -48,19 +49,22 @@ let MgpuBoundsUpper = 1
 
 
 
-let inline binarySearchFun (bounds:int) (compOp:CompType) =
-        { new IBinarySearch<'T, 'T, 'T> with
+let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
+        { new IBinarySearch<'T, 'T> with
+            member this.Identity = compOp.Identity
             member this.HBinarySearchIt =
-                let comp a b = (comp compOp).Host a b
+                let comp a b = compOp.Host a b
                 fun (data:'T[]) (begin':int ref) (end':int ref) (key:'T) (shift:int) ->
                     let scale = (1 <<< shift) - 1
                     let mid = ((!begin' + scale * !end') >>> shift)
                     let key2 = data.[mid]
                     //printfn "B=(%d)  E=(%d)  K1=(%d)  M=(%d)  K2=(%d)" !begin' !end' key mid key2
                     let pred = 
-                        match bounds with
-                            | MgpuBoundsUpper ->  if (comp key key2) = 0 then 1 else 0
-                            | MgpuBoundsLower ->  comp key2 key
+                        if bounds = MgpuBoundsUpper then
+                            if (comp key key2) = 0 then 1 else 0
+                        else
+                            comp key2 key
+
                     if pred = 1 then 
                         begin' := mid + 1
                     else
@@ -68,16 +72,18 @@ let inline binarySearchFun (bounds:int) (compOp:CompType) =
                     //printfn "B2=(%d)  E2=(%d)" !begin' !end'
                         
             member this.DBinarySearchIt = 
-                let comp = (comp compOp).Device
+                let comp = compOp.Device
                 <@ fun (data:DevicePtr<'T>) (begin':RWPtr<int>) (end':RWPtr<int>) (key:'T) (shift:int) ->
                     let comp = %comp
                     let scale = (1 <<< shift) - 1
                     let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
                     let key2 = data.[mid]
                     let pred =
-                        match bounds with
-                            | MgpuBoundsUpper ->  if (comp key key2) = 0 then 1 else 0
-                            | MgpuBoundsLower ->  comp key2 key
+                        if bounds = MgpuBoundsUpper then
+                            if (comp key key2) = 0 then 1 else 0
+                        else
+                            comp key2 key
+
                     if pred = 1 then 
                         begin'.[0] <- mid + 1
                     else
@@ -342,20 +348,20 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
 
                     *)
 
-let binarySearch (bsOp:IBinarySearch<'TN,'TI,'T>) =
-    let bs = bsOp.DBinarySearchIt
-
-    let search =
-        <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) ->
-            
-            let bs = %bs
-            let begin' = __local__<int>(1).Ptr(0)
-            begin'.[0] <- 0
-
-            let end' = __local__<int>(1).Ptr(0)
-            end'.[0] <- count
-                    
-            while begin'.[0] < end'.[0] do
-                bs data begin' end' key 1 //comp
-            begin'.[0] @>
-    search
+//let binarySearch (bsOp:IBinarySearch<'TI,'T>) =
+//    let bs = bsOp.DBinarySearchIt
+//
+//    let search =
+//        <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) ->
+//            
+//            let bs = %bs
+//            let begin' = __local__<int>(1).Ptr(0)
+//            begin'.[0] <- 0
+//
+//            let end' = __local__<int>(1).Ptr(0)
+//            end'.[0] <- count
+//                    
+//            while begin'.[0] < end'.[0] do
+//                bs data begin' end' key 1 //comp
+//            begin'.[0] @>
+//    search

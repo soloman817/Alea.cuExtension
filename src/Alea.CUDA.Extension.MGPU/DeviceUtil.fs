@@ -16,6 +16,24 @@ type Int2 =
 
 type int2 = Int2
 
+[<Struct;Align(8)>]
+type Int3 =
+    val mutable x : int
+    val mutable y : int
+    val mutable z : int
+    new (x, y, z) = { x = x; y = y; z = z }
+
+type int3 = Int3
+
+[<Struct;Align(8)>]
+type Int4 =
+    val mutable x : int
+    val mutable y : int
+    val mutable z : int
+    val mutable w : int
+    new (x, y, z, w) = { x = x; y = y; z = z; w = w }
+
+type int4 = Int4
 
 let divideTaskRange (numItems:int) (numWorkers:int) =
     let quot = numItems / numWorkers
@@ -39,9 +57,11 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range.y <- min count (range.y * blockSize)
     range
 
-type IComp<'T> =
-    abstract Host : ('T -> 'T -> int)
-    abstract Device : Expr<'T -> 'T -> int>
+type IComp<'TC> =
+    abstract Identity : 'TC
+    abstract Host : ('TC -> 'TC -> int)
+    abstract Device : Expr<'TC -> 'TC -> int>
+    
 
 type CompType =
     | CompTypeLess
@@ -49,8 +69,9 @@ type CompType =
     | CompTypeGreater
     | CompTypeGreater_Equal
 
-let inline comp (compType:CompType) = 
+let inline comp (compType:CompType) (ident:'T) = 
     { new IComp<'T> with
+        member this.Identity = ident
         member this.Host = 
             match compType with
             | CompTypeLess -> fun a b -> if a < b then 1 else 0
