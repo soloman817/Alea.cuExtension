@@ -19,8 +19,8 @@ type IBinarySearch<'TI, 'TK> =
     abstract Identity : 'TI
     abstract HBinarySearchIt : ('TI[] -> int ref -> int ref -> 'TK -> int -> unit)
     abstract DBinarySearchIt : Expr<DevicePtr<'TI> -> RWPtr<int> -> RWPtr<int> -> 'TK -> int -> unit>    
-    //abstract HBiasedBinarySearch : ('TI[] -> int -> 'T -> int -> int)
-    //abstract DBiasedBinarySearch : Expr<DevicePtr<'TI> -> int -> 'T -> int -> int>
+    abstract HBiasedBinarySearch : ('TI[] -> int -> 'T -> int -> int)
+    abstract DBiasedBinarySearch : Expr<DevicePtr<'TI> -> int -> 'T -> int -> int>
     abstract HBinarySearch : ('TI[] -> int -> 'TK -> int)
     abstract DBinarySearch : Expr<DevicePtr<'TI> -> int -> 'TK -> int>
     
@@ -86,24 +86,24 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                         begin'.[0] <- mid + 1
                     else
                         end'.[0] <- mid @>
-(*
-            member this.HBiasedBinarySearch = 
-                let comp a b = (comp compOp).Host a b
-                fun (data:'TI[]) (count:int) (key:'T) (levels:int) ->
-                    let begin' = 0
-                    let end' = count
 
-                    if levels >= 4 && begin' < end' then this.HBinarySearchIt data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 9 //comp
-                    if levels >= 3 && begin' < end' then this.HBinarySearchIt data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 7 //comp
-                    if levels >= 2 && begin' < end' then this.HBinarySearchIt data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 5 //comp
-                    if levels >= 1 && begin' < end' then this.HBinarySearchIt data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 4 //comp
+            member this.HBiasedBinarySearch = 
+                let comp a b = compOp.Host a b
+                fun (data:'TI[]) (count:int) (key:'T) (levels:int) ->
+                    let begin' = ref 0
+                    let end' = ref count
+
+                    if levels >= 4 && begin' < end' then this.HBinarySearchIt data begin' end' key 9 //comp
+                    if levels >= 3 && begin' < end' then this.HBinarySearchIt data begin' end' key 7 //comp
+                    if levels >= 2 && begin' < end' then this.HBinarySearchIt data begin' end' key 5 //comp
+                    if levels >= 1 && begin' < end' then this.HBinarySearchIt data begin' end' key 4 //comp
 
                     while begin' < end' do
-                        this.HBinarySearchIt data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 1 //comp
-                    begin'
+                        this.HBinarySearchIt data begin' end' key 1 //comp
+                    begin'.contents
 
             member this.DBiasedBinarySearch = 
-                let comp = (comp compOp).Device
+                let comp = compOp.Device
                 <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) (levels:int) ->
                     let comp = %comp
                     let begin' = 0
@@ -119,7 +119,7 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                     while begin' < end' do
                         dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 1 //comp
                     begin' @>
-*)
+
             member this.HBinarySearch = 
                 fun (data:'T[]) (count:int) (key:'T) ->
                     let begin' = ref 0
@@ -143,11 +143,11 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                         dbs data begin' end' key 1
                     begin'.[0] @> }
 
-(*
-let inline MergeSearch (bounds:int) (compOp:CompType) =
+
+let inline mergeSearch (bounds:int) (compOp:IComp<'TC>) =
         { new IMergeSearch<'TI, 'TC> with
             member this.HMergePath =
-                let comp a b = (comp compOp).Host a b
+                let comp a b = compOp.Host a b
                 fun (a:'TI[]) (aCount:int) (b:'TI[]) (bCount:int) (diag:int) ->
                     let mutable begin' = max 0 (diag - bCount)
                     let mutable end' = min diag aCount
@@ -157,18 +157,16 @@ let inline MergeSearch (bounds:int) (compOp:CompType) =
                         let aKey = a.[mid]
                         let bKey = b.[diag - 1 - mid]
 
-                        let pred =
-                            match bounds with
-                                | MgpuBoundsUpper -> comp aKey bKey
-                                | _ ->  -(comp bKey aKey)
-                        if pred <> 0 then 
+                        let pred = if bounds = MgpuBoundsUpper then comp aKey bKey else (comp bKey aKey) - 1
+                                
+                        if pred = 1 then 
                             begin' <- mid + 1
                         else
                             end' <- mid
                     begin'
 
             member this.DMergePath =
-                let comp = (comp compOp).Device
+                let comp = compOp.Device
                 <@ fun (a:DevicePtr<'TI>) (aCount:int) (b:DevicePtr<'TI>) (bCount:int) (diag:int) ->
                     let comp = %comp
                     let mutable begin' = max 0 (diag - bCount)
@@ -179,18 +177,15 @@ let inline MergeSearch (bounds:int) (compOp:CompType) =
                         let aKey = a.[mid]
                         let bKey = b.[diag - 1 - mid]
 
-                        let pred =
-                            match bounds with
-                                | MgpuBoundsUpper -> comp aKey bKey
-                                | _ -> -(comp bKey aKey)
-                        if pred <> 0 then 
+                        let pred = if bounds = MgpuBoundsUpper then comp aKey bKey else (comp bKey aKey) - 1
+                        if pred = 1 then 
                             begin' <- mid + 1
                         else
                             end' <- mid
                     begin' @>
 
             member this.HSegmentedMergePath =
-                let comp a b = (comp compOp).Host a b
+                let comp a b = compOp.Host a b
                 fun (keys:'TI[]) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
                     let mutable result = 0
                     let test = 
@@ -216,7 +211,7 @@ let inline MergeSearch (bounds:int) (compOp:CompType) =
                     result
 
             member this.DSegmentedMergePath =
-                let comp = (comp compOp).Device
+                let comp = compOp.Device
                 <@ fun (keys:DevicePtr<'TI>) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
                     let comp = %comp
                     let mutable result = 0
@@ -235,19 +230,19 @@ let inline MergeSearch (bounds:int) (compOp:CompType) =
                             let ai = aOffset + mid
                             let bi = bOffset + diag - 1 - mid
 
-                            let pred = -( comp keys.[bi] keys.[ai] )
+                            let pred = if comp keys.[bi] keys.[ai] = 1 then 0 else 1
                             if pred = 1 then begin' <- mid + 1
                             else end' <- mid
                         result <- begin'
                                                 
                     result @> }
 
-let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
+let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) =
         { new IBalancedPathSearch<'TI, 'TC> with
             member this.HBalancedPath =
-                let comp a b = (comp compOp).Host a b
+                let comp a b = compOp.Host a b
                 fun (a:'TI[]) (aCount:int) (b:'TI[]) (bCount:int) (diag:int) (levels:int) ->
-                    let p = (MergeSearch MgpuBoundsLower compOp).HMergePath a aCount b bCount diag //comp
+                    let p = (mergeSearch MgpuBoundsLower compOp).HMergePath a aCount b bCount diag //comp
                     let mutable aIndex = p
                     let bIndex = diag - p
 
@@ -256,8 +251,8 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
                         if duplicates <> 0 then
                             let x = b.[bIndex]
 
-                            let aStart = (BinarySearch MgpuBoundsLower compOp).HBiasedBinarySearch a aIndex x levels //comp
-                            let bStart = (BinarySearch MgpuBoundsLower compOp).HBiasedBinarySearch b bIndex x levels //comp
+                            let aStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch a aIndex x levels //comp
+                            let bStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch b bIndex x levels //comp
 
                             let aRun = aIndex - aStart
                             let mutable bRun = bIndex - bStart
@@ -265,10 +260,8 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
 
                             let mutable bAdvance = max (xCount >>> 1) (xCount - aRun)
                             let bEnd = min bCount (bStart + bAdvance + 1)
-                            let passB = b.[0] + bIndex
-                            let passB = Array.sub(b) passB (b.Length - 1)
                             let bRunEnd =
-                                ((BinarySearch MgpuBoundsLower compOp).HBinarySearch) passB (bEnd - bIndex) x + bIndex
+                                (((binarySearchFun MgpuBoundsLower compOp).HBinarySearch) (Array.sub b 0 bIndex) (bEnd - bIndex) x) + bIndex
                             bRun <- bRunEnd - bStart
 
                             bAdvance <- min bAdvance bRun
@@ -283,17 +276,17 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
                             let aKey = a.[aIndex - 1]
                             let bKey = b.[bIndex]
 
-                            if ( -( comp aKey bKey ) <> 0 ) then star <- 1
+                            if ( comp aKey bKey = 0 ) then star <- 1
                                                 
                     let result = int2(aIndex,  star)
                     result
 
             member this.DBalancedPath =
-                let comp = (comp compOp).Device
-                let p = (MergeSearch MgpuBoundsLower compOp).DMergePath
-                let aStart = (BinarySearch MgpuBoundsLower compOp).DBiasedBinarySearch
-                let bStart = (BinarySearch MgpuBoundsLower compOp).DBiasedBinarySearch
-                let bRunEnd = (BinarySearch MgpuBoundsLower compOp).DBinarySearch
+                let comp = compOp.Device
+                let p = (mergeSearch MgpuBoundsLower compOp).DMergePath
+                let aStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
+                let bStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
+                let bRunEnd = (binarySearchFun MgpuBoundsLower compOp).DBinarySearch
                 <@ fun (a:DevicePtr<'TI>) (aCount:int) (b:DevicePtr<'TI>) (bCount:int) (diag:int) (levels:int) ->
                     let comp = %comp
                     let p = %p
@@ -336,9 +329,9 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
                             let aKey = a.[aIndex - 1]
                             let bKey = b.[bIndex]
 
-                            if ( -( comp aKey bKey ) <> 0 ) then star <- 1
+                            if ( comp aKey bKey = 0 ) then star <- 1
 
                     let result = int2(aIndex,  star)
                     result @> }
 
-                    *)
+                    

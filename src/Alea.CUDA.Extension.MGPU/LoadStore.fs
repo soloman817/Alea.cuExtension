@@ -155,7 +155,7 @@ let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
     <@ fun (a_global:RWPtr<'T>) (aCount:int) (b_global:RWPtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:int) ->
         let deviceRegToShared = %deviceRegToShared
 
-        let b0 = b_global - a_global - aCount
+        let b0 = int( b_global.Handle64 - a_global.Handle64 - int64 aCount )
         let total = aCount + bCount
         let reg = __local__<'T>(VT1).Ptr(0)
         if total >= NT * VT0 then
@@ -260,7 +260,7 @@ let deviceTransferMergeValuesB (NT:int) (VT:int) =
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)
-        let bOffset = b_global - a_global - bStart
+        let bOffset = int( b_global.Handle64 - a_global.Handle64 - int64 bStart )
 
         if count >= NT * VT then
             for i = 0 to VT - 1 do

@@ -132,7 +132,7 @@ let ctaMergesort (NT:int) (VT:int) (hasValues:int) =
 
 
 let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:CompOpType) =
-    let deviceLoad2ToShared = deviceLoad2ToShared NT VT VT
+    let deviceLoad2ToShared = deviceLoad2ToSharedA NT VT VT
     let mergePath = (Mergesearch MgpuBoundsLower compOp).Device
     let serialMerge = serialMerge VT 1
 
@@ -148,7 +148,7 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:CompOpType) =
         let aCount = a1 - a0
         let bCount = b1 - b0
 
-        deviceLoad2Shared (a_global + a0) (b_global + b0) bCount tid keys_shared
+        deviceLoad2Shared (a_global + a0) (b_global + b0) bCount tid keys_shared doSync
 
         let diag = VT * tid
         let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag // comp
