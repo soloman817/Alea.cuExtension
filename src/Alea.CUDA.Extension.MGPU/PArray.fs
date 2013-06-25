@@ -33,15 +33,18 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
 
 let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let! api = Scan.scan mgpuScanType op totalAtEnd
+    //printfn "scan parray 1"
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-        fun (data:DArray<'TI>) ->
+        //printfn "scan parray 2"
+        fun (data:DArray<int>) ->
             pcalc {
                 let count = data.Length
                 let api = api count
-                let! scanned = DArray.createInBlob<'TI> worker count
+                let! scanned = DArray.createInBlob worker count
                 let! total = DArray.createInBlob worker 1
+                //printfn "scan parray 3"
                 let scanner =
                     fun () ->
                         pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )}
@@ -51,7 +54,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
 
 
 //let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
-let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) = cuda {
+let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
     let! api = Search.binarySearchPartitions bounds compOp
 
     return PFunc(fun (m:Module) ->
@@ -73,6 +76,7 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) = cuda {
                             return parts }
                     |> Lazy.Create
                 return result} ) }
+
 
 
 let bulkRemove (ident:'TI) = cuda {

@@ -9,9 +9,7 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
 open Test.Alea.CUDA.Extension.MGPU.Util
-open Test.Alea.CUDA.Extension.TestUtilities
-open Test.Alea.CUDA.Extension.TestUtilities.General
-//open Test.Alea.CUDA.Extension.TestUtilities.MGPU.BulkRemoveUtils
+
 open NUnit.Framework
 
 let worker = Engine.workers.DefaultWorker
@@ -37,8 +35,8 @@ let verifyCount = 3
 let percentDiff x y = abs(x - y) / ((x + y) / 2.0)
 
 
-let inline hostRemove (data:'T[]) (indices:'T[]) =
-    Set.difference (data |> Set.ofArray<'T>) (indices |> Set.ofArray<'T>) |> Set.toArray
+let inline hostRemove (data:'TH[]) (indices:'TH[]) =
+    Set.difference (data |> Set.ofArray<'TH>) (indices |> Set.ofArray<'TH>) |> Set.toArray
 
 let hostRemove2 data indices =
     let mutable data = data |> Array.toList
@@ -56,10 +54,11 @@ let hostRemove2 data indices =
 //    let (r:'T[]*_) = rngGenericArrayI ns ni
 //    r
 
-let testBulkRemove (ident:'T) =
+let inline testBulkRemove (ident:'T) =
     let brp = worker.LoadPModule(MGPU.PArray.bulkRemove ident ).Invoke
+    
     let test verify eps = 
-        fun (data:float[]) (indices:int[]) ->
+        fun (data:'T[]) (indices:'T[]) ->
             pcalc {
                 let n = data.Length
                 printfn "Testing size %d..." n
@@ -74,8 +73,11 @@ let testBulkRemove (ident:'T) =
                 if verify then
                     let hResults = hostRemove2 data indices
                     let! dResults = removed.Gather()
-                    (General.Verifier<float>(eps)).Verify hResults dResults
+                    let hResults, dResults = (hResults, dResults) ||> Array.map2 (fun h d -> float(h), float(d)) |> Array.unzip
+                    
+                    (Verifier<float>(eps)).Verify hResults dResults
                     //return results
+                    
                 else 
                     do! PCalc.force()
                     //return results 
@@ -83,14 +85,18 @@ let testBulkRemove (ident:'T) =
 
     let eps = 1e-10
     let values1 n r = 
-        let source = Array.init n (fun _ -> 1.0)
-        let (r:float[]*_) = rngGenericArrayI n r
+//        let source = Array.init n (fun _ -> 1.0)
+//        let (r:float[]*_) = rngGenericArrayI n r
+        let source = Array.init n (fun _ -> 1)
+        let (r:int[]*_) = rngGenericArrayI n r
         let indices = (snd r)
         source, indices
 
     let values2 n r = 
-        let source = Array.init n (fun _ -> -1.0)
-        let (r:float[]*_) = rngGenericArrayI n r
+//        let source = Array.init n (fun _ -> -1.0)
+//        let (r:float[]*_) = rngGenericArrayI n r
+        let source = Array.init n (fun _ -> -1)
+        let (r:int[]*_) = rngGenericArrayI n r
         let indices = (snd r)
         source, indices
 
@@ -104,8 +110,8 @@ let testBulkRemove (ident:'T) =
                                                                values1 ns nr ||> test |> PCalc.run)
     (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
                                                                values2 ns nr ||> test |> PCalc.run)
-    (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
-                                                               values3 ns nr ||> test |> PCalc.run)
+//    (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
+//                                                               values3 ns nr ||> test |> PCalc.run)
          
     let n = 2097152
     let test = values1 n (removeCount2 n) ||> test false eps
@@ -121,7 +127,7 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
 
 let benchmarkBulkRemove (ident:'T) =
     let bulkRemove = worker.LoadPModule(PArray.bulkRemove ident ).Invoke
-    fun (data:'T[]) (indices:int[]) (numIt:int) ->
+    fun (data:'T[]) (indices:'T[]) (numIt:'T) ->
         
         let calc = pcalc {
             let! dSource = DArray.scatterInBlob worker data

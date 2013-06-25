@@ -61,6 +61,7 @@
     <Compile Include="Scan.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
+    <Compile Include="Debug.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
   </ItemGroup>
@@ -73,11 +74,6 @@
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\Test.Alea.CUDA.TestUtilities\Test.Alea.CUDA.Extension.TestUtilities.fsproj">
-      <Name>Test.Alea.CUDA.Extension.TestUtilities</Name>
-      <Project>{f218779d-21d6-435f-b540-43a4d42853e1}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

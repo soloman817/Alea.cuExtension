@@ -15,22 +15,22 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
-type IBinarySearch<'TI, 'T> =
+type IBinarySearch<'TI, 'TK> =
     abstract Identity : 'TI
-    abstract HBinarySearchIt : ('TI[] -> int ref -> int ref -> 'T -> int -> unit)
-    abstract DBinarySearchIt : Expr<DevicePtr<'TI> -> RWPtr<int> -> RWPtr<int> -> 'T -> int -> unit>    
+    abstract HBinarySearchIt : ('TI[] -> int ref -> int ref -> 'TK -> int -> unit)
+    abstract DBinarySearchIt : Expr<DevicePtr<'TI> -> RWPtr<int> -> RWPtr<int> -> 'TK -> int -> unit>    
     //abstract HBiasedBinarySearch : ('TI[] -> int -> 'T -> int -> int)
     //abstract DBiasedBinarySearch : Expr<DevicePtr<'TI> -> int -> 'T -> int -> int>
-    abstract HBinarySearch : ('TI[] -> int -> 'T -> int)
-    abstract DBinarySearch : Expr<DevicePtr<'TI> -> int -> 'T -> int>
+    abstract HBinarySearch : ('TI[] -> int -> 'TK -> int)
+    abstract DBinarySearch : Expr<DevicePtr<'TI> -> int -> 'TK -> int>
     
-type IMergeSearch<'TI, 'TC> =
+type IMergeSearch<'TI, 'TK> =
     abstract HMergePath : ('TI[] -> int -> 'TI[] -> int -> int -> int)
     abstract DMergePath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int>
     abstract HSegmentedMergePath : ('TI[] -> int -> int -> int -> int -> int -> int -> int -> int)
     abstract DSegmentedMergePath : Expr<DevicePtr<'TI> -> int -> int -> int -> int -> int -> int -> int -> int>
 
-type IBalancedPathSearch<'TI, 'TC> =
+type IBalancedPathSearch<'TI, 'TK> =
     abstract HBalancedPath : ('TI[] -> int -> 'TI[] -> int -> int -> int -> int2)
     abstract DBalancedPath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int -> int2>
 
@@ -49,7 +49,7 @@ let MgpuBoundsUpper = 1
 
 
 
-let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
+let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
         { new IBinarySearch<'T, 'T> with
             member this.Identity = compOp.Identity
             member this.HBinarySearchIt =
@@ -58,7 +58,6 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
                     let scale = (1 <<< shift) - 1
                     let mid = ((!begin' + scale * !end') >>> shift)
                     let key2 = data.[mid]
-                    //printfn "B=(%d)  E=(%d)  K1=(%d)  M=(%d)  K2=(%d)" !begin' !end' key mid key2
                     let pred = 
                         if bounds = MgpuBoundsUpper then
                             if (comp key key2) = 0 then 1 else 0
@@ -68,8 +67,7 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
                     if pred = 1 then 
                         begin' := mid + 1
                     else
-                        end' := mid
-                    //printfn "B2=(%d)  E2=(%d)" !begin' !end'
+                        end' := mid                    
                         
             member this.DBinarySearchIt = 
                 let comp = compOp.Device
@@ -123,19 +121,16 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
                     begin' @>
 *)
             member this.HBinarySearch = 
-                //let comp a b = (comp compOp).Host a b
                 fun (data:'T[]) (count:int) (key:'T) ->
                     let begin' = ref 0
                     let end' = ref count
                     while begin' < end' do
-                        this.HBinarySearchIt data begin' end' key 1 //comp
+                        this.HBinarySearchIt data begin' end' key 1
                     !begin'
 
             member this.DBinarySearch = 
-                //let comp = (comp compOp).Device
                 let dbs = this.DBinarySearchIt                
                 <@ fun (data:DevicePtr<'T>) (count:int) (key:'T) ->
-                    //let comp = %comp
                     let dbs = %dbs
                     
                     let begin' = __local__<int>(1).Ptr(0)
@@ -145,7 +140,7 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
                     end'.[0] <- count
                     
                     while begin'.[0] < end'.[0] do
-                        dbs data begin' end' key 1 //comp
+                        dbs data begin' end' key 1
                     begin'.[0] @> }
 
 (*
@@ -347,21 +342,3 @@ let inline BalancedPathSearch (duplicates:int) (bounds:int) (compOp:CompType) =
                     result @> }
 
                     *)
-
-//let binarySearch (bsOp:IBinarySearch<'TI,'T>) =
-//    let bs = bsOp.DBinarySearchIt
-//
-//    let search =
-//        <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) ->
-//            
-//            let bs = %bs
-//            let begin' = __local__<int>(1).Ptr(0)
-//            begin'.[0] <- 0
-//
-//            let end' = __local__<int>(1).Ptr(0)
-//            end'.[0] <- count
-//                    
-//            while begin'.[0] < end'.[0] do
-//                bs data begin' end' key 1 //comp
-//            begin'.[0] @>
-//    search

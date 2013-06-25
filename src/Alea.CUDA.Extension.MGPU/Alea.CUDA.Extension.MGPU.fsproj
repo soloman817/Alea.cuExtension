@@ -43,8 +43,8 @@
     <Compile Include="Intrinsics.fs" />
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
-    <Compile Include="CTAMerge.fs" />
     <Compile Include="CTASearch.fs" />
+    <Compile Include="CTAMerge.fs" />
     <Compile Include="CTALoadBalance.fs" />
     <Compile Include="CTASegSort.fs" />
     <Compile Include="CTASortedSearch.fs" />

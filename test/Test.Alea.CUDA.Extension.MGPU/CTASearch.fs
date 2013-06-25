@@ -5,7 +5,7 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTASearch
-open Test.Alea.CUDA.Extension.TestUtilities.General
+
 open NUnit.Framework
 
 [<Test>]

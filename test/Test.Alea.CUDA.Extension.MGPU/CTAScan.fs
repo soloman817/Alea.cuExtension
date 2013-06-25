@@ -1,12 +1,21 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.CTAScan
 
+open System
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.CTAScan
+open Alea.CUDA.Extension.MGPU.LoadStore
+open Alea.CUDA.Extension.Util
+open Alea.CUDA.Extension.MGPU.QuotationUtil
+open Alea.CUDA.Extension.MGPU.DeviceUtil
+
 open NUnit.Framework
 
 let worker = getDefaultWorker()
+
+let rng = System.Random()
+
 
 [<Test>]
 let ``scanop`` () =
@@ -32,3 +41,4 @@ let ``scanop`` () =
 
     let output = pfuncm.Invoke 100
     printfn "%A" output
+

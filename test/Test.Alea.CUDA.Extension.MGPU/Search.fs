@@ -8,8 +8,7 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.PArray
 open Alea.CUDA.Extension.MGPU.CTASearch
 open Alea.CUDA.Extension.MGPU.Search
-open Test.Alea.CUDA.Extension.TestUtilities.General
-open Test.Alea.CUDA.Extension.TestUtilities.MGPU
+open Test.Alea.CUDA.Extension.MGPU.Util
 open NUnit.Framework
 
 
@@ -19,8 +18,10 @@ type Plan =
             Bounds: int
         }
 
+let worker = getDefaultWorker()
 
 let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) =
+    
     let bs = worker.LoadPModule(MGPU.PArray.binarySearchPartitions bounds compOp).Invoke
     
     fun (count:int) (data:'TI[]) (numItems:int) (nv:int) ->

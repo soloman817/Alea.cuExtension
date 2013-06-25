@@ -21,7 +21,7 @@ type Plan =
     }
 
 
-let kernelBinarySearch (plan:Plan) (binarySearch:IBinarySearch<'TI,'T>) =
+let kernelBinarySearch (plan:Plan) (binarySearch:IBinarySearch<'TI, int>) =
     let NT = plan.NT
     let bounds = plan.Bounds
     let binarySearch = binarySearch.DBinarySearch
@@ -30,7 +30,7 @@ let kernelBinarySearch (plan:Plan) (binarySearch:IBinarySearch<'TI,'T>) =
         let binarySearch = %binarySearch
         let gid = NT * blockIdx.x + threadIdx.x
         if (gid < numSearches) then
-            let p = binarySearch (data_global.Reinterpret<int>()) numItems (min (nv * gid) count)
+            let p = binarySearch data_global numItems (min (nv * gid) count)
             partitions_global.[gid] <- p
         @>
 
@@ -39,7 +39,7 @@ type IBinarySearchPartitions<'TI> =
         Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> unit        
     }
 
-let binarySearchPartitions (bounds:int) (compOp:IComp<'TC>) = cuda { 
+let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda { 
     let plan = { NT = 64; Bounds = bounds }
     let binarySearch = binarySearchFun bounds compOp
     let! kernelBinarySearch = (kernelBinarySearch plan binarySearch) |> defineKernelFunc
@@ -53,7 +53,7 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<'TC>) = cuda {
             let numPartitionBlocks = divup (numBlocks + 1) plan.NT
             let lp = LaunchParam(numPartitionBlocks, plan.NT)
             
-            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) (partitionsDevice:DevicePtr<int>) =
+            let action (hint:ActionHint) (data_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
                 let lp = lp |> hint.ModifyLaunchParam
                 kernelBinarySearch.Launch lp count data_global numItems nv partitionsDevice (numBlocks + 1)
                             
