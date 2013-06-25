@@ -8,8 +8,21 @@ open Alea.CUDA.Extension.MGPU.Static
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.Intrinsics
 open Alea.CUDA.Extension.MGPU.LoadStore
+open Alea.CUDA.Extension.MGPU.CTASearch
 //open Alea.CUDA.Extension.MGPU.SortNetwork
 
+[<ReflectedDefinition>]
+let doRangeCheck = 1
+[<ReflectedDefinition>]
+let dontRangeCheck = 0
+
+[<ReflectedDefinition>]
+let doesHaveValues = 1
+[<ReflectedDefinition>]
+let doesntHaveValues = 0
+
+
+// SerialMerge
 let serialMerge (VT:int) (rangeCheck:int) (comp:IComp<'T>) =
     let comp = comp.Device
     <@ fun (keys_shared:RWPtr<'T>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (results:RWPtr<'T>) (indices:RWPtr<int>) ->
@@ -38,10 +51,14 @@ let serialMerge (VT:int) (rangeCheck:int) (comp:IComp<'T>) =
                 bKey <- keys_shared.[bBegin]
         __syncthreads() @>
 
+////////////////////////////////////////////////////////////////////////////////
+// FindMergeFrame and FindMergesortInterval help mergesort (both CTA and global 
+// merge pass levels) locate lists within the single source array.
 
-type FindMergesortFrame =    
+// Returns (offset of a, offset of b, length of list).
+type FindMergesortFrame() =    
     member fmf.Host =
-        fun coop block nv ->
+        fun (coop:int) (block:int) (nv:int) ->
             let start = ~~~(coop - 1) &&& block
             let size = nv * (coop >>> 1)
             int3((nv * start), (nv * start + size), (size))
@@ -52,9 +69,10 @@ type FindMergesortFrame =
             let size = nv * (coop >>> 1)
             int3((nv * start), (nv * start + size), (size)) @>
 
-type FindMergesortInterval =
+// Returns (a0, a1, b0, b1) into mergesort input lists between mp0 and mp1.
+type FindMergesortInterval() =
     member fmi.Host =
-        fun (frame:int3) coop block nv count mp0 mp1 ->
+        fun (frame:int3) (coop:int) (block:int) (nv:int) (count:int) (mp0:int) (mp1:int) ->
             let diag = nv * block - frame.x
             let a0 = frame.x + mp0
             let mutable a1 = min count (frame.x + mp1)
@@ -63,11 +81,11 @@ type FindMergesortInterval =
             if (coop - 1) = ((coop - 1) &&& block) then
                 a1 <- min count (frame.x + frame.z)
                 b1 <- min count (frame.y + frame.z)
-            int4 a0 a1 b0 b1
+            int4(a0,a1,b0,b1)
             
 
     member fmi.Device =
-        <@ fun (frame:int3) coop block nv count mp0 mp1 ->
+        <@ fun (frame:int3) (coop:int) (block:int) (nv:int) (count:int) (mp0:int) (mp1:int) ->
             let diag = nv * block - frame.x
             let a0 = frame.x + mp0
             let mutable a1 = min count (frame.x + mp1)
@@ -76,20 +94,23 @@ type FindMergesortInterval =
             if (coop - 1) = ((coop - 1) &&& block) then
                 a1 <- min count (frame.x + frame.z)
                 b1 <- min count (frame.y + frame.z)
-            int4 a0 a1 b0 b1 @>
+            int4(a0,a1,b0,b1) @>
 
+let findMergesortFrame = new FindMergesortFrame()
+let findMergesortInterval = new FindMergesortInterval()
 
-type ComputMergeRange =
+// ComputeMergeRange
+type ComputeMergeRange() =
     member cmr.Host =
-        fun aCount bCount block coop NV (mp_global:RWPtr<int>) ->
+        fun (aCount:int) (bCount:int) (block:int) (coop:int) (NV:int) (mp_global:RWPtr<int>) ->
             let mp0 = mp_global.[block]
             let mp1 = mp_global.[block + 1]
             let gid = NV * block
 
             let mutable range = int4(0,0,0,0)
             if coop <> 0 then
-                let frame = (FindMergesortFrame).Host coop block NV
-                range <- (FindMergesortInterval).Host frame coop block NV aCount mp0 mp1
+                let frame = findMergesortFrame.Host coop block NV
+                range <- findMergesortInterval.Host frame coop block NV aCount mp0 mp1
             else
                 range.x <- mp0
                 range.y <- mp1
@@ -98,15 +119,20 @@ type ComputMergeRange =
             range
 
     member cmr.Device =
-        <@ fun aCount bCount block coop NV (mp_global:RWPtr<int>) ->
+        let findMergesortFrame = findMergesortFrame.Device
+        let findMergesortInterval = findMergesortInterval.Device
+        <@ fun (aCount:int) (bCount:int) (block:int) (coop:int) (NV:int) (mp_global:RWPtr<int>) ->
+            let findMergesortFrame = %findMergesortFrame
+            let findMergesortInterval = %findMergesortInterval
+
             let mp0 = mp_global.[block]
             let mp1 = mp_global.[block + 1]
             let gid = NV * block
 
             let mutable range = int4(0,0,0,0)
             if coop <> 0 then
-                let frame = (FindMergesortFrame).Host coop block NV
-                range <- (FindMergesortInterval).Host frame coop block NV aCount mp0 mp1
+                let frame = findMergesortFrame coop block NV
+                range <- findMergesortInterval frame coop block NV aCount mp0 mp1
             else
                 range.x <- mp0
                 range.y <- mp1
@@ -114,12 +140,58 @@ type ComputMergeRange =
                 range.w <- min (aCount + bCount) (gid + NV) - range.y
             range @>
 
+let computeMergeRange = new ComputeMergeRange()
 
-//type ICTAMergesort<'TK, 'TV> = //
 
-let ctaMergesort (NT:int) (VT:int) (hasValues:int) =
-    let deviceThreadToShared = deviceThreadToShared NT VT
-    let ctaBlocksortLoop = ctaBlocksortLoop NT VT hasValues
+// CTA mergesort support
+let ctaBlocksortPass (NT:int) (VT:int) (comp:IComp<'TC>) =
+    let mergePath = (mergeSearch MgpuBoundsLower comp).DMergePath
+    let serialMerge = serialMerge VT doRangeCheck comp
+    let comp = comp.Device
+    <@ fun (keys_shared:RWPtr<'T>) (tid:int) (count:int) (coop:int) (keys:RWPtr<'T>) (indices:RWPtr<int>) ->
+        let comp = %comp
+        let mergePath = %mergePath
+        let serialMerge = %serialMerge
+
+        let list = ~~~(coop - 1) &&& tid
+        let diag = min count (VT * ((coop - 1) &&& tid))
+        let start = VT * list
+        let a0 = min count start
+        let b0 = min count (start + VT * (coop / 2))
+        let b1 = min count (start + VT * coop)
+        let p = mergePath (keys_shared + a0) (b0 - a0) (keys_shared + b0) (b1 - b0) diag
+        serialMerge keys_shared (a0 + p) b0 (b0 + diag - p) b1 keys indices @>
+
+let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
+    let ctaBlocksortPass = ctaBlocksortPass NT VT comp
+    let deviceThreadToShared = deviceThreadToShared VT
+    let deviceGather = deviceGather NT VT
+
+    <@ fun (threadValues:RWPtr<'TV>) (keys_shared:RWPtr<'TK>) (values_shared:RWPtr<'TV>) (tid:int) (count:int) ->
+        let ctaBlocksortPass = %ctaBlocksortPass
+        let deviceThreadToShared = %deviceThreadToShared
+        let deviceGather = %deviceGather
+
+        let mutable coop = 2
+        while coop <= NT do
+            let indices = __local__<int>(VT).Ptr(0)
+            let keys = __local__<'TK>(VT).Ptr(0)
+            ctaBlocksortPass keys_shared tid count coop keys indices
+
+            if hasValues = 1 then
+                deviceThreadToShared threadValues tid values_shared doSync
+                deviceGather (NT * VT) values_shared indices tid threadValues doSync
+
+            deviceThreadToShared keys tid keys_shared doSync
+            coop <- coop * 2 @>
+
+////////////////////////////////////////////////////////////////////////////////
+// CTAMergesort
+// Caller provides the keys in shared memory. This functions sorts the first
+// count elements.
+let ctaMergesort (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
+    let deviceThreadToShared = deviceThreadToShared VT
+    let ctaBlocksortLoop = ctaBlocksortLoop NT VT hasValues comp
     
     <@ fun (threadKeys:DevicePtr<'TK>) (threadValues:DevicePtr<'TV>) (keys_shared:RWPtr<'TK>) (values_shared:RWPtr<'TV>) (count:int) (tid:int) (compOp:CompOpType) ->
         let deviceThreadToShared = %deviceThreadToShared
@@ -131,10 +203,10 @@ let ctaMergesort (NT:int) (VT:int) (hasValues:int) =
         ctaBlocksortLoop threadValues keys_shared values_shared tid count compOp @>
 
 
-let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:CompOpType) =
+let deviceMergeKeysIndices (NT:int) (VT:int) (comp:IComp<'T>) =
     let deviceLoad2ToShared = deviceLoad2ToSharedA NT VT VT
-    let mergePath = (Mergesearch MgpuBoundsLower compOp).Device
-    let serialMerge = serialMerge VT 1
+    let mergePath = (mergeSearch MgpuBoundsLower comp).DMergePath
+    let serialMerge = serialMerge VT 1 comp
 
     <@ fun (a_global:RWPtr<'T1>) (b_global:RWPtr<'T2>) (range:int4) (tid:int) (keys_shared:RWPtr<'T>) (results:RWPtr<'T>) (indices:RWPtr<int>) ->
         let deviceLoad2ToShared = %deviceLoad2ToShared
@@ -148,7 +220,7 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:CompOpType) =
         let aCount = a1 - a0
         let bCount = b1 - b0
 
-        deviceLoad2Shared (a_global + a0) (b_global + b0) bCount tid keys_shared doSync
+        deviceLoad2ToShared (a_global + a0) (b_global + b0) bCount tid keys_shared doSync
 
         let diag = VT * tid
         let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag // comp
@@ -162,11 +234,11 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:CompOpType) =
         @>
 
 
-let deviceMerge (NT:int) (VT:int) (hasValues:int) =
-    let deviceMergeKeysIndices = deviceMergeKeysIndices NT VT
+let deviceMerge (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
+    let deviceMergeKeysIndices = deviceMergeKeysIndices NT VT comp
     let deviceThreadToShared = deviceThreadToShared VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
-    let deviceTransferMergeValues = deviceTransferMergeValues NT VT
+    let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
     <@ fun (aKeys_global:RWPtr<'K1>) (aVals_global:RWPtr<'V1>) (bKeys_global:RWPtr<'K2>) (bVals_global:RWPtr<'V2>) (tid:int) (block:int) (range:int4) (keys_shared:RWPtr<'TK>) (indices_shared:RWPtr<int>) (keys_global:RWPtr<'K3>) (vals_global:RWPtr<'V3>) ->
         let deviceMergeKeysIndices = %deviceMergeKeysIndices

@@ -84,3 +84,24 @@ let inline comp (compType:CompType) (ident:'T) =
             | CompTypeLess_Equal -> <@ fun a b -> if a <= b then 1 else 0 @>
             | CompTypeGreater -> <@ fun a b -> if a > b then 1 else 0 @>
             | CompTypeGreater_Equal -> <@ fun a b -> if a >= b then 1 else 0 @> }
+
+
+type ISwap<'TS> =
+    abstract Identity : 'TS
+    abstract Host : ('TS ref -> 'TS ref -> unit)
+    abstract Device : Expr<RWPtr<'TS> -> RWPtr<'TS> -> unit>
+
+let inline swap (ident:'T) =
+    { new ISwap<'T> with
+        member this.Identity = ident
+        member this.Host =
+            fun (a:'T ref) (b:'T ref) ->
+                let c = a
+                a := b.Value
+                b := c.Value
+
+        member this.Device =
+            <@ fun (a:RWPtr<'T>) (b:RWPtr<'T>) ->
+                let c = a
+                a.[0] <- b.[0]
+                b.[0] <- c.[0] @> }

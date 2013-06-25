@@ -89,7 +89,7 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
             member this.HBiasedBinarySearch = 
                 let comp a b = compOp.Host a b
-                fun (data:'TI[]) (count:int) (key:'T) (levels:int) ->
+                fun (data:'T[]) (count:int) (key:'T) (levels:int) ->
                     let begin' = ref 0
                     let end' = ref count
 
@@ -104,7 +104,7 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
             member this.DBiasedBinarySearch = 
                 let comp = compOp.Device
-                <@ fun (data:DevicePtr<'TI>) (count:int) (key:'T) (levels:int) ->
+                <@ fun (data:DevicePtr<'T>) (count:int) (key:'T) (levels:int) ->
                     let comp = %comp
                     let begin' = 0
                     let end' = count
