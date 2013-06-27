@@ -43,6 +43,7 @@
     <Compile Include="Intrinsics.fs" />
     <Compile Include="LoadStore.fs" />
     <Compile Include="CTAScan.fs" />
+    <Compile Include="SortedNetwork.fs" />
     <Compile Include="CTASearch.fs" />
     <Compile Include="CTAMerge.fs" />
     <Compile Include="CTALoadBalance.fs" />
@@ -62,7 +63,6 @@
     <Compile Include="SegmentedSort.fs" />
     <Compile Include="SerialSets.fs" />
     <Compile Include="Sets.fs" />
-    <Compile Include="SortedNetwork.fs" />
     <Compile Include="SortedSearch.fs" />
     <Compile Include="PArray.fs" />
     <None Include="packages.config" />

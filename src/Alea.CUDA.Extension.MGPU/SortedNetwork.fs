@@ -1,6 +1,7 @@
 ﻿module Alea.CUDA.Extension.MGPU.SortedNetwork
 
 open System.Runtime.InteropServices
+open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.CUDA.Extension
@@ -12,7 +13,76 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
+type IOddEvenTransposeSortT<'TK, 'TV, 'TC> =
+    abstract member Sort : Expr<RWPtr<'TK> -> RWPtr<'TV> -> int -> unit>
 
+
+//[<Struct; StructLayout(LayoutKind.Sequential, Pack = 4)>]
+//type OddEvenTransposeSortT =
+//    val I : int
+//    val VT : int
+//    
+//    new (i, vt) = { I = i; VT = vt }
+//        
+//    member this.Sort (ident:'T) (comp:IComp<'T>) =
+//        let swap = (swap ident).Device
+//        let comp = comp.Device
+//        <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
+//            let swap = %swap
+//            let comp = %comp
+//            
+//            let mutable i = 1 &&& this.I
+//            while i < this.VT - 2 do
+//                if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
+//                    swap keys.[i] keys.[i + 1]
+//                    swap values.[i] values.[i + 1]
+//                i <- i + 2
+//            () @>
+let inline oddEvenTransposeSortT (ident:'T) (I:int) (VT:int) (compType:CompType) =
+    { new IOddEvenTransposeSortT<'T,'T,'T> with
+        member this.Sort = 
+            let swap = (swap ident).Device
+            //let sort = oddEvenTransposeSortT(I + 1, VT).Sort ident comp
+            let comp = (comp compType ident).Device            
+            <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
+                let swap = %swap
+                let comp = %comp
+                //let sort = %sort
+            
+                let mutable i = 1 &&& I
+                while i < VT - 2 do
+                    if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
+                        swap keys.[i] keys.[i + 1]
+                        swap values.[i] values.[i + 1]
+                    i <- i + 2
+                (*sort keys values flags*)
+                 @> }
+
+let OddEvenTransposeSortT (I:int) (VT:int) (ident:'T) (compType:CompType) =
+    let swap = (swap ident).Device
+    let oddEvenTransposeSortT = (oddEvenTransposeSortT ident (I + 1) VT compType).Sort
+    let comp = (comp compType ident).Device
+    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int) ->
+        let swap = %swap
+        let comp = %comp
+        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+
+        let mutable i = 1 &&& I
+        while i < VT - 2 do
+            if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
+                swap keys.[i] keys.[i + 1]
+                swap values.[i] values.[i + 1]
+            i <- i + 2
+        oddEvenTransposeSortT keys values flags
+            @>
+
+
+let oddEvenTransposeSort (VT:int) (compType:CompType) (ident:'T) =
+    let oddEvenTransposeSortT = OddEvenTransposeSortT 0 VT ident compType
+    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) ->
+        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+        oddEvenTransposeSortT keys values 0
+    @>
 
 
 //////////////////////////////////////////////////////////////////////////////////

@@ -9,7 +9,7 @@ open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.Intrinsics
 open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTASearch
-//open Alea.CUDA.Extension.MGPU.SortNetwork
+open Alea.CUDA.Extension.MGPU.SortedNetwork
 
 [<ReflectedDefinition>]
 let doRangeCheck = 1
@@ -20,6 +20,7 @@ let dontRangeCheck = 0
 let doesHaveValues = 1
 [<ReflectedDefinition>]
 let doesntHaveValues = 0
+
 
 
 // SerialMerge
@@ -144,7 +145,8 @@ let computeMergeRange = new ComputeMergeRange()
 
 
 // CTA mergesort support
-let ctaBlocksortPass (NT:int) (VT:int) (comp:IComp<'TC>) =
+let ctaBlocksortPass (NT:int) (VT:int) (compType:CompType) (ident:'T) =
+    let comp = comp compType ident
     let mergePath = (mergeSearch MgpuBoundsLower comp).DMergePath
     let serialMerge = serialMerge VT doRangeCheck comp
     let comp = comp.Device
@@ -162,8 +164,8 @@ let ctaBlocksortPass (NT:int) (VT:int) (comp:IComp<'TC>) =
         let p = mergePath (keys_shared + a0) (b0 - a0) (keys_shared + b0) (b1 - b0) diag
         serialMerge keys_shared (a0 + p) b0 (b0 + diag - p) b1 keys indices @>
 
-let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
-    let ctaBlocksortPass = ctaBlocksortPass NT VT comp
+let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:int) (compType:CompType) (ident:'T) =
+    let ctaBlocksortPass = ctaBlocksortPass NT VT compType ident
     let deviceThreadToShared = deviceThreadToShared VT
     let deviceGather = deviceGather NT VT
 
@@ -177,7 +179,7 @@ let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
             let indices = __local__<int>(VT).Ptr(0)
             let keys = __local__<'TK>(VT).Ptr(0)
             ctaBlocksortPass keys_shared tid count coop keys indices
-
+            
             if hasValues = 1 then
                 deviceThreadToShared threadValues tid values_shared doSync
                 deviceGather (NT * VT) values_shared indices tid threadValues doSync
@@ -189,22 +191,26 @@ let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
 // CTAMergesort
 // Caller provides the keys in shared memory. This functions sorts the first
 // count elements.
-let ctaMergesort (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
-    let deviceThreadToShared = deviceThreadToShared VT
-    let ctaBlocksortLoop = ctaBlocksortLoop NT VT hasValues comp
+let ctaMergesort (NT:int) (VT:int) (hasValues:int) (compType:CompType) (ident:'T) =
     
-    <@ fun (threadKeys:DevicePtr<'TK>) (threadValues:DevicePtr<'TV>) (keys_shared:RWPtr<'TK>) (values_shared:RWPtr<'TV>) (count:int) (tid:int) (compOp:CompOpType) ->
+    let deviceThreadToShared = deviceThreadToShared VT
+    let ctaBlocksortLoop = ctaBlocksortLoop NT VT hasValues compType ident
+    let oddEvenTransposeSort = oddEvenTransposeSort VT compType ident
+
+    <@ fun (threadKeys:RWPtr<'TK>) (threadValues:RWPtr<'TV>) (keys_shared:RWPtr<'TK>) (values_shared:RWPtr<'TV>) (count:int) (tid:int) (compType:CompType) ->
         let deviceThreadToShared = %deviceThreadToShared
         let ctaBlocksortLoop = %ctaBlocksortLoop
-        if (VT * tid) > count then
-            oddEvenTransposeSort<'TV> threadsKeys threadValues compOp
-        deviceThreadToShared threadKeys tid keys_shared
+        let oddEvenTransposeSort = %oddEvenTransposeSort
 
-        ctaBlocksortLoop threadValues keys_shared values_shared tid count compOp @>
+        if (VT * tid) > count then
+            oddEvenTransposeSort threadKeys threadValues
+        deviceThreadToShared threadKeys tid keys_shared doSync
+
+        ctaBlocksortLoop threadValues keys_shared values_shared tid count @>
 
 
 let deviceMergeKeysIndices (NT:int) (VT:int) (comp:IComp<'T>) =
-    let deviceLoad2ToShared = deviceLoad2ToSharedA NT VT VT
+    let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT VT
     let mergePath = (mergeSearch MgpuBoundsLower comp).DMergePath
     let serialMerge = serialMerge VT 1 comp
 
@@ -220,7 +226,7 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (comp:IComp<'T>) =
         let aCount = a1 - a0
         let bCount = b1 - b0
 
-        deviceLoad2ToShared (a_global + a0) (b_global + b0) bCount tid keys_shared doSync
+        deviceLoad2ToShared (a_global + a0) aCount (b_global + b0) bCount tid keys_shared doSync
 
         let diag = VT * tid
         let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag // comp
@@ -238,7 +244,7 @@ let deviceMerge (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
     let deviceMergeKeysIndices = deviceMergeKeysIndices NT VT comp
     let deviceThreadToShared = deviceThreadToShared VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
-    let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
+    let deviceTransferMergeValues = deviceTransferMergeValuesB NT VT
 
     <@ fun (aKeys_global:RWPtr<'K1>) (aVals_global:RWPtr<'V1>) (bKeys_global:RWPtr<'K2>) (bVals_global:RWPtr<'V2>) (tid:int) (block:int) (range:int4) (keys_shared:RWPtr<'TK>) (indices_shared:RWPtr<int>) (keys_global:RWPtr<'K3>) (vals_global:RWPtr<'V3>) ->
         let deviceMergeKeysIndices = %deviceMergeKeysIndices
@@ -250,14 +256,14 @@ let deviceMerge (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
         let indices = __local__<int>(VT).Ptr(0)
         deviceMergeKeysIndices aKeys_global bKeys_global range tid keys_shared results indices // comp
         
-        deviceThreadToShared results tid keys_shared
+        deviceThreadToShared results tid keys_shared doSync
 
         let aCount = range.y - range.x
         let bCount = range.w - range.z
-        deviceSharedToGlobal (aCount + bCount) keys_shared tid (keys_global + NT * NT * block)
+        deviceSharedToGlobal (aCount + bCount) keys_shared tid (keys_global + NT * NT * block) doSync
 
         if hasValues = 1 then
-            deviceThreadToShared indices tid indices_shared
+            deviceThreadToShared indices tid indices_shared doSync
 
-            deviceTransferMergeValues (aCount + bCount) (aVals_global + range.x) (bVals_global + range.z) aCount indices_shared tid (vals_global + NT * VT * block)
+            deviceTransferMergeValues (aCount + bCount) (aVals_global + range.x) (bVals_global + range.z) aCount indices_shared tid (vals_global + NT * VT * block) doSync
         @>
