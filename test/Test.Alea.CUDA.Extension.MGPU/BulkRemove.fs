@@ -175,7 +175,7 @@ let ``bulkRemove moderngpu web example`` () =
     //printfn "HostRemoved!"
     let dResult = 
         let br = worker.LoadPModule(MGPU.PArray.bulkRemove 0).Invoke
-        printfn "br invoke!!!!!!!!!!!!!"
+        //printfn "br invoke!!!!!!!!!!!!!"
         let calc = pcalc {
                     let! data = DArray.scatterInBlob worker hValues
                     let! indices = DArray.scatterInBlob worker hRemoveIndices

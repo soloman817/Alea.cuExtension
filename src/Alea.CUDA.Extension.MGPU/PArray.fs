@@ -88,7 +88,7 @@ let bulkRemove (ident:'TI) = cuda {
         fun (data:DArray<'TI>) (indices:DArray<int>) ->
             //printfn "BR PARRAY!"
             let sourceCount = data.Length
-            let indicesCount = data.Length
+            let indicesCount = indices.Length
             let api = api sourceCount indicesCount
             pcalc {
                 let! removed = DArray.createInBlob<'TI> worker (sourceCount - indicesCount)
