@@ -172,21 +172,13 @@ let ``compare totalAtEnd & totalNotAtEnd`` () =
     printfn "Host Scan Result ==> Count: (%d),  %A" hResult.Length hResult
     let op = scanOp ScanOpTypeAdd 0
     let calc = pcalc {
-                                //printfn "00000"  
-                                let scan = worker.LoadPModule(MGPU.PArray.scan 0 op 1).Invoke
-                                //printfn "11111"
-                                let n = hValues.Length
-                                //printfn "22222"
-                                let! dValues = DArray.scatterInBlob worker hValues
-                                //printfn "33333"
-                                let! dResults = DArray.createInBlob<int> worker n
-                                //printfn "44444"
-                                //let! scanner, scanned = scan dValues
-                                let! scanner, scanned = scan dValues
-                                //printfn "55555"
-                                do! scanner.Value
-                                //printfn "66666"
-                                return! scanned.Gather()}
+                        let scan = worker.LoadPModule(MGPU.PArray.scan 0 op 1).Invoke
+                        let n = hValues.Length
+                        let! dValues = DArray.scatterInBlob worker hValues
+                        let! dResults = DArray.createInBlob<int> worker n
+                        let! scanner, scanned = scan dValues
+                        do! scanner.Value
+                        return! scanned.Gather()}
                                 
     let dResult : int[] = calc |> PCalc.run
     printfn "Device result (%A)" dResult
