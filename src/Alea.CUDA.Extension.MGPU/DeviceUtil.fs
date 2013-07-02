@@ -57,6 +57,8 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range.y <- min count (range.y * blockSize)
     range
 
+
+
 type IComp<'TC> =
     abstract Identity : 'TC
     abstract Host : ('TC -> 'TC -> int)

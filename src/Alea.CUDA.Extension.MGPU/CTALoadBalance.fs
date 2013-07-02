@@ -1,5 +1,5 @@
 ﻿module Alea.CUDA.Extension.MGPU.CTALoadBalance
-
+// PARTIAL IMPLEMENTATION
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA

@@ -5,7 +5,7 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
-//open Alea.CUDA.Extension.MGPU.BuklRemove
+
 
 // one wrapper for reduce, in this wrapper, the memory is created on the
 // fly.
@@ -33,18 +33,15 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
 
 let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let! api = Scan.scan mgpuScanType op totalAtEnd
-    //printfn "scan parray 1"
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-        //printfn "scan parray 2"
         fun (data:DArray<int>) ->
             pcalc {
                 let count = data.Length
                 let api = api count
                 let! scanned = DArray.createInBlob worker count
                 let! total = DArray.createInBlob worker 1
-                //printfn "scan parray 3"
                 let scanner =
                     fun () ->
                         pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )}
@@ -52,8 +49,6 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                 return scanner, scanned} ) }
 
 
-
-//let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
     let! api = Search.binarySearchPartitions bounds compOp
 
@@ -71,7 +66,6 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
                 let result =
                     fun () ->
                         pcalc { 
-                            //printfn "PARTITIONS: %A" api.Partitions
                             let! parts = partData.Gather()
                             return parts }
                     |> Lazy.Create
@@ -86,7 +80,6 @@ let bulkRemove (ident:'TI) = cuda {
         let worker = m.Worker
         let api = api.Apply m
         fun (data:DArray<'TI>) (indices:DArray<int>) ->
-            //printfn "BR PARRAY!"
             let sourceCount = data.Length
             let indicesCount = indices.Length
             let api = api sourceCount indicesCount

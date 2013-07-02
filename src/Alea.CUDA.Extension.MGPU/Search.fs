@@ -40,6 +40,7 @@ type IBinarySearchPartitions<'TI> =
         Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> unit        
     }
 
+
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda { 
     let plan = { NT = 64; Bounds = bounds }
     let binarySearch = binarySearchFun bounds compOp
@@ -63,7 +64,6 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 
 // MergePathPartitions
-
 let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) = 
     let mergePath = (mergeSearch bounds comp).DMergePath
     let findMergesortFrame = findMergesortFrame.Device
@@ -88,10 +88,12 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) =
             let mp = mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
             mp_global.[partition] <- mp @>
 
+
 type IMergePathPartitions<'TI1, 'TI2> =
     {
         Action : ActionHint -> DevicePtr<'TI1> -> DevicePtr<'TI2> -> int -> int -> unit        
     }
+
 
 let mergePathPartitions (bounds:int) (comp:IComp<'TC>) = cuda {
     let NT = 64
@@ -116,28 +118,9 @@ let mergePathPartitions (bounds:int) (comp:IComp<'TC>) = cuda {
 
 
 
-//let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda { 
-//    let plan = { NT = 64; Bounds = bounds }
-//    let! kernelBinarySearch = (kernelBinarySearch plan compOp) |> defineKernelFunc
+// MODERN GPU C++ CODE
 //
-//    return PFunc(fun (m:Module) ->
-//        let worker = m.Worker
-//        let kernelBinarySearch = kernelBinarySearch.Apply m
-//        
-//        fun (count:int) (numItems:int) (nv:int) ->
-//            let numBlocks = divup count nv
-//            let numPartitionBlocks = divup (numBlocks + 1) plan.NT
-//            let partitionsDevice = worker.Malloc<int>(numBlocks + 1)
-//            let lp = LaunchParam(numPartitionBlocks, plan.NT)
-//            
-//            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) =
-//                let partitionsDevice = worker.Malloc<int>(numBlocks + 1)
-//                let lp = lp |> hint.ModifyLaunchParam
-//                kernelBinarySearch.Launch lp count data_global numItems nv partitionsDevice.Ptr (numBlocks + 1)
-//                
-//            { Action = action; Partitions = partitionsDevice.ToHost()} ) }
-
-
+//
 //////////////////////////////////////////////////////////////////////////////////
 //// MergePathPartitions
 //

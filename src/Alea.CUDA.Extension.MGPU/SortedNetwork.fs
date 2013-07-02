@@ -1,5 +1,5 @@
 ﻿module Alea.CUDA.Extension.MGPU.SortedNetwork
-
+// PARTIAL IMPLEMENTATION, NEEDS TESTING
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Collections

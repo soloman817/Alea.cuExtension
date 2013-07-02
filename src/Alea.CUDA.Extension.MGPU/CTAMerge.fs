@@ -229,14 +229,14 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (comp:IComp<'T>) =
         deviceLoad2ToShared (a_global + a0) aCount (b_global + b0) bCount tid keys_shared doSync
 
         let diag = VT * tid
-        let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag // comp
+        let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag
 
         let a0tid = mp
         let a1tid = aCount
         let b0tid = aCount + diag - mp
         let b1tid = aCount + bCount
 
-        serialMerge keys_shared a0tid a1tid b0tid b1tid results indices // comp
+        serialMerge keys_shared a0tid a1tid b0tid b1tid results indices
         @>
 
 
@@ -254,7 +254,7 @@ let deviceMerge (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
 
         let results = __local__<'TK>(VT).Ptr(0)
         let indices = __local__<int>(VT).Ptr(0)
-        deviceMergeKeysIndices aKeys_global bKeys_global range tid keys_shared results indices // comp
+        deviceMergeKeysIndices aKeys_global bKeys_global range tid keys_shared results indices
         
         deviceThreadToShared results tid keys_shared doSync
 

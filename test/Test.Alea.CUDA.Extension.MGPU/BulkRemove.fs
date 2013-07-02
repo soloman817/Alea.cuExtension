@@ -15,8 +15,6 @@ open NUnit.Framework
 let worker = Engine.workers.DefaultWorker
 let rng = System.Random()
 
-
-//let sourceCounts = [10e3; 50e3; 100e3; 200e3; 500e3; 1e6; 2e6; 5e6; 10e6; 20e6]
 let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
 let nIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
 
@@ -110,7 +108,7 @@ let inline testBulkRemove (ident:'T) =
                                                                values1 ns nr ||> test |> PCalc.run)
     (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
                                                                values2 ns nr ||> test |> PCalc.run)
-//    (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
+// this has generic issue //    (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
 //                                                               values3 ns nr ||> test |> PCalc.run)
          
     let n = 2097152
@@ -172,10 +170,8 @@ let ``bulkRemove moderngpu web example`` () =
                    87; 88; 89; 92; 93; 94; 95 |]
     //printfn "Answer given on website: %A" answer
     let hResult = hostRemove hValues hRemoveIndices
-    //printfn "HostRemoved!"
     let dResult = 
         let br = worker.LoadPModule(MGPU.PArray.bulkRemove 0).Invoke
-        //printfn "br invoke!!!!!!!!!!!!!"
         let calc = pcalc {
                     let! data = DArray.scatterInBlob worker hValues
                     let! indices = DArray.scatterInBlob worker hRemoveIndices
@@ -243,63 +239,10 @@ let ``BulkRemove moderngpu benchmark int`` () =
 //                                                    benchmarkBulkRemove s i)
 //    intStats.CompareResults
 
-//[<Test>]
-//let ``simple bulkRemove`` () =
-//    let hValues = Array.init 1000 (fun i -> i)
-//    printfn "Initial Array:  %A" hValues
-//    let hIndices = [| 2; 3; 8; 11; 13; 14 |]
-//    printfn "Indices to remove: %A" hIndices
-//    let hResult = Set.difference (hValues |> Set.ofArray) (hIndices |> Set.ofArray) |> Set.toArray
-//    printfn "Host Result After Removal:  %A" hResult
-//    let dResult = bulkRemove hValues hIndices
-//    printfn "Device Result After Removal:  %A" dResult
-//
-//    displayHandD hResult dResult
-//
 
 
 
-
-    
-    
-//type ConvertType =
-//    | AsInts
-//    | AsFloat32s
-//    | AsFloats
-//    | AsInt64s
-//
-//type InputType =
-//    | Ints of int[]
-//    | Float32s of float32[]
-//    | Floats of float[]
-//    | Int64s of int64[]
-//
-//let genData : int -> int -> ConvertType -> InputType * int[] =
-//    fun (sCount:int) (rCount:int) (ct:ConvertType) ->
-//        let source = 
-//            match ct with
-//            | AsInts -> Array.init sCount (fun _ -> rng.Next()) |> Array.map (fun e -> int e) |> Ints
-//            | AsFloat32s -> Array.init sCount (fun _ -> rng.Next()) |> Array.map (fun e -> float32 e) |> Float32s
-//            | AsFloats -> Array.init sCount (fun _ -> rng.Next()) |> Array.map (fun e -> float e) |> Floats
-//            | AsInt64s -> Array.init sCount (fun _ -> rng.Next()) |> Array.map (fun e -> int64 e) |> Int64s
-//        let indices = Array.init rCount (fun _ -> rng.Next sCount) |> Array.sort
-//        source, indices
-
-
-//let bulkRemove =
-//    let br = worker.LoadPModule(MGPU.PArray.bulkRemove).Invoke
-//    fun (data:'TI[]) (indices:int[]) ->
-//        let calc = pcalc {
-//            let! data = DArray.scatterInBlob worker data
-//            let! indices = DArray.scatterInBlob worker indices
-//            let! result = br data indices
-//            return! result.Value }
-//        let dResult = PCalc.run calc
-//        dResult
-
-
-
-// My output from moderngpu benchmarkbulkinsert run
+// Output from moderngpu benchmarkbulkinsert run  (Aaron's Computer)
 //GeForce GTX 560 Ti : 1700.000 Mhz   (Ordinal 0)
 //8 SMs enabled. Compute Capability sm_21
 //FreeMem:    760MB   TotalMem:   1024MB.
@@ -352,6 +295,10 @@ let ``BulkRemove moderngpu benchmark int`` () =
 //   20M:  4827.018 M/s     86.886 GB/sd
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+///  Saving Old Code for Now
+////////////////////////////////////////////////////////////////////////////////////////////////////////
 //type Stats( numTests, mgpuStats : (float * float) list) =
 //    let mutable myStats = 
 //        let mutable r = []

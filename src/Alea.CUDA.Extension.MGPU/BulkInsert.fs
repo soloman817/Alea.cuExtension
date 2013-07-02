@@ -94,10 +94,14 @@ let kernelBulkInsert (plan:Plan) =
 
         deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) dontSync @>
 
+
+
 type IBulkInsert<'TI1, 'TIDX, 'TI2, 'TO> =
     {
         Action : ActionHint -> DevicePtr<'TI1> -> DevicePtr<'TIDX> -> int -> DevicePtr<'TI2> -> int -> DevicePtr<'TO> -> unit
     }
+
+
 
 let bulkInsert (ident:'T)  = cuda {
     let plan = { NT = 128; VT = 7 }

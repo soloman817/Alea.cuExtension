@@ -93,13 +93,13 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                     let begin' = ref 0
                     let end' = ref count
 
-                    if levels >= 4 && begin' < end' then this.HBinarySearchIt data begin' end' key 9 //comp
-                    if levels >= 3 && begin' < end' then this.HBinarySearchIt data begin' end' key 7 //comp
-                    if levels >= 2 && begin' < end' then this.HBinarySearchIt data begin' end' key 5 //comp
-                    if levels >= 1 && begin' < end' then this.HBinarySearchIt data begin' end' key 4 //comp
+                    if levels >= 4 && begin' < end' then this.HBinarySearchIt data begin' end' key 9
+                    if levels >= 3 && begin' < end' then this.HBinarySearchIt data begin' end' key 7
+                    if levels >= 2 && begin' < end' then this.HBinarySearchIt data begin' end' key 5
+                    if levels >= 1 && begin' < end' then this.HBinarySearchIt data begin' end' key 4
 
                     while begin' < end' do
-                        this.HBinarySearchIt data begin' end' key 1 //comp
+                        this.HBinarySearchIt data begin' end' key 1
                     begin'.contents
 
             member this.DBiasedBinarySearch = 
@@ -111,13 +111,13 @@ let inline binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
                     let dbs = %(this.DBinarySearchIt)
 
-                    if levels >= 4 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 9 //comp
-                    if levels >= 3 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 7 //comp
-                    if levels >= 2 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 5 //comp
-                    if levels >= 1 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 4 //comp
+                    if levels >= 4 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 9
+                    if levels >= 3 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 7
+                    if levels >= 2 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 5
+                    if levels >= 1 && begin' < end' then dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 4
 
                     while begin' < end' do
-                        dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 1 //comp
+                        dbs data (RWPtr(int64(begin'))) (RWPtr(int64(end'))) key 1
                     begin' @>
 
             member this.HBinarySearch = 
@@ -242,7 +242,7 @@ let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) 
             member this.HBalancedPath =
                 let comp a b = compOp.Host a b
                 fun (a:'TI[]) (aCount:int) (b:'TI[]) (bCount:int) (diag:int) (levels:int) ->
-                    let p = (mergeSearch MgpuBoundsLower compOp).HMergePath a aCount b bCount diag //comp
+                    let p = (mergeSearch MgpuBoundsLower compOp).HMergePath a aCount b bCount diag
                     let mutable aIndex = p
                     let bIndex = diag - p
 
@@ -251,8 +251,8 @@ let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) 
                         if duplicates <> 0 then
                             let x = b.[bIndex]
 
-                            let aStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch a aIndex x levels //comp
-                            let bStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch b bIndex x levels //comp
+                            let aStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch a aIndex x levels
+                            let bStart = (binarySearchFun MgpuBoundsLower compOp).HBiasedBinarySearch b bIndex x levels
 
                             let aRun = aIndex - aStart
                             let mutable bRun = bIndex - bStart
@@ -333,5 +333,3 @@ let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) 
 
                     let result = int2(aIndex,  star)
                     result @> }
-
-                    

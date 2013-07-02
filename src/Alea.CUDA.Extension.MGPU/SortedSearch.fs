@@ -1,5 +1,5 @@
 ﻿module Alea.CUDA.Extension.MGPU.SortedSearch
-
+// NOT IMPLEMENTED YET
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA

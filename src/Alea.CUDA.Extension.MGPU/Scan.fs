@@ -242,32 +242,22 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
     // raking reduction, then do a raking scan as downsweep
     let rrUpsweepPlan : Reduce.Plan = { NT = 128; VT = 7 }
     let plosPlan = { NT = 256; VT = 3; ST = ExclusiveScan}
-    //let plosPlan = { NT = 256; VT = 3; ST = 0}
     let rsDownsweepPlan = {NT = 256; VT = 3; ST = mgpuScanType}
 
     let kernelPS = kernelParallelScan psPlan op
-    //printfn "1111"
-    //printfn "%A" kernelPS
     let! kernelPS = kernelPS |> defineKernelFunc
 
     let kernelRRUpsweep = Reduce.kernelReduce rrUpsweepPlan op
-    //printfn "2222"
-    //printfn "%A" kernelRRUpsweep
     let! kernelRRUpsweep = kernelRRUpsweep |> defineKernelFunc
 
     let kernelPLOS = kernelParallelScan plosPlan op
-    //printfn "3333"
-    //printfn "%A" kernelPLOS
     let! kernelPLOS = kernelPLOS |> defineKernelFunc
 
     let kernelRSDownsweep = kernelScanDownsweep rsDownsweepPlan op
-    //printfn "4444"
-    //printfn "%A" kernelRSDownsweep
     let! kernelRSDownsweep = kernelRSDownsweep |> defineKernelFunc
     
     let hplus = op.HPlus
-    
-    
+        
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let numSm = worker.Device.NumSm

@@ -50,7 +50,7 @@ let kernelBulkRemove (plan:Plan) =
         let deviceRegToGlobal = %deviceRegToGlobal
 
         let scan = %scan2
-//
+
         let shared = %(createSharedExpr)
         let sharedScan = shared.Reinterpret<int>()
         let sharedIndices = shared.Reinterpret<int>()
@@ -146,18 +146,4 @@ let bulkRemove (ident:'T) = cuda {
                 kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts.Ptr dest_global
 
             { Action = action } ) }
-
-
-//        fun (sourceCount:int) (indices_global:DevicePtr<int>) (indicesCount:int) ->
-//            let numBlocks = divup sourceCount NV
-//            let lp = LaunchParam(numBlocks, plan.NT)
-//            let bsp = bsp sourceCount indicesCount NV
-//            let parts = worker.Malloc(numBlocks + 1)
-//            
-//            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (dest_global:DevicePtr<'TI>) =
-//                let lp = lp |> hint.ModifyLaunchParam
-//                let partitions = (bsp.Action hint indices_global parts.Ptr)
-//                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts.Ptr dest_global
-//
-//            { Action = action } ) }
             

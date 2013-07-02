@@ -124,6 +124,7 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     capacity, scan
 
 // CTAScan2
+// possible to refactor?
 let ctaScan2 (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let capacity, scan = ctaScan NT op
     let scan2 =
