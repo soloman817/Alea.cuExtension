@@ -9,14 +9,15 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
 open Test.Alea.CUDA.Extension.MGPU.Util
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 
 open NUnit.Framework
 
 let worker = Engine.workers.DefaultWorker
 let rng = System.Random()
 
-let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
-let nIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
+let sourceCounts = BenchmarkStats.sourceCounts
+let nIterations = BenchmarkStats.bulkRemoveIterations
 
 let removeAmount = 2 //half
 let removeCount c = c / removeAmount
@@ -189,6 +190,11 @@ let ``bulkRemove moderngpu web example`` () =
     printfn "dResult == hResult?"
     verify hResult dResult
     printfn "yes"
+
+
+[<Test>]
+let ``BulkRemove 3 value test`` () =
+    testBulkRemove 0
 
 
 [<Test>]

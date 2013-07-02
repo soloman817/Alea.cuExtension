@@ -7,6 +7,7 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.Scan
 open Alea.CUDA.Extension.MGPU.CTAScan
 open Test.Alea.CUDA.Extension.MGPU.Util
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 open NUnit.Framework
 
 let totalAtEnd = 1
@@ -22,8 +23,8 @@ let sizes1L = sizes1A |> Array.toList
 let sizes2A = [|512; 1024; 2048; 3000; 6000; 12000; 24000; 100000; 1000000 |] 
 let sizes2L = sizes2A |> Array.toList
 
-let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 200000; 500000; 10000000; 20000000]
-let nIterations = [1000; 1000; 1000; 500; 200; 200; 200; 200; 100; 100]
+let sourceCounts = BenchmarkStats.sourceCounts
+let nIterations = BenchmarkStats.scanIterations
 
 let worker = getDefaultWorker()
 
@@ -119,19 +120,18 @@ let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int
         let count = data.Length
         let calc = pcalc {
             let! dValues = DArray.scatterInBlob worker data
-            //let! scanner, scanned = scan dValues
-            let! scanner, _ = scan dValues
+            let! scanner, scanned = scan dValues
             let! stopwatch = DStopwatch.startNew worker
             for i = 1 to numIt do
                 do! scanner.Value
             do! stopwatch.Stop()
 
-            //let! results = scanned.Gather()
+            let! results = scanned.Gather()
             let! timing = stopwatch.ElapsedMilliseconds
 
-            return timing / 1000.0 }
+            return results, timing / 1000.0 }
                 
-        let timing = calc |> PCalc.run
+        let results, timing = calc |> PCalc.run
         let bytes = (2 * sizeof<'TI> + sizeof<'TV>) * count |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
@@ -144,21 +144,6 @@ let printScanType (mgpuScanType:int) =
     else
         printfn "Scan Type: Inclusive"
 
-      
-//[<Test>]
-//let ``simple scan with stats``() =
-//    let values = Array.init 16 (fun i -> i)
-//    let op = scanOp ScanOpTypeAdd 0
-//    let test = testScanStats defaultScanType op totalAtEnd
-//    test values
-//    
-//[<Test>]
-//let ``simple scan with output display & verify`` () =
-//    let values = Array.init 16 (fun i -> i)
-//    let op = scanOp ScanOpTypeAdd 0
-//    let gold data = data |> Array.scan (+) 0
-//    let test = testScanVerify defaultScanType op totalAtEnd true gold verify
-//    test values
 
 //need to fix, they are no different
 [<Test>]
@@ -177,8 +162,6 @@ let ``compare totalAtEnd & totalNotAtEnd`` () =
                                         do! scanner.Value
                                         return! scanned.Gather()}
                                 
-    //let dResult : int[] = calc |> PCalc.run
-    //printfn "Device result (%A)" dResult
     let dResult = (calc totalAtEnd) |> PCalc.run
     printfn "Device Scan Result (Total At End) ==> Count: (%d),  %A" dResult.Length dResult
     let dResult = (calc totalNotAtEnd) |> PCalc.run
@@ -237,18 +220,29 @@ let printfnMgpuThrustTB ((mtp, mbw), (ttp, tbw)) =
 [<Test>]
 let ``benchmark scan int`` () =
     let scan = benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd
+    
+    let mgpuStats = BenchmarkStats.TeslaK20c.moderngpu_scanStats_int
+    let thrustStats = BenchmarkStats.TeslaK20c.thrust_scanStats_int
+    let stats = List.zip mgpuStats thrustStats
+    
     let genData n = rngGenericArray n
+
     (sourceCounts, nIterations) ||> List.iteri2 (fun i sc ni -> scan (genData sc) ni
-                                                                i |> List.nth mgpuStats_Int |> printfnMgpuThrustTB)
+                                                                i |> List.nth stats |> printfnMgpuThrustTB)
 
 
 //[<Test>]
 //let ``benchmark scan int64`` () =
 //    let scan = benchmarkScan defaultScanType (scanOp ScanOpTypeAdd 0L) totalNotAtEnd
+//    
+//    let mgpuStats = BenchmarkStats.TeslaK20c.moderngpu_scanStats_int64
+//    let thrustStats = BenchmarkStats.TeslaK20c.thrust_scanStats_int64
+//    let stats = List.zip mgpuStats thrustStats
+//    
 //    let genData n = rngGenericArray n
 //    (sourceCounts, nIterations) ||> List.iteri2 (fun i sc ni -> scan (genData sc) ni
-//                                                                i |> List.nth mgpuStats_Int64 |> printfnMgpuThrustTB)
-//
+//                                                                i |> List.nth stats |> printfnMgpuThrustTB)
+
 //[<Test>]
 //let ``benchmark scan float32`` () =
 //    let scan = benchmarkScan defaultScanType (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd
@@ -261,34 +255,6 @@ let ``benchmark scan int`` () =
 //    let genData n = rngGenericArray n
 //    (sourceCounts, nIterations) ||> List.iter2 (fun s i -> scan (genData s) i)
 
-//[<Test>]
-//let ``simple scan, past cutoff (n > 20000)`` () =
-//    let values = Array.init 21000 (fun i -> i)
-//    let op = scanOp ScanOpTypeAdd 0
-//    let test = testScanStats defaultScanType op totalAtEnd
-//    test values
-//
-//[<Test>]
-//let ``simple scan with size iter & stats`` () =
-//    let op = scanOp ScanOpTypeAdd 0
-//    let test = testScanStats defaultScanType op totalAtEnd
-//    sizes1L |> Seq.iter (fun count ->  
-//        test (Array.init count (fun i -> i)))
-//
-//[<Test>]
-//let ``simple scan with size iter, display, & verify`` () =
-//    let op = scanOp ScanOpTypeAdd 0
-//    let gold data = data |> Array.scan (+) 0
-//    let test = testScanVerify defaultScanType op totalAtEnd true gold verify
-//    sizes1L |> Seq.iter (fun count ->  
-//        test (Array.init count (fun i -> i)))
-//
-//[<Test>]
-//let ``scan with big size iter & stats`` () =
-//    let op = scanOp ScanOpTypeAdd 0
-//    let test = testScanStats defaultScanType op totalAtEnd
-//    sizes2L |> Seq.iter (fun count ->  
-//        test (Array.init count (fun i -> i)))
 
 
 //[<Test>]
