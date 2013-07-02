@@ -193,18 +193,7 @@ let ``bulkRemove moderngpu web example`` () =
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark int`` () =    
-                            // throughtput, bandwidth
-    let mgpuStats_Int = [   (371.468,    2.972);
-                            (1597.495,  12.780);
-                            (3348.861,  26.791);
-                            (5039.794,  40.318);
-                            (7327.432,  58.619);
-                            (8625.687,  69.005);
-                            (9446.528,  75.572);
-                            (9877.425,  79.019);
-                            (9974.556,  79.796);
-                            (10060.556, 80.484)]
-            
+                
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter
         (fun test -> let ns,ni,nr = test 
                      //let bulkRemove = benchmarkBulkRemove<int> ns nr
@@ -220,16 +209,7 @@ let ``BulkRemove moderngpu benchmark int`` () =
 
 //[<Test>]
 //let ``BulkRemove moderngpu benchmark int64`` () =
-//    let mgpuStats_Int64 = [ (328.193, 4.595);
-//                            (1670.632, 23.389);
-//                            (2898.674, 40.581);
-//                            (3851.190, 53.917);
-//                            (5057.443, 70.804);
-//                            (5661.127, 79.256);
-//                            (6052.202, 84.731);
-//                            (6232.150, 87.250);
-//                            (6273.645, 87.831);
-//                            (6311.973, 88.638)]
+
 //
 //    let intStats = Stats(sourceCounts.Length, mgpuStats_Int64)
 //    let int64benchmarkBulkRemove = benchmarkBulkRemove intStats 0L
@@ -239,60 +219,6 @@ let ``BulkRemove moderngpu benchmark int`` () =
 //                                                    benchmarkBulkRemove s i)
 //    intStats.CompareResults
 
-
-
-
-// Output from moderngpu benchmarkbulkinsert run  (Aaron's Computer)
-//GeForce GTX 560 Ti : 1700.000 Mhz   (Ordinal 0)
-//8 SMs enabled. Compute Capability sm_21
-//FreeMem:    760MB   TotalMem:   1024MB.
-//Mem Clock: 2004.000 Mhz x 256 bits   (128.256 GB/s)
-//ECC Disabled
-//
-//Benchmarking BulkRemove on type int.
-//   10K:   371.468 M/s      2.972 GB/s
-//   50K:  1597.495 M/s     12.780 GB/s
-//  100K:  3348.861 M/s     26.791 GB/s
-//  200K:  5039.794 M/s     40.318 GB/s
-//  500K:  7327.432 M/s     58.619 GB/s
-//    1M:  8625.687 M/s     69.005 GB/s
-//    2M:  9446.528 M/s     75.572 GB/s
-//    5M:  9877.425 M/s     79.019 GB/s
-//   10M:  9974.556 M/s     79.796 GB/s
-//   20M: 10060.556 M/s     80.484 GB/s
-//Benchmarking BulkRemove on type int64.
-//   10K:   328.193 M/s      4.595 GB/s
-//   50K:  1670.632 M/s     23.389 GB/s
-//  100K:  2898.674 M/s     40.581 GB/s
-//  200K:  3851.190 M/s     53.917 GB/s
-//  500K:  5057.443 M/s     70.804 GB/s
-//    1M:  5661.127 M/s     79.256 GB/s
-//    2M:  6052.202 M/s     84.731 GB/s
-//    5M:  6232.150 M/s     87.250 GB/s
-//   10M:  6273.645 M/s     87.831 GB/s
-//   20M:  6311.973 M/s     88.368 GB/s
-//Benchmarking BulkInsert on type int.
-//   10K:   327.200 M/s      3.272 GB/s
-//   50K:  1486.284 M/s     14.863 GB/s
-//  100K:  2971.904 M/s     29.719 GB/s
-//  200K:  4160.540 M/s     41.605 GB/s
-//  500K:  5837.133 M/s     58.371 GB/s
-//    1M:  6666.386 M/s     66.664 GB/s
-//    2M:  6963.040 M/s     69.630 GB/s
-//    5M:  7010.378 M/s     70.104 GB/s
-//   10M:  7012.604 M/s     70.126 GB/s
-//   20M:  6974.831 M/s     69.748 GB/s
-//Benchmarking BulkInsert on type int64.
-//   10K:   324.171 M/s      5.835 GB/s
-//   50K:  1617.291 M/s     29.111 GB/s
-//  100K:  2467.732 M/s     44.419 GB/s
-//  200K:  3296.471 M/s     59.336 GB/s
-//  500K:  4251.011 M/s     76.518 GB/s
-//    1M:  4668.734 M/s     84.037 GB/s
-//    2M:  4819.431 M/s     86.750 GB/s
-//    5M:  4837.521 M/s     87.075 GB/s
-//   10M:  4848.496 M/s     87.273 GB/s
-//   20M:  4827.018 M/s     86.886 GB/sd
 
 
 

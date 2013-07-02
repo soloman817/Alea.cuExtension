@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Util.fs" />
+    <Compile Include="BenchmarkStats.fs" />
     <Compile Include="CTAScan.fs" />
     <Compile Include="CTAMerge.fs" />
     <Compile Include="CTASearch.fs" />
