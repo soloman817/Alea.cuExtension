@@ -27,8 +27,6 @@ let ``cta search`` () =
             kernel.Launch m lp data.Ptr 100 8 output.Ptr
             output.ToHost() ) }
     
-    //let bsp = binarySearchFun MgpuBoundsLower CompTypeLess
-    //let pfunct = pfunct bsp
     let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
 
     let output = pfuncm.Invoke 10

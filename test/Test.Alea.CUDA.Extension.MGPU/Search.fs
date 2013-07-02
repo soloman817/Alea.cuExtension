@@ -35,8 +35,6 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) =
 [<Test>]
 let ``bsp direct kernel test`` () =
     let pfunct = cuda {
-        //let plan : Alea.CUDA.Extension.MGPU.Search.Plan = {NT = 64; Bounds = MgpuBoundsLower}
-        //let! kbsp = (kernelBinarySearch plan CompTypeLess) |> defineKernelFunc
         let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kbsp =
             <@ fun (count:int) (data_global:DevicePtr<'TI>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->

@@ -9,13 +9,10 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 open Test.Alea.CUDA.Extension.MGPU.Util
 open NUnit.Framework
 
-//open Test.Alea.CUDA.Extension.TestUtilities.MGPU.ScanUtils
-
 let totalAtEnd = 1
 let totalNotAtEnd = 0
 
 let defaultScanType = ExclusiveScan
-
 
 let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608]
 
@@ -182,87 +179,95 @@ let ``compare totalAtEnd & totalNotAtEnd`` () =
                                 
     let dResult : int[] = calc |> PCalc.run
     printfn "Device result (%A)" dResult
-//    printfn "Device Scan Result (Total At End) ==> Count: (%d),  %A" dResult.Length dResult
-//    let dResult : int[] = (calc totalNotAtEnd) |> PCalc.run
-//    printfn "Device Scan Result (Total Not At End) ==> Count: (%d),  %A" dResult.Length dResult
-
-//
-//[<Test>]
-//let ``exact mgpu website example`` () =
-//    let hValues = [| 1; 7; 4; 0; 9; 4; 8; 8; 2; 4; 5; 5; 1; 7; 1; 1; 5; 2; 7; 6 |]
-//    let n = hValues.Length
-//    let exclusiveResult = [| 0; 1; 8; 12; 12; 21; 25; 33; 41; 43; 47; 52; 57; 58; 65; 66; 67; 72; 74; 81 |]
-//    let inclusiveResult = [| 1; 8; 12; 12; 21; 25; 33; 41; 43; 47; 52; 57; 58; 65; 66; 67; 72; 74; 81; 87 |]
-//    printfn "Initial values: %A" hValues
-//    let hExcResult, hIncResult = 
-//        (hostScan ExclusiveScan n) (Array.scan (+) 0 hValues), (hostScan InclusiveScan n) (Array.scan (+) 0 hValues) 
-//    printfn "Host Exclusive Scan Result ==> Count: (%d), %A" hExcResult.Length hExcResult
-//    printfn "Host Inclusive Scan Result ==> Count: (%d), %A" hIncResult.Length hIncResult
-//        
-//    let op = scanOp ScanOpTypeAdd 0
-//    let calc (tAe:int) (stype:int) = pcalc {  
-//                                let scan = worker.LoadPModule(MGPU.PArray.scan stype op tAe).Invoke
-//                                let n = hValues.Length
-//                                let! dValues = DArray.scatterInBlob worker hValues
-//                                let! dResults = DArray.createInBlob<int> worker n
-//                                let! scanner, scanned = scan dValues
-//                                do! scanner.Value
-//                                return! scanned.Gather()}
-//    let dExcResult, dIncResult = 
-//        (calc totalNotAtEnd ExclusiveScan) |> PCalc.run,
-//        (calc totalNotAtEnd InclusiveScan) |> PCalc.run
-//
-//    printfn "Device Exclusive Scan Result ==>  Count: (%d), %A" dExcResult.Length dExcResult
-//    printfn "Device Inclusive Scan Result ==>  Count: (%d), %A" dIncResult.Length dIncResult
-//
-//    printfn "Checking that device results = host results"
-//    (hExcResult, dExcResult) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
-//    (hIncResult, dIncResult) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
-//    printfn "Checking that device results = moderngpu website example results"
-//    (dExcResult, exclusiveResult) ||> Array.iter2 (fun d e -> Assert.That(e, Is.EqualTo(d).Within(eps)))
-//    (dIncResult, inclusiveResult) ||> Array.iter2 (fun d e -> Assert.That(e, Is.EqualTo(d).Within(eps)))
-////
-//
-////let sprintTB tp bw = sprintf "\t%9.3f M/s\t%7.3f GB/s\t" (tp / 1e6) (bw / 1e9)
-//let sprintTB tp bw = sprintf "\t%9.3f M/s\t%7.3f GB/s\t" tp bw
-//let printfnMgpuThrustTB ((mtp, mbw), (ttp, tbw)) =
-//    printfn "%s\t%s\t%s\t%s" "MGPU: " (sprintTB mtp mbw) "Thrust: " (sprintTB ttp tbw)
+    printfn "Device Scan Result (Total At End) ==> Count: (%d),  %A" dResult.Length dResult
+    let dResult : int[] = (calc totalNotAtEnd) |> PCalc.run
+    printfn "Device Scan Result (Total Not At End) ==> Count: (%d),  %A" dResult.Length dResult
 
 
-//[<Test>]
-//let ``benchmark scan int`` () =
-//// Sample moderngpu lib results
-////Benchmarking scan on type int
-/////         mgpu thru       mgpu band       thrust thru     thrust band
-////   10K:   522.294 M/s    6.268 GB/s      26.547 M/s    0.319 GB/s
-////   50K:  1409.874 M/s   16.918 GB/s     123.302 M/s    1.480 GB/s
-////  100K:  2793.189 M/s   33.518 GB/s     531.724 M/s    6.381 GB/s
-////  200K:  5016.043 M/s   60.193 GB/s     971.429 M/s   11.657 GB/s
-////  500K:  7157.139 M/s   85.886 GB/s    1889.905 M/s   22.679 GB/s
-////    1M:  7842.271 M/s   94.107 GB/s    2313.313 M/s   27.760 GB/s
-////    2M:  8115.966 M/s   97.392 GB/s    3633.622 M/s   43.603 GB/s
-////    5M:  8301.897 M/s   99.623 GB/s    4492.701 M/s   53.912 GB/s
-////   10M:  8325.225 M/s   99.903 GB/s    4710.093 M/s   56.521 GB/s
-////   20M:  8427.884 M/s  101.135 GB/s    5088.089 M/s   61.057 GB/s
+[<Test>]
+let ``exact mgpu website example`` () =
+    let hValues = [| 1; 7; 4; 0; 9; 4; 8; 8; 2; 4; 5; 5; 1; 7; 1; 1; 5; 2; 7; 6 |]
+    let n = hValues.Length
+    let exclusiveResult = [| 0; 1; 8; 12; 12; 21; 25; 33; 41; 43; 47; 52; 57; 58; 65; 66; 67; 72; 74; 81 |]
+    let inclusiveResult = [| 1; 8; 12; 12; 21; 25; 33; 41; 43; 47; 52; 57; 58; 65; 66; 67; 72; 74; 81; 87 |]
+    printfn "Initial values: %A" hValues
+    let hExcResult, hIncResult = 
+        (hostScan ExclusiveScan n) (Array.scan (+) 0 hValues), (hostScan InclusiveScan n) (Array.scan (+) 0 hValues) 
+    printfn "Host Exclusive Scan Result ==> Count: (%d), %A" hExcResult.Length hExcResult
+    printfn "Host Inclusive Scan Result ==> Count: (%d), %A" hIncResult.Length hIncResult
+        
+    let op = scanOp ScanOpTypeAdd 0
+    let calc (tAe:int) (stype:int) = pcalc {  
+                                let scan = worker.LoadPModule(MGPU.PArray.scan stype op tAe).Invoke
+                                let n = hValues.Length
+                                let! dValues = DArray.scatterInBlob worker hValues
+                                let! dResults = DArray.createInBlob<int> worker n
+                                let! scanner, scanned = scan dValues
+                                do! scanner.Value
+                                return! scanned.Gather()}
+    let dExcResult, dIncResult = 
+        (calc totalNotAtEnd ExclusiveScan) |> PCalc.run,
+        (calc totalNotAtEnd InclusiveScan) |> PCalc.run
+
+    printfn "Device Exclusive Scan Result ==>  Count: (%d), %A" dExcResult.Length dExcResult
+    printfn "Device Inclusive Scan Result ==>  Count: (%d), %A" dIncResult.Length dIncResult
+
+    printfn "Checking that device results = host results"
+    (hExcResult, dExcResult) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+    (hIncResult, dIncResult) ||> Array.iter2 (fun h d -> Assert.That(d, Is.EqualTo(h).Within(eps)))
+    printfn "Checking that device results = moderngpu website example results"
+    (dExcResult, exclusiveResult) ||> Array.iter2 (fun d e -> Assert.That(e, Is.EqualTo(d).Within(eps)))
+    (dIncResult, inclusiveResult) ||> Array.iter2 (fun d e -> Assert.That(e, Is.EqualTo(d).Within(eps)))
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-////Benchmarking scan on type int
-/////                       mgpu thru M/s  mgpu band GB/s  thrust thru M/s  thrust band GB/s
-//    let mgpuStats_Int = [   ( 522.294,     6.268),     (  26.547,     0.319);
-//                            (1409.874,    16.918),     ( 123.302,     1.480); 
-//                            (2793.189,    33.518),     ( 531.724,     6.381); 
-//                            (5016.043,    60.193),     ( 971.429,    11.657);
-//                            (7157.139,    85.886),     (1889.905,    22.679);
-//                            (7842.271,    94.107),     (2313.313,    27.760);
-//                            (8115.966,    97.392),     (3633.622,    43.603);
-//                            (8301.897,    99.623),     (4492.701,    53.912);
-//                            (8325.225,    99.903),     (4710.093,    56.521);
-//                            (8427.884,   101.135),     (5088.089,    61.057)]
-//    
-//    let scan = benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd
-//    let genData n = rngGenericArray n
-//    (sourceCounts, nIterations) ||> List.iteri2 (fun i sc ni -> scan (genData sc) ni
-//                                                                i |> List.nth mgpuStats_Int |> printfnMgpuThrustTB)
+//  BENCHMARKING
 //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//let sprintTB tp bw = sprintf "\t%9.3f M/s\t%7.3f GB/s\t" (tp / 1e6) (bw / 1e9)
+let sprintTB tp bw = sprintf "\t%9.3f M/s\t%7.3f GB/s\t" tp bw
+let printfnMgpuThrustTB ((mtp, mbw), (ttp, tbw)) =
+    printfn "%s\t%s\t%s\t%s" "MGPU: " (sprintTB mtp mbw) "Thrust: " (sprintTB ttp tbw)
+
+
+[<Test>]
+let ``benchmark scan int`` () =
+// Sample moderngpu lib results
+//Benchmarking scan on type int
+///         mgpu thru       mgpu band       thrust thru     thrust band
+//   10K:   522.294 M/s    6.268 GB/s      26.547 M/s    0.319 GB/s
+//   50K:  1409.874 M/s   16.918 GB/s     123.302 M/s    1.480 GB/s
+//  100K:  2793.189 M/s   33.518 GB/s     531.724 M/s    6.381 GB/s
+//  200K:  5016.043 M/s   60.193 GB/s     971.429 M/s   11.657 GB/s
+//  500K:  7157.139 M/s   85.886 GB/s    1889.905 M/s   22.679 GB/s
+//    1M:  7842.271 M/s   94.107 GB/s    2313.313 M/s   27.760 GB/s
+//    2M:  8115.966 M/s   97.392 GB/s    3633.622 M/s   43.603 GB/s
+//    5M:  8301.897 M/s   99.623 GB/s    4492.701 M/s   53.912 GB/s
+//   10M:  8325.225 M/s   99.903 GB/s    4710.093 M/s   56.521 GB/s
+//   20M:  8427.884 M/s  101.135 GB/s    5088.089 M/s   61.057 GB/s
+
+//Benchmarking scan on type int
+///                       mgpu thru M/s  mgpu band GB/s  thrust thru M/s  thrust band GB/s
+    let mgpuStats_Int = [   ( 522.294,     6.268),     (  26.547,     0.319);
+                            (1409.874,    16.918),     ( 123.302,     1.480); 
+                            (2793.189,    33.518),     ( 531.724,     6.381); 
+                            (5016.043,    60.193),     ( 971.429,    11.657);
+                            (7157.139,    85.886),     (1889.905,    22.679);
+                            (7842.271,    94.107),     (2313.313,    27.760);
+                            (8115.966,    97.392),     (3633.622,    43.603);
+                            (8301.897,    99.623),     (4492.701,    53.912);
+                            (8325.225,    99.903),     (4710.093,    56.521);
+                            (8427.884,   101.135),     (5088.089,    61.057)]
+    
+    let scan = benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd
+    let genData n = rngGenericArray n
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i sc ni -> scan (genData sc) ni
+                                                                i |> List.nth mgpuStats_Int |> printfnMgpuThrustTB)
+
+
 //[<Test>]
 //let ``benchmark scan int64`` () =
 //// Sample moderngpu lib results
@@ -387,7 +392,7 @@ let ``compare totalAtEnd & totalNotAtEnd`` () =
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////
-///////////////// Sample Scan Benchmark Stats from moderngpu lib
+///////////////// Sample Scan Benchmark Stats from moderngpu lib  (Aaron's Computer)
 //GeForce GTX 560 Ti : 1700.000 Mhz   (Ordinal 0)
 //8 SMs enabled. Compute Capability sm_21
 //FreeMem:    548MB   TotalMem:   1024MB.
