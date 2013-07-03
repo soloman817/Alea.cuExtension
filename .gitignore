@@ -168,3 +168,5 @@ pip-log.txt
 ###########
 Alea.cuExtension.VisualState.xml
 TestResult.xml
+
+Test.Alea.CUDA.TestUtilities

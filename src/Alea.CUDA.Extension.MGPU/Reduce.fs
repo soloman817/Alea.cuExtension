@@ -81,9 +81,9 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             // Please check http://www.moderngpu.com/scan/globalscan.html#Scan
             // and check the concept of transposeValues. 
             let inputs = __local__<'TI>(VT).Ptr(0)
-            deviceGlobalToReg count2 (data_global + range.x) tid inputs false
+            deviceGlobalToReg count2 (data_global + range.x) tid inputs 0
 
-            if commutative then
+            if commutative <> 0 then
                 for i = 0 to VT - 1 do
                     let index = NT * i + tid
                     if index < count2 then
@@ -96,7 +96,7 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             range.x <- range.x + NV
             totalDefined <- true
 
-        if commutative then
+        if commutative <> 0 then
             total <- reduce tid total sharedReduce
 
         if tid = 0 then reduction_global.[block] <- total @>
