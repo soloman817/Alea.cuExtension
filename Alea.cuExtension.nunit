@@ -2,11 +2,13 @@
   <Settings activeconfig="Release" processModel="Default" domainUsage="Default" />
   <Config name="Debug" binpathtype="Auto">
     <assembly path="test\Test.Alea.CUDA.Extension\bin\Debug\Test.Alea.CUDA.Extension.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.MGPU\bin\Debug\Test.Alea.CUDA.Extension.MGPU.dll" />
     <assembly path="test\Test.Alea.CUDA.Extension.Random\bin\Debug\Test.Alea.CUDA.Extension.Random.exe" />
     <assembly path="test\Test.Alea.CUDA.Extension.Finance\bin\Debug\Test.Alea.CUDA.Extension.Finance.exe" />
   </Config>
   <Config name="Release" binpathtype="Auto">
     <assembly path="test\Test.Alea.CUDA.Extension\bin\Release\Test.Alea.CUDA.Extension.exe" />
+    <assembly path="test\Test.Alea.CUDA.Extension.MGPU\bin\Release\Test.Alea.CUDA.Extension.MGPU.dll" />
     <assembly path="test\Test.Alea.CUDA.Extension.Random\bin\Release\Test.Alea.CUDA.Extension.Random.exe" />
     <assembly path="test\Test.Alea.CUDA.Extension.Finance\bin\Release\Test.Alea.CUDA.Extension.Finance.exe" />
   </Config>
