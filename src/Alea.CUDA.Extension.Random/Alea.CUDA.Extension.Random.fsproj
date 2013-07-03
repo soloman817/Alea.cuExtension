@@ -43,6 +43,8 @@
     <Compile Include="SobolJoeKuo_6_21201.fs" />
     <Compile Include="Sobol.fs" />
     <Compile Include="SobolGold.fs" />
+    <Compile Include="Mrg32k3a.fs" />
+    <Compile Include="Mrg32k3aGold.fs" />
     <Compile Include="PRandom.fs" />
     <None Include="packages.config" />
   </ItemGroup>
