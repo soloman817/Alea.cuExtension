@@ -8,7 +8,7 @@ open Alea.CUDA.Extension.MGPU.Reduce
 open Alea.CUDA.Extension.MGPU.CTAScan
 open NUnit.Framework
 
-let worker = Engine.workers.DefaultWorker
+let worker = getDefaultWorker()
 
 let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
     let reduce = worker.LoadPModule(PArray.reduce op).Invoke

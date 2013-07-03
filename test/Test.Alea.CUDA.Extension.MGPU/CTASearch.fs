@@ -5,13 +5,13 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTASearch
-open Test.Alea.CUDA.Extension.TestUtilities.General
+
 open NUnit.Framework
 
 [<Test>]
 let ``cta search`` () =
     let pfunct = cuda {
-        let binarySearch = (binarySearchFun MgpuBoundsLower CompTypeLess).DBinarySearch
+        let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kernel =
             <@ fun (data:DevicePtr<int>) (count:int) (key:int) (output:DevicePtr<int>) -> 
                 let bs = %binarySearch
@@ -27,8 +27,6 @@ let ``cta search`` () =
             kernel.Launch m lp data.Ptr 100 8 output.Ptr
             output.ToHost() ) }
     
-    //let bsp = binarySearchFun MgpuBoundsLower CompTypeLess
-    //let pfunct = pfunct bsp
     let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
 
     let output = pfuncm.Invoke 10

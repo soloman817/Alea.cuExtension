@@ -34,9 +34,7 @@ let kernelBulkRemove (plan:Plan) =
     let sharedAlign = max alignOfTI alignOfTV
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
     let createSharedExpr = createSharedExpr sharedAlign sharedSize
-
-        
-
+    
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceSharedToReg = deviceSharedToReg NT VT
     let deviceRegToGlobal = deviceRegToGlobal NT VT
@@ -52,7 +50,7 @@ let kernelBulkRemove (plan:Plan) =
         let deviceRegToGlobal = %deviceRegToGlobal
 
         let scan = %scan2
-//
+
         let shared = %(createSharedExpr)
         let sharedScan = shared.Reinterpret<int>()
         let sharedIndices = shared.Reinterpret<int>()
@@ -115,35 +113,34 @@ let kernelBulkRemove (plan:Plan) =
         deviceGather count source_global indices tid values dontSync
 
         // Store all the valid registers to dest_global
-        deviceRegToGlobal count values tid (dest_global + gid - begin') dontSync  @>
+        deviceRegToGlobal count values tid (dest_global.Reinterpret<'TI>() + gid - begin') dontSync  @>
 
 type IBulkRemove<'TI> =
     {
-        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TI> -> unit        
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> DevicePtr<'TI> -> unit        
     }
 
 
 
-let bulkRemove<'TI> = cuda {
+let bulkRemove (ident:'T) = cuda {
     let plan = { NT = 128; VT = 11 }
     let NV = plan.NT * plan.VT
     
     let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFunc
-    
-    let! bsp = Search.binarySearchPartitions MgpuBoundsLower CompTypeLess
+    let! bsp = Search.binarySearchPartitions MgpuBoundsLower (comp CompTypeLess ident)
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let kernelBulkRemove = kernelBulkRemove.Apply m
         let bsp = bsp.Apply m
-
-        fun (sourceCount:int) (indices_global:DevicePtr<int>) (indicesCount:int) ->
+        
+        fun (sourceCount:int) (indicesCount:int) ->    
             let numBlocks = divup sourceCount NV
             let lp = LaunchParam(numBlocks, plan.NT)
             let bsp = bsp sourceCount indicesCount NV
             let parts = worker.Malloc(numBlocks + 1)
             
-            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (dest_global:DevicePtr<'TI>) =
+            let action (hint:ActionHint) (source_global:DevicePtr<'TI>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'TI>) =
                 let lp = lp |> hint.ModifyLaunchParam
                 let partitions = (bsp.Action hint indices_global parts.Ptr)
                 kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts.Ptr dest_global

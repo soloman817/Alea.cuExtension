@@ -5,7 +5,7 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
-//open Alea.CUDA.Extension.MGPU.BuklRemove
+
 
 // one wrapper for reduce, in this wrapper, the memory is created on the
 // fly.
@@ -33,77 +33,60 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
 
 let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let! api = Scan.scan mgpuScanType op totalAtEnd
-    
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-        
-        fun (data:DArray<'TI>) ->
+        fun (data:DArray<int>) ->
             pcalc {
                 let count = data.Length
                 let api = api count
-                //printfn "COUNT: %d" count
                 let! scanned = DArray.createInBlob worker count
                 let! total = DArray.createInBlob worker 1
-                
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )
-                let result =
+                let scanner =
                     fun () ->
-                        pcalc {
-                            let! scanned = scanned.Gather()
-                            let! total = total.Gather()
-                            //printfn "Scanned - from PFunc in PArray: %A" scanned
-                            //printfn "Total - from PFunc in PArray: %A" total
-                            return scanned }
+                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )}
                     |> Lazy.Create
-                return result} ) }
+                return scanner, scanned} ) }
 
 
-
-let binarySearchPartitions (bounds:int) (compOp:CompType) = cuda {
+let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
     let! api = Search.binarySearchPartitions bounds compOp
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
         
-        fun (count:int) (data_global:DArray<int>) (numItems:int) (nv:int) ->
+        fun (count:int) (data_global:DArray<'TI>) (numItems:int) (nv:int) ->
             pcalc {                
                 let api = api count numItems nv
                 let n = ((divup count nv) + 1)
-                let! partData = DArray.createInBlob worker n
+                let! partData = DArray.createInBlob<'TI> worker n
                 do! PCalc.action (fun hint -> api.Action hint data_global.Ptr partData.Ptr)
                                     
                 let result =
                     fun () ->
                         pcalc { 
-                            //printfn "PARTITIONS: %A" api.Partitions
                             let! parts = partData.Gather()
                             return parts }
                     |> Lazy.Create
                 return result} ) }
 
 
-let bulkRemove<'TI when 'TI : unmanaged> = cuda {
-    let! api = BulkRemove.bulkRemove
 
+let bulkRemove (ident:'TI) = cuda {
+    let! api = BulkRemove.bulkRemove ident
+    
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-
         fun (data:DArray<'TI>) (indices:DArray<int>) ->
+            let sourceCount = data.Length
+            let indicesCount = indices.Length
+            let api = api sourceCount indicesCount
             pcalc {
-                let sourceCount = data.Length
-                let indicesCount = indices.Length
-                let api = api sourceCount indices.Ptr indicesCount
-
-                let! dest = DArray.createInBlob worker (sourceCount - indicesCount)
-                //printfn "bulk remove PArray!!"
-                do! PCalc.action (fun hint -> api.Action hint data.Ptr dest.Ptr)
-                let result =
+                let! removed = DArray.createInBlob<'TI> worker (sourceCount - indicesCount)
+                let remover =
                     fun () ->
-                        pcalc {
-                            let! indRemoved = dest.Gather()
-                            return indRemoved }
+                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr removed.Ptr)}
                     |> Lazy.Create
-                return result } ) }
+                return remover, removed } ) }
