@@ -6,7 +6,7 @@
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{43734f54-f8b9-4dd5-8b7b-e0654d11960e}</ProjectGuid>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <RootNamespace>Test.Alea.CUDA.Extension.MGPU</RootNamespace>
     <AssemblyName>Test.Alea.CUDA.Extension.MGPU</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
@@ -84,6 +84,7 @@
     <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
     <Compile Include="Debug.fs" />
+    <Compile Include="Program.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
   </ItemGroup>

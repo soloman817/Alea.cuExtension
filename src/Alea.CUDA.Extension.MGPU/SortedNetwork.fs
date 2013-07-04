@@ -51,7 +51,7 @@ let inline oddEvenTransposeSortT (ident:'T) (I:int) (VT:int) (compType:CompType)
             
                 let mutable i = 1 &&& I
                 while i < VT - 2 do
-                    if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
+                    if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i])) ) then
                         swap keys.[i] keys.[i + 1]
                         swap values.[i] values.[i + 1]
                     i <- i + 2
@@ -69,7 +69,7 @@ let OddEvenTransposeSortT (I:int) (VT:int) (ident:'T) (compType:CompType) =
 
         let mutable i = 1 &&& I
         while i < VT - 2 do
-            if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
+            if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i])) ) then
                 swap keys.[i] keys.[i + 1]
                 swap values.[i] values.[i + 1]
             i <- i + 2

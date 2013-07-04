@@ -73,20 +73,47 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 
 
-let bulkRemove (ident:'TI) = cuda {
-    let! api = BulkRemove.bulkRemove ident
+let bulkRemove() = cuda {
+    let! api = BulkRemove.bulkRemove()
     
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
         fun (data:DArray<'TI>) (indices:DArray<int>) ->
             let sourceCount = data.Length
+            let api = api sourceCount
             let indicesCount = indices.Length
-            let api = api sourceCount indicesCount
             pcalc {
+                // @COMMENTS@ : you need prepare paration memory for internal usage
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+
+                // @COMMENTS@ : you can just add the action, and return the DArray
+                // the DArray is lazy, you just enqueued action, but not executed
+                // only when you call removed.Gather(), it will trigger all actions
                 let! removed = DArray.createInBlob<'TI> worker (sourceCount - indicesCount)
-                let remover =
-                    fun () ->
-                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr removed.Ptr)}
-                    |> Lazy.Create
-                return remover, removed } ) }
+                do! PCalc.action (fun hint -> api.Action hint indicesCount partition.Ptr data.Ptr indices.Ptr removed.Ptr)
+                return removed } ) }
+
+// @COMMENTS@ : for benchmark test, we need wrap it with in-place pattern, so it is just different
+// memory usage, that is also why we need a raw api and then wrap them and separate memory management
+// so strictly
+let bulkRemoveInPlace() = cuda {
+    let! api = BulkRemove.bulkRemove()
+    
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+
+        // for a in-place remover, first we need create it, such as internal partition memories which
+        // could be reused, and for that we need know the source count
+        fun (sourceCount:int) ->
+            let api = api sourceCount 
+            pcalc {
+                // first, we need create partition memory for internal use
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+
+                // now we return a function, which is in-place remover
+                let remove (data:DArray<'T>) (indices:DArray<int>) (removed:DArray<'T>) =
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint indices.Length partition.Ptr data.Ptr indices.Ptr removed.Ptr) }
+
+                return remove } ) }

@@ -68,7 +68,7 @@ let kernelBulkInsert (plan:Plan) =
         __syncthreads()
 
         let indices = __local__<int>(VT).Ptr(0)
-        deviceGlobalToReg aCount (indices_global + a0) tid indices doSync
+        deviceGlobalToReg aCount (indices_global + a0) tid indices true
         
         for i = 0 to VT - 1 do
             let index = NT * i + tid
@@ -92,7 +92,7 @@ let kernelBulkInsert (plan:Plan) =
         __syncthreads()
 
 
-        deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) dontSync @>
+        deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) false @>
 
 
 

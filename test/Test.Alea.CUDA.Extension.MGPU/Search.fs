@@ -20,11 +20,11 @@ type Plan =
 
 let worker = getDefaultWorker()
 
-let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) =
+let binarySearchPartitions (bounds:int) (compOp:IComp<int>) =
     
     let bs = worker.LoadPModule(MGPU.PArray.binarySearchPartitions bounds compOp).Invoke
     
-    fun (count:int) (data:'TI[]) (numItems:int) (nv:int) ->
+    fun (count:int) (data:int[]) (numItems:int) (nv:int) ->
         let calc = pcalc {
             let! data = DArray.scatterInBlob worker data
             let! result = bs count data numItems nv
@@ -37,7 +37,7 @@ let ``bsp direct kernel test`` () =
     let pfunct = cuda {
         let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kbsp =
-            <@ fun (count:int) (data_global:DevicePtr<'TI>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
+            <@ fun (count:int) (data_global:DevicePtr<int>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
                 let binarySearch = %binarySearch
           
                 let gid = 64 * blockIdx.x + threadIdx.x
@@ -54,7 +54,7 @@ let ``bsp direct kernel test`` () =
             use parts = worker.Malloc<int>(numBlocks + 1)
             use data = worker.Malloc(indices_global)
             let lp = LaunchParam(numPartBlocks, 64)
-            kbsp.Launch lp 100 (data.Ptr.Reinterpret<'TI>()) 33 1408 parts.Ptr (numBlocks + 1)
+            kbsp.Launch lp 100 data.Ptr 33 1408 parts.Ptr (numBlocks + 1)
             parts.ToHost() ) }
 
     let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
