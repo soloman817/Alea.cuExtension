@@ -32,6 +32,16 @@ let kernelBulkRemove (plan:Plan) =
     // but acturally in bulkRemove, I think 'TI should = 'TR, right? So I change it to be 'T. Tell me
     // if I was wrong that there is a conversion from 'TI to 'TR
 
+    // in reduce algorithm, the input data is of type 'TI, and we use extract() to get a 'TV from input
+    // data 'TI[], then we do calcualtion on 'TV, and then we use Combine to convert 'TV to 'TR. This
+    // is a very good approach, for example, we want to do sum, and use the reduce algorithm, the input
+    // is a float[], so 'TI is float, but we would like to use more complex 'TV for internal computing
+    // which can also count how many numbers, so 'TV would be a struct, then we combine 'TV to 'TR for
+    // the final result. But in bulkremove, this is not needed, it is just remove, so no 'TV, and 'TI = 'TR
+    // so we use 'T.
+
+    // for more detail of these types, you can referenece test case Reduce.'mean float (iteratively)'.
+
     // and I use createSharedExpr to simulate when 'TI <> 'TR, but if you check the code, the :
     //typedef CTAScan<NT, ScanOpAdd> S;
     //union Shared {
@@ -148,7 +158,8 @@ let kernelBulkRemove (plan:Plan) =
 
 type IBulkRemove<'T> =
     {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit        
+        Action : ActionHint -> int -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit        
+        NumPartitions : int
     }
 
 
@@ -169,17 +180,33 @@ let bulkRemove() = cuda {
         let worker = m.Worker
         let kernelBulkRemove = kernelBulkRemove.Apply m
         let bsp = bsp.Apply m
-        
-        fun (sourceCount:int) (indicesCount:int) ->    
+
+        // @COMMENTS@: you need understand why I need only sourceCount, but not indicesCount here.
+        // because we need numBlocks, and to calculate numBlocks we only need sourceCount.
+        // and with numBlocks, we can let the wrapper prepare the memory, and then we create
+        // bsp inside action (also because bsp don't need some internal memory)
+        // so the rule is, once the interface is created, it should contains informations which 
+        // could be used for wrapper to prepare the memory (here is the NumPartitions), and some
+        // actions which don't do any memory allocation internally. So the wrapper will response
+        // for how to create memory and launch the action.
+        fun (sourceCount:int) ->    
             let numBlocks = divup sourceCount NV
             let lp = LaunchParam(numBlocks, plan.NT)
-            let bsp = bsp sourceCount indicesCount NV
-            let parts = worker.Malloc(numBlocks + 1)
-            
-            let action (hint:ActionHint) (source_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                let partitions = (bsp.Action hint indices_global parts.Ptr)
-                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts.Ptr dest_global
 
-            { Action = action } ) }
+            // @COMMENTS@ :IMPORTANT, this malloc breaks a rule that DONOT do memory operation
+            // during here, all memory operation should be handled in PCALC, otherwise, you will
+            // get many small malloc (think if you call this many times).
+            
+            //let parts = worker.Malloc(numBlocks + 1)
+
+            // so the correct way is to expose the size for partitions from the interface, and let
+            // the wrapper do the memory.
+            
+            let action (hint:ActionHint) (indicesCount:int) (parts:DevicePtr<int>) (source_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
+                let lp = lp |> hint.ModifyLaunchParam
+                let bsp = bsp sourceCount indicesCount NV
+                let partitions = bsp.Action hint indices_global parts
+                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts dest_global
+
+            { Action = action; NumPartitions = numBlocks + 1 } ) }
             

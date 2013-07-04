@@ -99,34 +99,34 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
     (h, d) ||> List.iteri2 (fun i hi di -> if i < verifyCount then Util.verify hi di)
 
 
-let benchmarkBulkRemove() =
-    let bulkRemove = worker.LoadPModule(PArray.bulkRemove () ).Invoke
-    fun (data:'T[]) (indices:'T[]) (numIt:'T) ->
-        
-        let calc = pcalc {
-            let! dSource = DArray.scatterInBlob worker data
-            let! dRemoveIndices = DArray.scatterInBlob worker indices            
-            let! stopwatch = DStopwatch.startNew worker
-            //let! remover, removed = bulkRemove dSource dRemoveIndices
-            let! removed = bulkRemove dSource dRemoveIndices
+let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) =
+    let remover = worker.LoadPModule(PArray.bulkRemoveInPlace()).Invoke
 
-//            for i = 1 to numIt do
-//                do! remover.Value
-            do! stopwatch.Stop()
-            
-            let! results = removed.Gather()
-            let! timing = stopwatch.ElapsedMilliseconds
+    let calc = pcalc {
+        let! dSource = DArray.scatterInBlob worker data
+        let! dIndices = DArray.scatterInBlob worker indices
+        let! dRemoved = DArray.createInBlob worker (data.Length - indices.Length)
 
-            return results, timing / 1000.0 }
+        let! remove = remover data.Length
 
-        let count, removeCount, keepCount = data.Length, indices.Length, (data.Length - indices.Length)
-        let hResults, timing = calc |> PCalc.run
-        let bytes = (sizeof<'T> * count + keepCount * sizeof<'T> + removeCount * sizeof<'T>) |> float
-        let throughput = (float count) * (float numIt) / timing
-        let bandwidth = bytes * (float numIt) / timing
-        let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]            
-        //stats.AddStat newstat
-        printfn "(%d): %9.3f M/s \t %7.3f GB/s \t Time: %7.3f s" (int newstat.[0]) newstat.[1] newstat.[2] newstat.[3]
+        let! dStopwatch = DStopwatch.startNew worker
+        for i = 1 to numIt do
+            do! remove dSource dIndices dRemoved
+        do! dStopwatch.Stop()
+
+        let! results = dRemoved.Gather()
+        let! timing = dStopwatch.ElapsedMilliseconds
+
+        return results, timing / 1000.0 }
+
+    let count, removeCount, keepCount = data.Length, indices.Length, (data.Length - indices.Length)
+    let hResults, timing = calc |> PCalc.run
+    let bytes = (sizeof<'T> * count + keepCount * sizeof<'T> + removeCount * sizeof<'T>) |> float
+    let throughput = (float count) * (float numIt) / timing
+    let bandwidth = bytes * (float numIt) / timing
+    let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]            
+    //stats.AddStat newstat
+    printfn "(%d): %9.3f M/s \t %7.3f GB/s \t Time: %7.3f s" (int newstat.[0]) newstat.[1] newstat.[2] newstat.[3]
  
  
 [<Test>]
@@ -223,20 +223,16 @@ let ``BulkRemove 3 value test`` () =
 
 
 [<Test>]
-let ``BulkRemove moderngpu benchmark int`` () =    
-                
-    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter
-        (fun test -> let ns,ni,nr = test 
-                     //let bulkRemove = benchmarkBulkRemove<int> ns nr
-                     let (x:int[] * _) = rngGenericArrayI ns nr
-                     let source, indices = (fst x),(snd x)
-                     benchmarkBulkRemove () source indices ni    )
-    //printfn "My Stats: %A" myStats
+let ``BulkRemove moderngpu benchmark : int`` () =    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+        let (source:int[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni    )
 
-//    intStats.CompareResults
-//    printfn "Verified?"
-//    intStats.GetResults ||> verifyAll
-//    printfn "yes"
+[<Test>]
+let ``BulkRemove moderngpu benchmark : float`` () =    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+        let (source:float[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni    )
 
 //[<Test>]
 //let ``BulkRemove moderngpu benchmark int64`` () =
