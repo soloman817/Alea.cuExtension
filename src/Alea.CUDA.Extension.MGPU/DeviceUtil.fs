@@ -58,11 +58,13 @@ let computeTaskRangeEx (block:int) (task:int2) (blockSize:int) (count:int) =
     range
 
 
-
+// @COMMENTS@ : as I said, bool just cannot be used as argument of a kernel function,
+// but it is quite ok to be used as lambda argument, so here I changed the return type
+// to be bool
 type IComp<'TC> =
     abstract Identity : 'TC
-    abstract Host : ('TC -> 'TC -> int)
-    abstract Device : Expr<'TC -> 'TC -> int>
+    abstract Host : ('TC -> 'TC -> bool)
+    abstract Device : Expr<'TC -> 'TC -> bool>
     
 
 type CompType =
@@ -71,21 +73,22 @@ type CompType =
     | CompTypeGreater
     | CompTypeGreater_Equal
 
-let inline comp (compType:CompType) (ident:'T) = 
+let comp (compType:CompType) (ident:'T) = 
     { new IComp<'T> with
         member this.Identity = ident
+        // @COMMENTS@ : after changed the return type to be bool, it is easy to write here
         member this.Host = 
             match compType with
-            | CompTypeLess -> fun a b -> if a < b then 1 else 0
-            | CompTypeLess_Equal -> fun a b -> if a <= b then 1 else 0
-            | CompTypeGreater -> fun a b -> if a > b then 1 else 0
-            | CompTypeGreater_Equal -> fun a b -> if a >= b then 1 else 0
+            | CompTypeLess -> fun a b -> a < b
+            | CompTypeLess_Equal -> fun a b -> a <= b
+            | CompTypeGreater -> fun a b -> a > b
+            | CompTypeGreater_Equal -> fun a b -> a >= b
         member this.Device =
             match compType with
-            | CompTypeLess -> <@ fun a b -> if a < b then 1 else 0 @>
-            | CompTypeLess_Equal -> <@ fun a b -> if a <= b then 1 else 0 @>
-            | CompTypeGreater -> <@ fun a b -> if a > b then 1 else 0 @>
-            | CompTypeGreater_Equal -> <@ fun a b -> if a >= b then 1 else 0 @> }
+            | CompTypeLess -> <@ fun a b -> a < b @>
+            | CompTypeLess_Equal -> <@ fun a b -> a <= b @>
+            | CompTypeGreater -> <@ fun a b -> a > b @>
+            | CompTypeGreater_Equal -> <@ fun a b -> a >= b @> }
 
 
 type ISwap<'TS> =
