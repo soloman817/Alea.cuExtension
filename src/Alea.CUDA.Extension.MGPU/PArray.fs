@@ -73,8 +73,26 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 
 
-let bulkRemove (ident:'TI) = cuda {
-    let! api = BulkRemove.bulkRemove ident
+//let bulkRemove() = cuda {
+//    let! api = BulkRemove.bulkRemove()
+//    
+//    return PFunc(fun (m:Module) ->
+//        let worker = m.Worker
+//        let api = api.Apply m
+//        fun (data:DArray<'TI>) (indices:DArray<int>) ->
+//            let sourceCount = data.Length
+//            let indicesCount = indices.Length
+//            let api = api sourceCount indicesCount
+//            pcalc {
+//                let! removed = DArray.createInBlob<'TI> worker (sourceCount - indicesCount)
+//                let remover =
+//                    fun () ->
+//                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr removed.Ptr)}
+//                    |> Lazy.Create
+//                return remover, removed } ) }
+
+let bulkRemove() = cuda {
+    let! api = BulkRemove.bulkRemove()
     
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -84,9 +102,10 @@ let bulkRemove (ident:'TI) = cuda {
             let indicesCount = indices.Length
             let api = api sourceCount indicesCount
             pcalc {
+                // @COMMENTS@ : you can just add the action, and return the DArray
+                // the DArray is lazy, you just enqueued action, but not executed
+                // only when you call removed.Gather(), it will trigger all actions
                 let! removed = DArray.createInBlob<'TI> worker (sourceCount - indicesCount)
-                let remover =
-                    fun () ->
-                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr removed.Ptr)}
-                    |> Lazy.Create
-                return remover, removed } ) }
+                do! PCalc.action (fun hint -> api.Action hint data.Ptr indices.Ptr removed.Ptr)
+                return removed } ) }
+

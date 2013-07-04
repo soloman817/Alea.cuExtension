@@ -70,7 +70,7 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
         while(start < count) do
             // load data in to shared memory
             let count2 = min NV (count - start)
-            deviceGlobalToShared count2 (cta_global + start) tid sharedInputs doSync
+            deviceGlobalToShared count2 (cta_global + start) tid sharedInputs true
                         
             // Transpose data into register in thread order.  Reduce terms serially
             let inputs = __local__<'TI>(VT).Ptr(0)
@@ -110,7 +110,7 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                         x <- x2
             __syncthreads()
             
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) dontSync
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) false
             start <- start + NV
             totalDefined <- true
 
@@ -167,7 +167,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             let count2 = min NV (count - range.x)
             
             // Load from global to shared memory
-            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs 0
+            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs false
 
             let inputs = __local__<'TI>(VT).Ptr(0)
             let values = __local__<'TV>(VT).Ptr(0)
@@ -209,7 +209,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                         x <- x2
             __syncthreads()
 
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) 0
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) false
             range.x <- range.x + NV
             nextDefined <- true
                                 

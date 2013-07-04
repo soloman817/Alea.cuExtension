@@ -21,25 +21,28 @@ type Plan =
         Bounds : int
     }
 
-
-let kernelBinarySearch (plan:Plan) (binarySearch:IBinarySearch<'TI, int>) =
+// @COMMENTS@ : uhmm, here , because the (min (nv * gid) count is always int, so 
+// it cannot be generic, so I made it to be int, cause I found it is just for
+// index calculation. But if it need to be generic, it is also doable, just
+// make the (min (nv * gid) count) to be a input generic argument. 
+let kernelBinarySearch (plan:Plan) (binarySearch:IBinarySearch<int>) =
     let NT = plan.NT
     let bounds = plan.Bounds
     let binarySearch = binarySearch.DBinarySearch
     
-    <@ fun (count:int) (data_global:DevicePtr<'TI>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
+    <@ fun (count:int) (data_global:DevicePtr<int>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
         let binarySearch = %binarySearch
         let gid = NT * blockIdx.x + threadIdx.x
         if (gid < numSearches) then
             let p = binarySearch data_global numItems (min (nv * gid) count)
-            partitions_global.[gid] <- p
-        @>
+            partitions_global.[gid] <- p @>
 
-type IBinarySearchPartitions<'TI> =
+// @COMMENTS@ : also here, cause I think it is just for index calculation. Tell me if
+// I was wrong that there is cases that will use it for non-int usage.
+type IBinarySearchPartitions =
     {
-        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<int> -> unit        
+        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> unit        
     }
-
 
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda { 
     let plan = { NT = 64; Bounds = bounds }
