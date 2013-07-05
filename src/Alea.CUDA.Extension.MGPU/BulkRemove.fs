@@ -1,7 +1,7 @@
 ﻿module Alea.CUDA.Extension.MGPU.BulkRemove
 
 // this maps to bulkremove.cuh
-
+open System.Diagnostics
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
@@ -173,7 +173,7 @@ let bulkRemove() = cuda {
     let plan = { NT = 128; VT = 11 }
     let NV = plan.NT * plan.VT
     
-    let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFunc
+    let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFuncWithName "br"
     let! bsp = Search.binarySearchPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
     return PFunc(fun (m:Module) ->
@@ -203,10 +203,14 @@ let bulkRemove() = cuda {
             // the wrapper do the memory.
             
             let action (hint:ActionHint) (indicesCount:int) (parts:DevicePtr<int>) (source_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                let bsp = bsp sourceCount indicesCount NV
-                let partitions = bsp.Action hint indices_global parts
-                kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts dest_global
+                // @COMMENTS@ : here I use worker.Eval, because otherwise, it will do thread switching, make them
+                // all do in one eval, ignore the switching.
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    let bsp = bsp sourceCount indicesCount NV
+                    let partitions = bsp.Action hint indices_global parts
+                    kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts dest_global
+                |> worker.Eval
 
             { Action = action; NumPartitions = numBlocks + 1 } ) }
             
