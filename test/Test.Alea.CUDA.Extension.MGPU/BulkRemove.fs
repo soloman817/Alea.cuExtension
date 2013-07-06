@@ -63,13 +63,13 @@ let testBulkRemove() =
 
     let eps = 1e-10
     let values1 n r = 
-        let source = Array.init n (fun _ -> 1)
+        let source = Array.init n (fun i -> i)
         let (r:int[]*_) = rngGenericArrayI n r
         let indices = (snd r)
         source, indices
 
     let values2 n r = 
-        let source = Array.init n (fun _ -> -1)
+        let source = Array.init n (fun i -> -i)
         let (r:int[]*_) = rngGenericArrayI n r
         let indices = (snd r)
         source, indices
@@ -78,7 +78,12 @@ let testBulkRemove() =
         let source = let rng = Random(2) in Array.init n (fun _ -> rng.NextDouble() - 0.5)
         let (r:float[]*_) = rngGenericArrayI n r
         let indices = (snd r)
-        source, indices    
+        source, indices  
+        
+//    do
+//        let source, indices = values3 100 5
+//        printfn "%A" source
+//        printfn "%A" indices  
 
     (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
                                                                values1 ns nr ||> test |> PCalc.run)
@@ -102,12 +107,19 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
 let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) =
     let remover = worker.LoadPModule(PArray.bulkRemoveInPlace()).Invoke
 
+//    printfn "%d %A" data.Length data
+//    printfn "%d %A" indices.Length indices
+//    printfn "%d" numIt
+
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data
         let! dIndices = DArray.scatterInBlob worker indices
         let! dRemoved = DArray.createInBlob worker (data.Length - indices.Length)
 
         let! remove = remover data.Length
+
+        // warm up
+        do! remove dSource dIndices dRemoved
 
         let! dStopwatch = DStopwatch.startNew worker
         for i = 1 to numIt do
@@ -117,16 +129,26 @@ let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) =
         let! results = dRemoved.Gather()
         let! timing = dStopwatch.ElapsedMilliseconds
 
-        return results, timing / 1000.0 }
+        return results, timing }
 
     let count, removeCount, keepCount = data.Length, indices.Length, (data.Length - indices.Length)
-    let hResults, timing = calc |> PCalc.run
+    // I use runInWorker to avoid thread switching.
+    let hResults, timing' = calc |> PCalc.runInWorker worker
+    let timing = timing' / 1000.0 // timing (in second), timing' (in millisecond)
     let bytes = (sizeof<'T> * count + keepCount * sizeof<'T> + removeCount * sizeof<'T>) |> float
     let throughput = (float count) * (float numIt) / timing
     let bandwidth = bytes * (float numIt) / timing
-    let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]            
+    // @COMMENTS@ should we divid timing by numIt
+    //let newstat = [|(float count); (throughput / 1.0e6); (bandwidth / 1.0e9); timing|]            
+    //let newstat = [| (float count); (throughput / 1e6); (bandwidth / 1e9); (timing' / (float numIt)) |]
     //stats.AddStat newstat
-    printfn "(%d): %9.3f M/s \t %7.3f GB/s \t Time: %7.3f s" (int newstat.[0]) newstat.[1] newstat.[2] newstat.[3]
+    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
+        count
+        (throughput / 1e6)
+        (bandwidth / 1e9)
+        (timing' / (float numIt))
+        numIt
+        timing'
  
  
 [<Test>]
@@ -224,6 +246,12 @@ let ``BulkRemove 3 value test`` () =
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : int`` () =    
+//    let ns = 10000
+//    let nr = ns / 2
+//    let ni = 100
+//    let (source:int[]), indices = rngGenericArrayI ns nr
+//    benchmarkBulkRemove source indices ni
+
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni    )

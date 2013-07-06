@@ -2,7 +2,9 @@
 
 // Sample stats from running various algorithm benchmarks.  Used for comparison
 
-let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 200000; 500000; 10000000; 20000000]
+// @COMMENTS@: are these number correct????
+//let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 200000; 500000; 10000000; 20000000]
+let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
 let scanIterations = [1000; 1000; 1000; 500; 200; 200; 200; 200; 100; 100]
 let bulkRemoveIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
 

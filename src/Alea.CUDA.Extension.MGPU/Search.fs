@@ -47,7 +47,7 @@ type IBinarySearchPartitions =
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda { 
     let plan = { NT = 64; Bounds = bounds }
     let binarySearch = binarySearchFun bounds compOp
-    let! kernelBinarySearch = (kernelBinarySearch plan binarySearch) |> defineKernelFunc
+    let! kernelBinarySearch = (kernelBinarySearch plan binarySearch) |> defineKernelFuncWithName "bsp"
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
