@@ -117,3 +117,21 @@ let bulkRemoveInPlace() = cuda {
                     pcalc { do! PCalc.action (fun hint -> api.Action hint indices.Length partition.Ptr data.Ptr indices.Ptr removed.Ptr) }
 
                 return remove } ) }
+
+
+let bulkInsert() = cuda {
+    let! api = BulkInsert.bulkInsert 
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (data_A:DArray<'TI>) (indices:DArray<int>) (data_B:DArray<'TI>) ->
+            let aCount = data_A.Length
+            let bCount = data_B.Length
+            
+            pcalc {
+                //let! mp = DArray.createInBlob<int> worker api.NumPartitions
+
+                let! inserted = DArray.createInBlob<'TI> worker (aCount + bCount)
+                do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr aCount data_B.Ptr bCount inserted.Ptr)
+                return inserted } ) }

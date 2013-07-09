@@ -83,10 +83,11 @@
     <Compile Include="Scan.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
+    <Compile Include="BulkInsert.fs" />
     <Compile Include="Debug.fs" />
-    <Compile Include="Program.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
+    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.MGPU\Alea.CUDA.Extension.MGPU.fsproj">

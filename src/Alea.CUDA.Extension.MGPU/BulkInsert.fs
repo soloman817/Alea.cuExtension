@@ -27,28 +27,22 @@ let kernelBulkInsert (plan:Plan) =
 
     
     let capacity, S = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
-    let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
-    let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
-    let sharedAlign = max alignOfTI alignOfTV
-    let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-    let createSharedExpr = createSharedExpr sharedAlign sharedSize
-
-    
-    
+    let sharedSize = max NV capacity
+ 
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let computeMergeRange = computeMergeRange.Device
     let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
-    <@ fun (a_global:DevicePtr<'TI>) (indices_global:DevicePtr<'TI>) (aCount:int) (b_global:DevicePtr<'TI>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'TV>) ->
+    <@ fun (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
         let deviceGlobalToReg = %deviceGlobalToReg
         let computeMergeRange = %computeMergeRange
         let deviceTransferMergeValues = %deviceTransferMergeValues
         let S = %S
         
 
-        let shared = %(createSharedExpr)
-        let sharedIndices = shared.Reinterpret<int>()
-        let sharedScan = shared.Reinterpret<int>()
+        let shared = __shared__<int>(sharedSize).Ptr(0)
+        let sharedScan = shared
+        let sharedIndices = shared
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -96,19 +90,19 @@ let kernelBulkInsert (plan:Plan) =
 
 
 
-type IBulkInsert<'TI1, 'TIDX, 'TI2, 'TO> =
+type IBulkInsert<'T> =
     {
-        Action : ActionHint -> DevicePtr<'TI1> -> DevicePtr<'TIDX> -> int -> DevicePtr<'TI2> -> int -> DevicePtr<'TO> -> unit
+        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> int -> DevicePtr<'T> -> int -> DevicePtr<'T> -> unit
     }
 
 
 
-let bulkInsert (ident:'T)  = cuda {
+let bulkInsert()  = cuda {
     let plan = { NT = 128; VT = 7 }
     let NV = plan.NT * plan.VT
 
     let! kernelBulkInsert = kernelBulkInsert plan |> defineKernelFunc
-    let! partitionsDevice = Search.mergePathPartitions MgpuBoundsLower (comp CompTypeLess ident)
+    let! partitionsDevice = Search.mergePathPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -122,9 +116,9 @@ let bulkInsert (ident:'T)  = cuda {
             let partitions = worker.Malloc(numPartitions + 1)
             let partitionsDevice = partitionsDevice aCount bCount NV partitions.Ptr
 
-            let action (hint:ActionHint) (a_global:DevicePtr<'TI>) (indices_global:DevicePtr<'TI>) (aCount:int) (b_global:DevicePtr<'TI>) (bCount:int) (dest_global:DevicePtr<'TO>) =
+            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (dest_global:DevicePtr<'T>) =
                 let lp = lp |> hint.ModifyLaunchParam
-                let partitionsDevice = (partitionsDevice.Action hint indices_global (DevicePtr<'TI2>(0L)) 0 0 )
+                let partitionsDevice = (partitionsDevice.Action hint indices_global (DevicePtr<'T>(0L)) 0 0 )
                                 
                 kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount partitions.Ptr dest_global
 
