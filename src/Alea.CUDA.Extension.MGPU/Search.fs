@@ -67,9 +67,9 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 
 // MergePathPartitions
-let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) = 
+let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'T>) = 
     let mergePath = (mergeSearch bounds comp).DMergePath
-    let findMergesortFrame = findMergesortFrame.Device
+    let findMergesortFrame = findMergesortFrame().Device
 
     <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
         let mergePath = %mergePath
@@ -84,7 +84,7 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) =
             let mutable b0 = 0G
             //let mutable a0, b0 = 0G, 0G
             let mutable gid = nv * partition
-            if coop <> 0 then
+            if coop > 0 then
                 let frame = findMergesortFrame coop partition nv
                 a0 <- frame.x
                 b0 <- min aCount frame.y
@@ -92,7 +92,7 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) =
                 aCount <- (min aCount (frame.x + frame.z)) - a0
                 
                 gid <- gid - a0
-            let mp = mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
+            let mp = 0 //mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
             mp_global.[partition] <- mp @>
 
 
@@ -116,8 +116,11 @@ let mergePathPartitions (bounds:int) (comp:IComp<'T>) = cuda {
             let lp = LaunchParam(numPartitionBlocks, NT)
             
             let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (coop:int) (partitionsDevice:DevicePtr<int>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    ()
+                    //kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
+                |> worker.Eval
 
             { Action = action } ) }
 

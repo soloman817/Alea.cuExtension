@@ -30,7 +30,7 @@ let kernelBulkInsert (plan:Plan) =
     let sharedSize = max NV capacity
  
     let deviceGlobalToReg = deviceGlobalToReg NT VT
-    let computeMergeRange = computeMergeRange.Device
+    let computeMergeRange = computeMergeRange().Device
     let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
     <@ fun (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
@@ -85,7 +85,8 @@ let kernelBulkInsert (plan:Plan) =
             sharedIndices.[index] <- gather
         __syncthreads()
 
-        deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) false @>
+        //deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) false 
+        @>
 
 
 

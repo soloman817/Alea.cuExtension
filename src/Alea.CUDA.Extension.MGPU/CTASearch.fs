@@ -29,13 +29,13 @@ type IBinarySearch<'T> =
     
 type IMergeSearch<'TI, 'TK> =
     abstract HMergePath : ('TI[] -> int -> 'TI[] -> int -> int -> int)
-    abstract DMergePath : Expr<RWPtr<'TI> -> int -> RWPtr<'TI> -> int -> int -> int>
+    abstract DMergePath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int>
     abstract HSegmentedMergePath : ('TI[] -> int -> int -> int -> int -> int -> int -> int -> int)
-    abstract DSegmentedMergePath : Expr<RWPtr<'TI> -> int -> int -> int -> int -> int -> int -> int -> int>
+    abstract DSegmentedMergePath : Expr<DevicePtr<'TI> -> int -> int -> int -> int -> int -> int -> int -> int>
 
 type IBalancedPathSearch<'TI, 'TK> =
     abstract HBalancedPath : ('TI[] -> int -> 'TI[] -> int -> int -> int -> int2)
-    abstract DBalancedPath : Expr<RWPtr<'TI> -> int -> RWPtr<'TI> -> int -> int -> int -> int2>
+    abstract DBalancedPath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int -> int2>
 
 
 type SearchOpType =
@@ -143,7 +143,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                 begin'.[0] @> }
 
 
-let inline mergeSearch (bounds:int) (compOp:IComp<'TC>) =
+let mergeSearch (bounds:int) (compOp:IComp<'TC>) =
         { new IMergeSearch<'TI, 'TC> with
             member this.HMergePath =
                 let comp a b = compOp.Host a b
@@ -166,7 +166,7 @@ let inline mergeSearch (bounds:int) (compOp:IComp<'TC>) =
 
             member this.DMergePath =
                 let comp = compOp.Device
-                <@ fun (a:RWPtr<'TI>) (aCount:int) (b:RWPtr<'TI>) (bCount:int) (diag:int) ->
+                <@ fun (a:DevicePtr<'TI>) (aCount:int) (b:DevicePtr<'TI>) (bCount:int) (diag:int) ->
                     let comp = %comp
                     let mutable begin' = max 0 (diag - bCount)
                     let mutable end' = min diag aCount
@@ -211,7 +211,7 @@ let inline mergeSearch (bounds:int) (compOp:IComp<'TC>) =
 
             member this.DSegmentedMergePath =
                 let comp = compOp.Device
-                <@ fun (keys:RWPtr<'TI>) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
+                <@ fun (keys:DevicePtr<'TI>) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
                     let comp = %comp
                     let mutable result = 0
                     let test = 
@@ -236,7 +236,7 @@ let inline mergeSearch (bounds:int) (compOp:IComp<'TC>) =
                                                 
                     result @> }
 
-let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) =
+let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) =
         { new IBalancedPathSearch<'TI, 'TC> with
             member this.HBalancedPath =
                 let comp a b = compOp.Host a b
@@ -286,7 +286,7 @@ let inline balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) 
                 let aStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
                 let bStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
                 let bRunEnd = (binarySearchFun MgpuBoundsLower compOp).DBinarySearch
-                <@ fun (a:RWPtr<'TI>) (aCount:int) (b:RWPtr<'TI>) (bCount:int) (diag:int) (levels:int) ->
+                <@ fun (a:DevicePtr<'TI>) (aCount:int) (b:DevicePtr<'TI>) (bCount:int) (diag:int) (levels:int) ->
                     let comp = %comp
                     let p = %p
                     let aStart = %aStart
