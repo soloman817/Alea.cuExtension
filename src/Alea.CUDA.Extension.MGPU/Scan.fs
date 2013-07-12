@@ -278,7 +278,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                     let numTiles = divup count NV
                     let task = int2(numTiles, 1)
                     let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    let totalDevice = worker.Malloc<'TV>(1).Ptr
+                    let totalDevice = DevicePtr<'TV>(0n)
                     let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
                     //let total = if total.Handle <> 0n then totalDevice else total
                     let end' = if totalAtEnd = 1 then (dest + count) else DevicePtr<'TR>(0n)
@@ -291,7 +291,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                     let numBlocks = min (numSm * 25) numTiles
                     let task : int2 = divideTaskRange numTiles numBlocks
                     let reductionDevice = worker.Malloc<'TV>(numBlocks + 1).Ptr
-                    let totalDevice = if total.[0] > 0 then reductionDevice + numBlocks else DevicePtr<'TV>(0n)
+                    let totalDevice : DevicePtr<'TV> = if total <> DevicePtr<'TV>(0n) then reductionDevice + numBlocks else DevicePtr<'TV>(0n)
                     let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
                     kernelRRUpsweep.Launch lp data count task reductionDevice
 
@@ -301,9 +301,9 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                     // need numBlocks for reduction, so we dont update it here
                     let task = divideTaskRange numTiles (min (numSm * 25) numTiles)
                     let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-//                    let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
-//                    let reductionDevice2 = reductionDevice.Reinterpret<'TO>()
-                    kernelPLOS.Launch lp reductionDevice numBlocks totalDevice (worker.Malloc(1).Ptr) reductionDevice
+                    let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
+                    let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
+                    kernelPLOS.Launch lp reductionDevice1 numBlocks totalDevice (worker.Malloc(1).Ptr) reductionDevice2
                                         
                     kernelRSDownsweep.Launch lp data count task reductionDevice dest totalAtEnd
                     

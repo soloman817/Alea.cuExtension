@@ -70,12 +70,10 @@
       <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Alea.CUDA" />
     <Reference Include="Alea.Interop">
       <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Alea.Interop" />
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
     <Reference Include="SharpDX">

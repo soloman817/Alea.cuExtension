@@ -92,7 +92,8 @@ let kernelBulkInsert (plan:Plan) =
 
 type IBulkInsert<'T> =
     {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> int -> DevicePtr<'T> -> int -> DevicePtr<'T> -> unit
+        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<int> -> int -> DevicePtr<'T> -> int -> DevicePtr<int> -> DevicePtr<'T> -> unit
+        NumPartitions : int
     }
 
 
@@ -101,29 +102,29 @@ let bulkInsert()  = cuda {
     let plan = { NT = 128; VT = 7 }
     let NV = plan.NT * plan.VT
 
-    let! kernelBulkInsert = kernelBulkInsert plan |> defineKernelFunc
-    let! partitionsDevice = Search.mergePathPartitions MgpuBoundsLower (comp CompTypeLess 0)
+    let! kernelBulkInsert = kernelBulkInsert plan |> defineKernelFuncWithName "bi"
+    let! mpp = Search.mergePathPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let kernelBulkInsert = kernelBulkInsert.Apply m
-        let partitionsDevice = partitionsDevice.Apply m
+        let mpp = mpp.Apply m
         
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let numPartitions = numBlocks
             let lp = LaunchParam(numBlocks, plan.NT)
-            let partitions = worker.Malloc(numPartitions + 1)
-            let partitionsDevice = partitionsDevice aCount bCount NV partitions.Ptr
-
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (dest_global:DevicePtr<'T>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                let partitionsDevice = (partitionsDevice.Action hint indices_global (DevicePtr<'T>(0L)) 0 0 )
+                        
+            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (partitions:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    let mpp = mpp aCount bCount NV
+                    let partitionsDevice = mpp.Action hint indices_global (DevicePtr<int>(0L)) 0 partitions
                                 
-                kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount partitions.Ptr dest_global
-
+                    kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount partitions dest_global
+                |> worker.Eval
             
-            { Action = action } ) }
+            { Action = action; NumPartitions = numBlocks + 1 } ) }
 
 
 

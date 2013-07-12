@@ -63,15 +63,15 @@ let testBulkRemove() =
 
     let eps = 1e-10
     let values1 n r = 
-        let source = Array.init n (fun i -> i)
+        //let source = Array.init n (fun i -> i)
         let (r:int[]*_) = rngGenericArrayI n r
-        let indices = (snd r)
+        let source, indices = (fst r), (snd r)
         source, indices
 
     let values2 n r = 
-        let source = Array.init n (fun i -> -i)
+        //let source = Array.init n (fun i -> -i)
         let (r:int[]*_) = rngGenericArrayI n r
-        let indices = (snd r)
+        let source, indices = (fst r), (snd r)
         source, indices
 
     let values3 n r = 
@@ -209,6 +209,7 @@ let ``bulkRemove moderngpu web example : int`` () =
         return results } |> PCalc.run
     (hResult, dResult) ||> Array.iter2 (fun h d -> Assert.AreEqual(h, d))
 
+
 [<Test>]
 let ``bulkRemove moderngpu web example : float32`` () =
     let hValues = Array.init 100 float32
@@ -244,16 +245,28 @@ let ``BulkRemove 3 value test`` () =
     testBulkRemove()
 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  BENCHMARKING                                                                                                //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 [<Test>]
 let ``BulkRemove moderngpu benchmark : int`` () =    
-//    let ns = 10000
-//    let nr = ns / 2
-//    let ni = 100
-//    let (source:int[]), indices = rngGenericArrayI ns nr
-//    benchmarkBulkRemove source indices ni
-
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni    )
+
+[<Test>]
+let ``BulkRemove moderngpu benchmark : int64`` () =    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+        let (source:int64[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni    )
+
+[<Test>]
+let ``BulkRemove moderngpu benchmark : float32`` () =    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+        let (source:float32[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni    )
 
 [<Test>]
@@ -262,17 +275,6 @@ let ``BulkRemove moderngpu benchmark : float`` () =
         let (source:float[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni    )
 
-//[<Test>]
-//let ``BulkRemove moderngpu benchmark int64`` () =
-
-//
-//    let intStats = Stats(sourceCounts.Length, mgpuStats_Int64)
-//    let int64benchmarkBulkRemove = benchmarkBulkRemove intStats 0L
-//    
-//    (sourceCounts, nIterations) ||> List.iter2 (fun s i -> 
-//                                                    stopwatch.Reset()
-//                                                    benchmarkBulkRemove s i)
-//    intStats.CompareResults
 
 
 

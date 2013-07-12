@@ -36,7 +36,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
-        fun (data:DArray<int>) ->
+        fun (data:DArray<'TI>) ->
             pcalc {
                 let count = data.Length
                 let api = api count
@@ -47,6 +47,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                         pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )}
                     |> Lazy.Create
                 return scanner, scanned} ) }
+
 
 
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
@@ -94,6 +95,40 @@ let bulkRemove() = cuda {
                 do! PCalc.action (fun hint -> api.Action hint indicesCount partition.Ptr data.Ptr indices.Ptr removed.Ptr)
                 return removed } ) }
 
+
+let bulkInsert() = cuda {
+    let! api = BulkInsert.bulkInsert() 
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (data_A:DArray<'TI>) (indices:DArray<int>) (data_B:DArray<'TI>) ->
+            let aCount = data_A.Length
+            let bCount = data_B.Length
+            let api = api aCount bCount
+            pcalc {
+                //let! mp = DArray.createInBlob<int> worker api.NumPartitions
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                let! inserted = DArray.createInBlob<'TI> worker (aCount + bCount)
+                do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr aCount data_B.Ptr bCount partition.Ptr inserted.Ptr)
+                return inserted } ) }
+
+
+let scanInPlace (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
+    let! api = Scan.scan mgpuScanType op totalAtEnd
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (numElements:int) ->
+            let api = api numElements
+            pcalc {
+                let! total = DArray.createInBlob worker 1
+                let scanner (data:DArray<'TI>) (scanned:DArray<'TR>) =
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr) }
+                return scanner } ) }
+
+
 // @COMMENTS@ : for benchmark test, we need wrap it with in-place pattern, so it is just different
 // memory usage, that is also why we need a raw api and then wrap them and separate memory management
 // so strictly
@@ -119,19 +154,3 @@ let bulkRemoveInPlace() = cuda {
                 return remove } ) }
 
 
-let bulkInsert() = cuda {
-    let! api = BulkInsert.bulkInsert 
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let api = api.Apply m
-        fun (data_A:DArray<'TI>) (indices:DArray<int>) (data_B:DArray<'TI>) ->
-            let aCount = data_A.Length
-            let bCount = data_B.Length
-            
-            pcalc {
-                //let! mp = DArray.createInBlob<int> worker api.NumPartitions
-
-                let! inserted = DArray.createInBlob<'TI> worker (aCount + bCount)
-                do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr aCount data_B.Ptr bCount inserted.Ptr)
-                return inserted } ) }
