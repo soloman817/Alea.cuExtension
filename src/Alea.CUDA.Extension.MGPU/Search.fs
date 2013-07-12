@@ -76,9 +76,13 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'TC>) =
         let findMergesortFrame = %findMergesortFrame
 
         let partition = NT * blockIdx.x * threadIdx.x
-        let mutable aCount, bCount = aCount, bCount
+        let mutable aCount = aCount
+        let mutable bCount = bCount
+        //let mutable aCount, bCount = aCount, bCount
         if partition < numSearches then
-            let mutable a0, b0 = 0G, 0G
+            let mutable a0 = 0G
+            let mutable b0 = 0G
+            //let mutable a0, b0 = 0G, 0G
             let mutable gid = nv * partition
             if coop <> 0 then
                 let frame = findMergesortFrame coop partition nv
