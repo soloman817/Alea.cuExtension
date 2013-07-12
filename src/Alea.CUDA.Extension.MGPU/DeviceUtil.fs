@@ -12,6 +12,7 @@ let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
 type Int2 =
     val mutable x : int
     val mutable y : int
+    [<ReflectedDefinition>] // @HERE!!@
     new (x, y) = { x = x; y = y }
 
 type int2 = Int2
@@ -21,6 +22,7 @@ type Int3 =
     val mutable x : int
     val mutable y : int
     val mutable z : int
+    [<ReflectedDefinition>] // @HERE!!@
     new (x, y, z) = { x = x; y = y; z = z }
 
 type int3 = Int3
@@ -31,6 +33,7 @@ type Int4 =
     val mutable y : int
     val mutable z : int
     val mutable w : int
+    [<ReflectedDefinition>] // @HERE!!@
     new (x, y, z, w) = { x = x; y = y; z = z; w = w }
 
 type int4 = Int4

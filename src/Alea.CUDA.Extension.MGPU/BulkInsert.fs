@@ -85,7 +85,6 @@ let kernelBulkInsert (plan:Plan) =
             sharedIndices.[index] <- gather
         __syncthreads()
 
-
         deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) false @>
 
 
