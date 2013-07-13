@@ -120,7 +120,7 @@ let computeMergeRange() =
                 let gid = NV * block
 
                 let mutable range = int4(0,0,0,0)
-                if coop <> 0 then
+                if coop > 0 then
                     let frame = findMergesortFrame().Host coop block NV
                     range <- findMergesortInterval().Host frame coop block NV aCount mp0 mp1
                 else
@@ -142,7 +142,7 @@ let computeMergeRange() =
                 let gid = NV * block
 
                 let mutable range = int4(0,0,0,0)
-                if coop <> 0 then
+                if coop > 0 then
                     let frame = findMergesortFrame coop block NV
                     range <- findMergesortInterval frame coop block NV aCount mp0 mp1
                 else

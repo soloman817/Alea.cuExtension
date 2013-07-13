@@ -98,7 +98,7 @@ let deviceGlobalToShared (NT:int) (VT:int)  =
         let deviceGlobalToReg = %deviceGlobalToReg
         let deviceRegToShared = %deviceRegToShared
         deviceGlobalToReg count source tid reg false
-        deviceRegToShared (NT*VT) reg tid dest sync @>
+        deviceRegToShared (NT * VT) reg tid dest sync @>
 
 let deviceGlobalToGlobal (NT:int) (VT:int) =
     let deviceGlobalToReg = deviceGlobalToReg NT VT
@@ -156,7 +156,7 @@ let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
     <@ fun (a_global:RWPtr<'T>) (aCount:int) (b_global:RWPtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
         let deviceRegToShared = %deviceRegToShared
 
-        let b0 = int( b_global.Handle64 - a_global.Handle64 - int64 aCount )
+        let b0 = b_global.[0] - a_global.[0] - aCount
         let total = aCount + bCount
         let reg = __local__<'T>(VT1).Ptr(0)
         if total >= NT * VT0 then
@@ -184,7 +184,7 @@ let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
     <@ fun (a_global:RWPtr<'T>) (aCount:int) (b_global:RWPtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
         let deviceRegToShared = %deviceRegToShared
 
-        let b_global = b_global - aCount
+        b_global.[0] <- b_global.[0] - aCount
         let total = aCount + bCount
         let reg = __local__<'T>(VT1).Ptr(0)
         if total >= NT * VT0 then
