@@ -32,6 +32,28 @@ let hostBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) =
     result
         
 
+
+[<Test>]
+let ``bulkInsert simple example`` () =
+    let hDataA = Array.init 20 (fun i -> i)        
+    let hIndices = [| 3; 7; 11; 14; 19 |]
+    let hDataB = [| 93; 97; 911; 914; 919 |]
+
+    let pfunct = MGPU.PArray.bulkInsert()
+    let bi = worker.LoadPModule(pfunct).Invoke
+
+    let dResult = pcalc {
+        let! dataA = DArray.scatterInBlob worker hDataA
+        let! indices = DArray.scatterInBlob worker hIndices
+        let! dataB = DArray.scatterInBlob worker hDataB
+        let! inserted = bi dataA indices dataB
+        let! results = inserted.Gather()
+        return results } |> PCalc.run
+
+    printfn "%A" dResult
+
+
+
 [<Test>]
 let ``bulkInsert moderngpu website example 1`` () =
     let hDataA = Array.init 100 int

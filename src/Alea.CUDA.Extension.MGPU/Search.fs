@@ -80,8 +80,8 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'T>) =
         let mutable bCount = bCount
         //let mutable aCount, bCount = aCount, bCount
         if partition < numSearches then
-            let mutable a0 = 0G
-            let mutable b0 = 0G
+            let mutable a0 = 0
+            let mutable b0 = 0
             //let mutable a0, b0 = 0G, 0G
             let mutable gid = nv * partition
             if coop > 0 then
@@ -92,7 +92,7 @@ let kernelMergePartition (NT:int) (bounds:int) (comp:IComp<'T>) =
                 aCount <- (min aCount (frame.x + frame.z)) - a0
                 
                 gid <- gid - a0
-            let mp = 0 //mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
+            let mp = mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
             mp_global.[partition] <- mp @>
 
 
@@ -118,8 +118,8 @@ let mergePathPartitions (bounds:int) (comp:IComp<'T>) = cuda {
             let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (coop:int) (partitionsDevice:DevicePtr<int>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
-                    ()
-                    //kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
+                    
+                    kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
                 |> worker.Eval
 
             { Action = action } ) }

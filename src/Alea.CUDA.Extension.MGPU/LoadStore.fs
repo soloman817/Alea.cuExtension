@@ -240,7 +240,7 @@ let deviceTransferMergeValuesA (NT:int) (VT:int) =
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'TV>(VT).Ptr(0)
-        let b_global = b_global - bStart
+        b_global.[0] <- b_global.[0] - bStart
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 let gather = indices_shared.[NT * i + tid]
@@ -261,7 +261,7 @@ let deviceTransferMergeValuesB (NT:int) (VT:int) =
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)
-        let bOffset = int( b_global.Handle64 - a_global.Handle64 - int64 bStart )
+        let bOffset = b_global.[0] - a_global.[0] - bStart
 
         if count >= NT * VT then
             for i = 0 to VT - 1 do
