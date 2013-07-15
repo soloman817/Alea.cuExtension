@@ -52,7 +52,7 @@ let deviceRegToGlobal (NT:int) (VT:int) =
 // The goal is to reduce unnecessary comparison logic
 let deviceMemToMem4 (NT:int) (VT:int) =
     <@ fun (count:int) (source:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
-        let x = __local__<'TV>(VT).Ptr(0)
+        let x = __local__<'T>(VT).Ptr(0)
         let count' = if VT < 4 then VT else 4
         if (count >= NT * VT) then
             for i = 0 to count' - 1 do
@@ -107,7 +107,7 @@ let deviceGlobalToGlobal (NT:int) (VT:int) =
         let deviceGlobalToReg = %deviceGlobalToReg
         let deviceRegToGlobal = %deviceRegToGlobal
 
-        let values = __local__<'TV>(VT).Ptr(0)
+        let values = __local__<'T>(VT).Ptr(0)
         deviceGlobalToReg count source tid values false
         deviceRegToGlobal count values tid dest sync @>
 
@@ -220,7 +220,7 @@ let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
     <@ fun (count:int) (data_global:RWPtr<'T>) (indices_shared:RPtr<int>) (tid:int) (dest_global:RWPtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
-        let values = __local__<'TV>(VT).Ptr(0)
+        let values = __local__<'T>(VT).Ptr(0)
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then
@@ -236,10 +236,10 @@ let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
 // Like DeviceGatherGlobalToGlobal, but for two arrays at once.
 let deviceTransferMergeValuesA (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:RWPtr<'T>) (b_global:RWPtr<'T>) (bStart:int) (indices_shared:RPtr<int>) (tid:int) (dest_global:RWPtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (a_global:RWPtr<'T>) (b_global:RWPtr<'T>) (bStart:int) (indices_shared:RPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
-        
-        let values = __local__<'TV>(VT).Ptr(0)
+                     
+        let values = __local__<'T>(VT).Ptr(0)
         b_global.[0] <- b_global.[0] - bStart
         if count >= NT * VT then
             for i = 0 to VT - 1 do

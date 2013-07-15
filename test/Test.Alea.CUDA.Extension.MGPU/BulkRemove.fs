@@ -1,6 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.BulkRemove
 
 open System
+open System.IO
 open System.Diagnostics
 open System.Collections.Generic
 open Microsoft.FSharp.Quotations
@@ -11,14 +12,44 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
+open Test.Alea.CUDA.Extension.Output.Util
+open Test.Alea.CUDA.Extension.Output.CSV
+open Test.Alea.CUDA.Extension.Output.Excel
 
 open NUnit.Framework
 
+////////////////////////////
+// set this to your device or add your device's C++ output to BenchmarkStats.fs
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
+// in the future maybe we try to get the C++ to interop somehow
+/////////////////////////////
+
 let worker = Engine.workers.DefaultWorker
+
 let rng = System.Random()
 
 let sourceCounts = BenchmarkStats.sourceCounts
 let nIterations = BenchmarkStats.bulkRemoveIterations
+
+let brBMS4 = new BenchmarkStats4("Bulk Remove", worker.Device.Name, "MGPU", sourceCounts, nIterations)
+
+// we can probably organize this a lot better, but for now, if you just change
+// what module you open above all of this should adjust accordingly
+let oIntTP, oIntBW = moderngpu_bulkRemoveStats_int |> List.unzip
+let oInt64TP, oInt64BW = moderngpu_bulkRemoveStats_int64 |> List.unzip
+
+for i = 0 to sourceCounts.Length - 1 do
+    // this is setting the opponent (MGPU) stats for the int type
+    brBMS4.Ints.OpponentThroughput.[i].Value <- oIntTP.[i]
+    brBMS4.Ints.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    // set opponent stats for int64
+    brBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
+    brBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
+    // dont have the other types yet
+
+let mainDir = Directory.CreateDirectory("Benchmark_CSV")
+let workingDir = mainDir.CreateSubdirectory("BulkRemove")
+let workingPath = workingDir.FullName + "/"
 
 let removeAmount = 2 //half
 let removeCount c = c / removeAmount
@@ -104,7 +135,7 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
     (h, d) ||> List.iteri2 (fun i hi di -> if i < verifyCount then Util.verify hi di)
 
 
-let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) =
+let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
     let remover = worker.LoadPModule(PArray.bulkRemoveInPlace()).Invoke
 
 //    printfn "%d %A" data.Length data
@@ -149,6 +180,13 @@ let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) =
         (timing' / (float numIt))
         numIt
         timing'
+
+    match typeof<'TI> with
+    | x when x = typeof<int> -> brBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<int64> -> brBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float32> -> brBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float> -> brBMS4.Floats.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | _ -> ()
  
  
 [<Test>]
@@ -253,27 +291,39 @@ let ``BulkRemove 3 value test`` () =
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : int`` () =    
-    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
-        benchmarkBulkRemove source indices ni    )
+        benchmarkBulkRemove source indices ni i  )
+
+    benchmarkCSVOutput brBMS4.Ints workingPath
+    benchmarkExcelOutput brBMS4.Ints
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : int64`` () =    
-    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:int64[]), indices = rngGenericArrayI ns nr
-        benchmarkBulkRemove source indices ni    )
+        benchmarkBulkRemove source indices ni i   )
+
+    benchmarkCSVOutput brBMS4.Int64s workingPath
+    benchmarkExcelOutput brBMS4.Int64s
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : float32`` () =    
-    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:float32[]), indices = rngGenericArrayI ns nr
-        benchmarkBulkRemove source indices ni    )
+        benchmarkBulkRemove source indices ni i   )
+
+    benchmarkCSVOutput brBMS4.Float32s workingPath
+    benchmarkExcelOutput brBMS4.Float32s
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : float`` () =    
-    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iter (fun (ns, ni, nr) ->
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:float[]), indices = rngGenericArrayI ns nr
-        benchmarkBulkRemove source indices ni    )
+        benchmarkBulkRemove source indices ni i   )
+
+    benchmarkCSVOutput brBMS4.Floats workingPath
+    benchmarkExcelOutput brBMS4.Floats
 
 
 

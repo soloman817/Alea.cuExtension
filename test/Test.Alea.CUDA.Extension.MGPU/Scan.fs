@@ -1,6 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.Scan
 
 open System
+open System.IO
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
@@ -8,7 +9,16 @@ open Alea.CUDA.Extension.MGPU.Scan
 open Alea.CUDA.Extension.MGPU.CTAScan
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
+open Test.Alea.CUDA.Extension.Output.Util
+open Test.Alea.CUDA.Extension.Output.CSV
+open Test.Alea.CUDA.Extension.Output.Excel
 open NUnit.Framework
+
+////////////////////////////
+// set this to your device or add your device's C++ output to BenchmarkStats.fs
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
+// in the future maybe we try to get the C++ to interop somehow
+/////////////////////////////
 
 let totalAtEnd = 1
 let totalNotAtEnd = 0
@@ -21,6 +31,27 @@ let sourceCounts = BenchmarkStats.sourceCounts
 let nIterations = BenchmarkStats.scanIterations
 
 let worker = getDefaultWorker()
+
+let scanBMS4 = new BenchmarkStats4("Scan", worker.Device.Name, "MGPU", sourceCounts, nIterations)
+
+
+// we can probably organize this a lot better, but for now, if you just change
+// what module you open above all of this should adjust accordingly
+let oIntTP, oIntBW = moderngpu_scanStats_int |> List.unzip
+let oInt64TP, oInt64BW = moderngpu_scanStats_int64 |> List.unzip
+
+for i = 0 to sourceCounts.Length - 1 do
+    // this is setting the opponent (MGPU) stats for the int type
+    scanBMS4.Ints.OpponentThroughput.[i].Value <- oIntTP.[i]
+    scanBMS4.Ints.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    // set opponent stats for int64
+    scanBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
+    scanBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
+    // dont have the other types yet
+
+let mainDir = Directory.CreateDirectory("Benchmark_CSV")
+let workingDir = mainDir.CreateSubdirectory("Scan")
+let workingPath = workingDir.FullName + "/"
 
 let hostScan (mgpuScanType:int) (n:int) =
     fun (scannedData:'TI[]) ->
@@ -74,9 +105,10 @@ let testScan () =
     test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
 
 
-let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:'TI[]) =
+let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:'TI[]) (testIdx:int) =
     let scanner = worker.LoadPModule(MGPU.PArray.scanInPlace mgpuScanType op totalAtEnd).Invoke
     let count = data.Length
+    
     
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data
@@ -109,6 +141,13 @@ let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int
         (timing' / (float numIt))
         numIt
         timing'
+    
+    match typeof<'TI> with
+    | x when x = typeof<int> -> scanBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<int64> -> scanBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float32> -> scanBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float> -> scanBMS4.Floats.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | _ -> ()
 
 let printScanType (mgpuScanType:int) =
     if mgpuScanType = ExclusiveScan then
@@ -190,27 +229,36 @@ let ``Scan 3 value test`` () =
 
 [<Test>]
 let ``benchmark moderngpu scan : int`` () =
-    (sourceCounts, nIterations) ||> List.zip |> List.iter (fun (ns, ni) ->
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:int[]) = rngGenericArray ns
-        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source )
-
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source i)
+    
+    benchmarkCSVOutput scanBMS4.Ints workingPath
+    benchmarkExcelOutput scanBMS4.Ints
 
 [<Test>]
 let ``benchmark moderngpu scan : int64`` () =
-    (sourceCounts, nIterations) ||> List.zip |> List.iter (fun (ns, ni) ->
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:int64[]) = rngGenericArray ns
-        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0L) totalNotAtEnd ni source )
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0L) totalNotAtEnd ni source i)
 
+    benchmarkCSVOutput scanBMS4.Int64s workingPath
+    benchmarkExcelOutput scanBMS4.Int64s
 
 [<Test>]
 let ``benchmark moderngpu scan : float32`` () =
-    (sourceCounts, nIterations) ||> List.zip |> List.iter (fun (ns, ni) ->
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:float32[]) = rngGenericArray ns
-        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd ni source )
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd ni source i)
 
+    benchmarkCSVOutput scanBMS4.Float32s workingPath
+    benchmarkExcelOutput scanBMS4.Float32s
 
 [<Test>]
 let ``benchmark moderngpu scan : float`` () =
-    (sourceCounts, nIterations) ||> List.zip |> List.iter (fun (ns, ni) ->
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:float[]) = rngGenericArray ns
-        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source )
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
+
+    benchmarkCSVOutput scanBMS4.Floats workingPath
+    benchmarkExcelOutput scanBMS4.Floats

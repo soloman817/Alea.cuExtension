@@ -245,7 +245,7 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (comp:IComp<'T>) =
         let diag = VT * tid
 
         // dont know if this is right
-        let keys_shared = DevicePtr(keys_shared.Handle)
+        let keys_shared = DevicePtr(keys_shared.Handle64)
 
         let mp = mergePath keys_shared aCount (keys_shared + aCount) bCount diag
 
@@ -262,7 +262,7 @@ let deviceMerge (NT:int) (VT:int) (hasValues:int) (comp:IComp<'TC>) =
     let deviceMergeKeysIndices = deviceMergeKeysIndices NT VT comp
     let deviceThreadToShared = deviceThreadToShared VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
-    let deviceTransferMergeValues = deviceTransferMergeValuesB NT VT
+    let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
     <@ fun (aKeys_global:DevicePtr<'TK>) (aVals_global:DevicePtr<'V1>) (bKeys_global:DevicePtr<'TK>) (bVals_global:DevicePtr<'V2>) (tid:int) (block:int) (range:int4) (keys_shared:RWPtr<'TK>) (indices_shared:RWPtr<int>) (keys_global:DevicePtr<'TK>) (vals_global:DevicePtr<'V3>) ->
         let deviceMergeKeysIndices = %deviceMergeKeysIndices
