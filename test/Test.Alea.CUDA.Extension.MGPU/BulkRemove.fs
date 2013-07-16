@@ -12,9 +12,9 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkRemove
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
-open Test.Alea.CUDA.Extension.Output.Util
-open Test.Alea.CUDA.Extension.Output.CSV
-open Test.Alea.CUDA.Extension.Output.Excel
+open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.Output.CSV
+open Alea.CUDA.Extension.Output.Excel
 
 open NUnit.Framework
 
@@ -111,10 +111,6 @@ let testBulkRemove() =
         let indices = (snd r)
         source, indices  
         
-//    do
-//        let source, indices = values3 100 5
-//        printfn "%A" source
-//        printfn "%A" indices  
 
     (sourceCounts2, removeCounts2) ||> Seq.iter2 (fun ns nr -> let test = test true eps  
                                                                values1 ns nr ||> test |> PCalc.run)
@@ -137,10 +133,6 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
 
 let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
     let remover = worker.LoadPModule(PArray.bulkRemoveInPlace()).Invoke
-
-//    printfn "%d %A" data.Length data
-//    printfn "%d %A" indices.Length indices
-//    printfn "%d" numIt
 
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data
@@ -181,7 +173,7 @@ let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
         numIt
         timing'
 
-    match typeof<'TI> with
+    match typeof<'T> with
     | x when x = typeof<int> -> brBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<int64> -> brBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<float32> -> brBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
@@ -324,74 +316,3 @@ let ``BulkRemove moderngpu benchmark : float`` () =
 
     benchmarkCSVOutput brBMS4.Floats workingPath
     benchmarkExcelOutput brBMS4.Floats
-
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////
-///  Saving Old Code for Now
-////////////////////////////////////////////////////////////////////////////////////////////////////////
-//type Stats( numTests, mgpuStats : (float * float) list) =
-//    let mutable myStats = 
-//        let mutable r = []
-//        for i = 0 to numTests - 1 do
-//            let mutable a = Array.zeroCreate<float> 4
-//            r <- r @ [a]
-//        r
-//
-//    let resultSizes = sourceCounts |> List.collect (fun s -> [s - s/removeAmount])
-//
-//    let mutable myDeviceResults : 'T[] list = 
-//        resultSizes |> List.collect (fun n -> [Array.zeroCreate<'T> n])       
-//
-//    let mutable myHostResults : 'T[] list = 
-//        resultSizes |> List.collect (fun n -> [Array.zeroCreate<'T> n])     
-//
-//    let mutable dResultIdx = 0
-//    let mutable hResultIdx = 0
-//    let mutable statCount = 0
-//
-//    member s.AddStat (stat:float[]) =
-//        if statCount < numTests then
-//            for i = 0 to myStats.[statCount].Length - 1 do
-//                myStats.[statCount].[i] <- stat.[i]
-//                
-//    member s.AddDeviceResult (result:'T[]) =
-//        for i = 0 to myDeviceResults.[dResultIdx].Length - 1 do
-//            myDeviceResults.[dResultIdx].[i] <- result.[i]
-//        dResultIdx <- dResultIdx + 1
-//
-//    member s.AddHostResult (result:'T[]) =
-//        for i = 0 to myHostResults.[hResultIdx].Length - 1 do
-//            myHostResults.[hResultIdx].[i] <- result.[i]
-//        hResultIdx <- hResultIdx + 1
-//    
-//    member s.GetResultIdx = hResultIdx
-//
-//    member s.GetResults : ('T[] list * 'T[] list) = myHostResults, myDeviceResults
-//
-//    member s.ithArrSize (i:int) = int(myStats.[i].[0])
-//    member s.ithThrouputs (i:int) = fst mgpuStats.[i], myStats.[i].[1]
-//    member s.ithBandwidths (i:int) = snd mgpuStats.[i], myStats.[i].[2]
-//    member s.ithTiming (i:int) = myStats.[i].[3]
-//
-//    member s.CompareResults = 
-//        printfn "\n****************** Comparison of Results to ModernGPU Library ********************"
-//        printfn "COUNT\t\tMGPU Throughput\tMy Throughput\t\tMGPU Bandwidth\t\tMy Bandwidth"
-//        for i = 0 to sourceCounts.Length - 1 do
-//            let count = s.ithArrSize(i)
-//            let mgpuTp, myTp = s.ithThrouputs(i)
-//            let mgpuBw, myBw = s.ithBandwidths(i)
-//            printfn "(%d)\t\t(%9.3f)\t\t(%9.3f)\t\t(%7.3f)\t\t(%7.3f)" count mgpuTp myTp mgpuBw myBw
-//        printfn "\nCOUNT\tThroughput Percent Difference\t\tBandwidth Percent Difference"
-//        for i = 0 to sourceCounts.Length - 1 do
-//            let count = s.ithArrSize (i)
-//            let thruDiff = s.ithThrouputs(i) ||> percentDiff
-//            let bandDiff = s.ithBandwidths(i) ||> percentDiff
-//            printfn "(%d)\t\t(%5.1f)\t\t\t\t(%5.1f)" count thruDiff bandDiff
-//        printfn "\nCOUNT\t\tTIMING(Me Only)"
-//        for i = 0 to sourceCounts.Length - 1 do
-//            let count = s.ithArrSize(i)
-//            let time = s.ithTiming(i)
-//            printfn "(%d)\t\t(%7.3f s)" count time

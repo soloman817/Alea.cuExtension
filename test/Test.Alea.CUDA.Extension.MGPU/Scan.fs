@@ -9,9 +9,9 @@ open Alea.CUDA.Extension.MGPU.Scan
 open Alea.CUDA.Extension.MGPU.CTAScan
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
-open Test.Alea.CUDA.Extension.Output.Util
-open Test.Alea.CUDA.Extension.Output.CSV
-open Test.Alea.CUDA.Extension.Output.Excel
+open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.Output.CSV
+open Alea.CUDA.Extension.Output.Excel
 open NUnit.Framework
 
 ////////////////////////////
