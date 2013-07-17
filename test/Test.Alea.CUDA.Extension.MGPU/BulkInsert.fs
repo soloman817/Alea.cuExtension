@@ -58,7 +58,7 @@ let ``bulkInsert simple example`` () =
 let ``bulkInsert moderngpu website example 1`` () =
     let hDataSource = Array.init 100 int
     let hIndices = [|2..5..100|]
-    let hDataToInsert = [|1000..10..((hIndices.Length*10+1000)-10)|]  // values to be inserted
+    let hDataToInsert = [|1000..10..((hIndices.Length*10+1000)-10)|]
 
     let answer = [|     0;  1; 1000;  2;     3;  4;    5;  6; 1010;  7;
                         8;  9;   10; 11;  1020; 12;   13; 14;   15; 16;

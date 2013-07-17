@@ -1,291 +1,272 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.Debug
-// NOT BEING USED FOR NOW
-open System
-open System.Runtime.InteropServices
-open Microsoft.FSharp.Quotations
+
 open Alea.CUDA
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.MGPU.Intrinsics
-open Alea.CUDA.Extension.MGPU.Static
-//open Alea.CUDA.Extension.MGPU.QuotationUtil
-open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.Util
-open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
+open Alea.CUDA.Extension.MGPU.QuotationUtil
+open Alea.CUDA.Extension.MGPU.CTASearch
+open Alea.CUDA.Extension.MGPU.CTAScan
+open Alea.CUDA.Extension.MGPU.LoadStore
+open Alea.CUDA.Extension.MGPU.CTAMerge
+open Test.Alea.CUDA.Extension.MGPU.Util
 
 open NUnit.Framework
 
+module MergePartition =
+    type Plan =
+        {
+            NT : int
+            Bounds : int
+        }
 
-//let worker = getDefaultWorker()
-//
-//let rng = System.Random()
-//
-//type IScanOp<'TI, 'TV, 'TR> =
-//    abstract Commutative : int
-//    abstract Identity : 'TI // the init value
-//    abstract HExtract : ('TI -> int -> 'TV)
-//    abstract DExtract : Expr<'TI -> int -> 'TV>
-//    abstract HPlus : ('TV -> 'TV -> 'TV)
-//    abstract DPlus : Expr<'TV -> 'TV -> 'TV>
-//    abstract HCombine : ('TI -> 'TV -> 'TR)
-//    abstract DCombine : Expr<'TI -> 'TV -> 'TR>
-//
-//type ScanOpType =
-//    | ScanOpTypeAdd
-//    | ScanOpTypeMul
-//    | ScanOpTypeMin
-//    | ScanOpTypeMax
-//
-//let inline scanOp (opType:ScanOpType) (ident:'T) =
-//    { new IScanOp<'T, 'T, 'T> with
-//        member this.Commutative = 1
-//        member this.Identity = ident
-//        member this.HExtract = fun t index -> t
-//        member this.DExtract = <@ fun t index -> t @>
-//        member this.HPlus =
-//            match opType with
-//            | ScanOpTypeAdd -> ( + )
-//            | ScanOpTypeMul -> ( * )
-//            | ScanOpTypeMin -> min
-//            | ScanOpTypeMax -> max
-//        member this.DPlus =
-//            match opType with
-//            | ScanOpTypeAdd -> <@ ( + ) @>
-//            | ScanOpTypeMul -> <@ ( * ) @>
-//            | ScanOpTypeMin -> <@ min @>
-//            | ScanOpTypeMax -> <@ max @>
-//        member this.HCombine = fun t1 t2 -> t2 
-//        member this.DCombine = <@ fun t1 t2 -> t2 @> }
-//
-//type IReduce<'TI, 'TV> =
-//        {
-//            NumBlocks : int // how may 'TV
-//            Action : ActionHint -> DevicePtr<'TI> ->DevicePtr<'TV> -> unit
-//            Result : 'TV[] -> 'TV
-//        }
-//
-//
-//type Plan =
-//    {
-//        NT : int
-//        VT: int
-//    }
-//
-//
-//[<Struct;StructLayout(LayoutKind.Sequential, Size=16);Align(16)>]
-//type Extent16 =
-//    val dummy : byte
-//
-//[<Struct;StructLayout(LayoutKind.Sequential, Size=8);Align(8)>]
-//type Extent8 =
-//    val dummy : byte
-//
-//[<Struct;StructLayout(LayoutKind.Sequential, Size=4);Align(4)>]
-//type Extent4 =
-//    val dummy : byte
-//
-//[<Struct;StructLayout(LayoutKind.Sequential, Size=2);Align(2)>]
-//type Extent2 =
-//    val dummy : byte
-//
-//[<Struct;StructLayout(LayoutKind.Sequential, Size=1);Align(1)>]
-//type Extent1 =
-//    val dummy : byte
-//
-//let createSharedExpr (align:int) (size:int) =
-//    let length = divup size align
-//    match align with
-//    | 16 -> <@ __shared__<Extent16>(length).Ptr(0).Reinterpret<byte>() @>
-//    | 8  -> <@ __shared__<Extent8>(length).Ptr(0).Reinterpret<byte>() @>
-//    | 4  -> <@ __shared__<Extent4>(length).Ptr(0).Reinterpret<byte>() @>
-//    | 2  -> <@ __shared__<Extent2>(length).Ptr(0).Reinterpret<byte>() @>
-//    | 1  -> <@ __shared__<Extent1>(length).Ptr(0).Reinterpret<byte>() @>
-//    | _ -> failwithf "wrong align of %d" align
-//
-//[<Test>]
-//let ``kernel test`` () =
-//    let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
-//        //let size = NT
-//        //let capacity = NT + NT / WARP_SIZE
-//        //let _, sLogPow2OfNT = sLogPow2 NT 1
-//        let capacity = 0
-//        //let plus = op.DPlus
-//        let reduce =
-//            <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) ->
-//                //let plus = %plus
-//                let mutable x = x
-////                let dest = brev(uint32(tid)) >>> (32 - sLogPow2OfNT)
-////                let dest = int(dest)
-////                storage.[dest + dest / WARP_SIZE] <- x
-////                __syncthreads()
-////                let src = tid + tid / WARP_SIZE
-////                let mutable destCount = NT / 2
-////                while destCount >= 1 do
-////                    if tid < destCount then
-////                        if (NT / 2 = destCount) then x <- storage.[src]
-////                        let src2 = destCount + tid
-////                        x <- plus x storage.[src2 + src2 / WARP_SIZE]
-////                        storage.[src] <- x
-////                    __syncthreads()
-////                    destCount <- destCount / 2        
-//                let total = storage.[0]
-//                //__syncthreads()
-//                total @>
-//        capacity, reduce
-//
-//    let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
-//        let NT = plan.NT
-//        let VT = plan.VT
-//        let NV = NT * VT
-//
-//        let capacity, reduce = ctaReduce NT op
-//        let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
-//        let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
-//        let sharedAlign = max alignOfTI alignOfTV
-//        let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-//        let createSharedExpr = createSharedExpr sharedAlign sharedSize
-//               
-//        let commutative = op.Commutative
-//        let identity = op.Identity
-//        let extract = op.DExtract
-//        let plus = op.DPlus
-//        let deviceGlobalToReg = deviceGlobalToReg NT VT
-//
-//        <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'TV>) ->
-//            let extract = %extract
-//            let plus = %plus
-//            let deviceGlobalToReg = %deviceGlobalToReg
-//            let reduce = %reduce
-//
-//            let shared = %(createSharedExpr)
-//            let sharedReduce = shared.Reinterpret<'TV>()
-//            let sharedInputs = shared.Reinterpret<'TI>()
-//
-//            let tid = threadIdx.x
-//            let block = blockIdx.x
-//            let first = VT * tid
-//
-//            let mutable range = computeTaskRangeEx block task NV count
-//
-//            let mutable total = extract identity -1
-//            let mutable totalDefined = false
-//
-////            while range.x < range.y do
-////                let count2 = min NV (count - range.x)
-////                                
-////                let inputs = __local__<'TI>(VT).Ptr(0)
-////                deviceGlobalToReg count2 (data_global + range.x) tid inputs 0
-////
-////                if commutative <> 0 then
-////                    for i = 0 to VT - 1 do
-////                        let index = NT * i + tid
-////                        if index < count2 then
-////                            let x = extract inputs.[i] (range.x + index)
-////                            total <- if i > 0 || totalDefined then plus total x else x
-////                else                    
-////                    ()
-////
-////                range.x <- range.x + NV
-////                totalDefined <- true
-////
-//            if commutative <> 0 then                      // uncommenting this if statement causes abort
-//                total <- reduce tid total sharedReduce    //
-//
-//            if tid = 0 then reduction_global.[block] <- total @>
-//
-//    
-//    let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
-//        //let cutOff = 20000
-//        let plan1 = { NT = 512; VT = 5 }
-//        let plan2 = { NT = 128; VT = 9 }
-//        let! kernelReduce1 = kernelReduce plan1 op |> defineKernelFunc
-//        //let! kernelReduce2 = kernelReduce plan2 op |> defineKernelFunc
-//        let hplus = op.HPlus
+       
+    let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<int,int>) = 
+        let NT = plan.NT
+        let bounds = plan.Bounds
+        let mergePath = mergeSearch.DMergePath
+        
+        <@ fun (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
+            let mergePath = %mergePath
+            
+                        
+            let mutable aCount = aCount
+            let mutable bCount = bCount
+            
+            
+            let partition = NT * blockIdx.x * threadIdx.x
+            if partition < numSearches then
+                let mutable a0 = 0
+                let mutable b0 = 0                
+                let mutable gid = nv * partition
+                // coop always 0 for bulk insert so I deleted that part for testing
+                let mp = mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
+                mp_global.[partition] <- mp @>
+
+    type IMergePathPartitions =
+        {
+            Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit                
+        }                  
+
+    let mergePathPartitions (bounds:int) (compOp:IComp<int>) = cuda {
+        let plan = { NT = 64; Bounds = bounds}
+        let mergeSearch = mergeSearch bounds compOp
+        let! kernelMergePartition = (kernelMergePartition plan mergeSearch) |> defineKernelFuncWithName "mpp"
+
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let kernelMergePartition = kernelMergePartition.Apply m
+
+            fun (aCount:int) (bCount:int) (nv:int) (coop:int) ->
+                let numPartitions = divup (aCount + bCount) nv
+                let numPartitionBlocks = divup (numPartitions + 1) plan.NT
+                let lp = LaunchParam(numPartitionBlocks, plan.NT)
+            
+                let action (hint:ActionHint) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
+                    let lp = lp |> hint.ModifyLaunchParam
+                    kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
+                
+                { Action = action } ) }
+    
+        
+//    let mPP (bounds:int) (compOp:IComp<int>) = cuda {
+//        let! api = mergePathPartitions bounds compOp
 //
 //        return PFunc(fun (m:Module) ->
-//            let worker = m.Worker
-//            let kernelReduce1 = kernelReduce1.Apply m
-//            //let kernelReduce2 = kernelReduce2.Apply m
-//
-//            fun (count:int) ->
-//                let numBlocks, task, lp, kernelReduce =
-//                    //if count < cutOff then
-//                        printfn "Count < Cutoff"
-//                        let plan = plan1
-//                        let kernelReduce = kernelReduce1
-//                        let NV = plan.NT * plan.VT
-//                        let numTiles = divup count NV
-//                        let numBlocks = 1
-//                        let task = int2(numTiles, 1)
-//                        let lp = LaunchParam(1, plan.NT)
-//                        numBlocks, task, lp, kernelReduce
-////                    else
-////                        printfn "Count > Cutoff"
-////                        let plan = plan2
-////                        let kernelReduce = kernelReduce2
-////                        let NV = plan.NT * plan.VT
-////                        let numTiles = divup count NV
-////                        let numBlocks = min (worker.Device.NumSm * 25) numTiles
-////                        let task = divideTaskRange numTiles numBlocks
-////                        let lp = LaunchParam(numBlocks, plan.NT)
-////                        numBlocks, task, lp, kernelReduce
-//
-//                let action (hint:ActionHint) (data:DevicePtr<'TI>) (reduction:DevicePtr<'TV>) =
-//                    let lp = lp |> hint.ModifyLaunchParam
-//                    kernelReduce.Launch lp data count task reduction
-//
-//                let result (reduction:'TV[]) =
-//                    reduction |> Array.reduce hplus
-//
-//                { NumBlocks = numBlocks; Action = action; Result = result } ) }
-//        
-//    let pReduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
-//        let! api = reduce op
-//        printfn "pReduce 1"
-//        return PFunc(fun (m:Module) ->
-//            //printfn "pReduce 2"
 //            let worker = m.Worker
 //            let api = api.Apply m
-//            fun (data:DArray<'TI>) ->
+//
+//            fun (aCount:int) (bCount:int) (nv:int) (coop:int) (aGlobal:DArray<int>) (bGlobal:DArray<int>) ->
+//                                                                (*aka indices_global *) (*aka 0 counting itr*)
 //                pcalc {
-//                    let count = data.Length
-//                    ()
-//                    //let api = api count
-//                    //let! reduction = DArray.createInBlob worker api.NumBlocks
-//                    //do! PCalc.action (fun hint -> api.Action hint data.Ptr reduction.Ptr)
-//                    (*let result =
-//                        fun () ->
-//                            pcalc {
-//                                let! reduction = reduction.Gather()
-//                                return api.Result reduction }
-//                        |> Lazy.Create*)
-//                    (*return result*)} ) }
+//                    let api = api aCount bCount nv coop
+//                    let NT = 64
+//                    let numPartitions = divup (aCount + bCount) nv
+//                    let numPartitionBlocks = divup (numPartitions + 1) NT
 //
-//    let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
-//        let reduce = worker.LoadPModule(pReduce op).Invoke
+//                    let! parts = DArray.createInBlob<int> worker (numPartitions + 1)
+//                    do! PCalc.action (fun hint -> api.Action hint aGlobal.Ptr bGlobal.Ptr parts.Ptr)
 //
-//        fun (gold:'TI[] -> 'TV) (*(verify:'TV -> 'TV -> unit)*) (data:'TI[]) ->
-//            let calc = pcalc {
-//                let! data = DArray.scatterInBlob worker data
-//                let! result = reduce data 
-//                return 0 }
-//
-//            let hOutput = gold data
-//            let dOutput = PCalc.run calc
-//            printfn "count(%d) h(%A) (d:%A)" data.Length hOutput dOutput
-//            //verify hOutput dOutput
-//
-//    let sizes = [12; 128; 512] //; 1024; 1200; 4096; 5000; 8191; 8192; 8193]//; 9000; 10000; 2097152; 8388608; 33554432; 33554431; 33554433]
-//
-//    
-//    let op = scanOp ScanOpTypeAdd 0.0
-//    let gold data = data |> Array.sum
-//    //let eps = 1e-8
-//    //let verify (h:float) (d:float) = Assert.That(d, Is.EqualTo(h).Within(eps))
-//    let test = testReduce op gold //verify
-//
-//    sizes |> Seq.iter (fun count ->
-//        test (Array.init count (fun i -> float(i)))
-//        test (Array.init count (fun i -> -float(i)))
-//        test (let rng = Random(2) in Array.init count (fun _ -> rng.NextDouble() - 0.5)) )
+//                    return parts } ) }
+
+
+module BulkInsert =
+    type Plan2 =
+        {
+            NT : int
+            VT : int
+        }
+           
+    
+    let kernelBulkInsert (plan:Plan2) =
+        let NT = plan.NT
+        let VT = plan.VT
+        let NV = NT * VT
+
+    
+        let capacity, scan2 = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
+        let alignOfInt, sizeOfInt = TypeUtil.cudaAlignOf typeof<int>, sizeof<int>
+        //let sharedAlign = alignOfInt
+        let sharedSize = max NV capacity //max (sizeOfInt * NV) (sizeOfInt * capacity)
+        //let createSharedExpr = createSharedExpr sharedAlign sharedSize
+        
+
+        let deviceGlobalToReg = deviceGlobalToReg NT VT
+        let computeMergeRange = computeMergeRange.Device
+        let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
+
+        <@ fun (a_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
+            let deviceGlobalToReg = %deviceGlobalToReg
+            let computeMergeRange = %computeMergeRange
+            let deviceTransferMergeValues = %deviceTransferMergeValues
+            let S = %scan2
+        
+//            let shared = %(createSharedExpr)
+//            let sharedScan = shared.Reinterpret<int>()
+//            let sharedIndices = shared.Reinterpret<int>()
+
+            let shared = __shared__<int>(sharedSize).Ptr(0)
+            let sharedScan = shared
+            let sharedIndices = shared
+
+            let tid = threadIdx.x
+            let block = blockIdx.x
+        
+            let mutable range = computeMergeRange aCount bCount block 0 NV mp_global
+            let mutable aCount = aCount
+            let mutable bCount = bCount
+            let gid = NV * block
+
+//            let a0 = mp_global.[block]
+//            let a1 = mp_global.[block + 1]
+//            let b0 = gid - a0
+//            let b1 = (min (aCount + bCount) (gid + NV)) - a1
+            let a0 = range.x
+            let a1 = range.y
+            let b0 = range.z
+            let b1 = range.w
+
+            aCount <- a1 - a0
+            bCount <- b1 - b0
+
+            for i = 0 to VT - 1 do
+                sharedIndices.[NT * i + tid] <- 0
+            __syncthreads()
+
+            let indices = __local__<int>(VT).Ptr(0)
+            deviceGlobalToReg aCount (indices_global + a0) tid indices true
+        
+            for i = 0 to VT - 1 do
+                let index = NT * i + tid
+                if index < aCount then
+                    sharedIndices.[index + indices.[i] - b0] <- 1
+            __syncthreads()
+
+            let mutable x = 0
+            for i = 0 to VT - 1 do
+                indices.[i] <- sharedIndices.[VT * tid + i]
+                x <- x + indices.[i]
+            __syncthreads()
+
+            let mutable scan = S tid x sharedScan
+
+            for i = 0 to VT - 1 do
+                let index = VT * tid + i
+                let gather = 
+                    if indices.[i] > 0 then 
+                        scan                    
+                    else 
+                        aCount + index - scan
+                if indices.[i] > 0 then scan <- scan + 1
+                sharedIndices.[index] <- gather
+            __syncthreads()
+
+            deviceTransferMergeValues (aCount + bCount) (a_global + a0) (b_global + b0) aCount sharedIndices tid (dest_global + a0 + b0) false 
+            @>
+    
+    type IBulkInsert =
+        {
+            Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
+            NumPartitions : int
+        }
+
+    let bulkInsert2()  = cuda {
+        let plan = { NT = 128; VT = 7 }
+        let NV = plan.NT * plan.VT
+
+        let! kernelBulkInsert = kernelBulkInsert plan |> defineKernelFuncWithName "bi"
+        let! mpp = MergePartition.mergePathPartitions MgpuBoundsLower (comp CompTypeLess 0)
+
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let kernelBulkInsert = kernelBulkInsert.Apply m
+            let mpp = mpp.Apply m
+        
+            fun (aCount:int) (bCount:int) ->
+                let numBlocks = divup (aCount + bCount) NV
+                let lp = LaunchParam(numBlocks, plan.NT)
+                        
+                let action (hint:ActionHint) (a_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (zeroItr:DevicePtr<int>) (b_global:DevicePtr<int>) (parts:DevicePtr<int>) (dest_global:DevicePtr<int>) =
+                    fun () ->
+                        let lp = lp |> hint.ModifyLaunchParam
+                        let mpp = mpp aCount bCount NV 0
+                        let partitions = mpp.Action hint indices_global zeroItr parts
+                        kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount parts dest_global
+                    |> worker.Eval
+            
+                { Action = action; NumPartitions = numBlocks + 1 } ) }
+
+
+    let bInsert() = cuda {
+        let! api = bulkInsert2() 
+
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (data_A:DArray<int>) (indices:DArray<int>) (data_B:DArray<int>) (*zeroitr:DArray<int>*) ->
+                let N = 100
+                let insertCount = divup (N - 2) 5
+                
+                let api = api insertCount N
+                pcalc {
+                    let! partition = DArray.createInBlob<int> worker ((divup (insertCount + N) (128 * 7)) + 1)
+                    let! zeroitr = DArray.createInBlob worker (N + insertCount)
+
+                    let! inserted = DArray.createInBlob<int> worker (insertCount + N)
+                    do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroitr.Ptr data_B.Ptr partition.Ptr inserted.Ptr)
+                    return inserted } ) }
+
+
+[<Test>]
+let ``bulk insert debug`` () =
+    let worker = getDefaultWorker()
+    let pfunct = BulkInsert.bInsert()
+    let bi = worker.LoadPModule(pfunct).Invoke
+
+    let hDataSource = Array.init 100 int
+    printfn "hDataSource size: (%A)" hDataSource.Length
+    printfn "hDataSource: %A" hDataSource
+    let hIndices = [|2..5..100|]
+    printfn "hIndices size: (%A)" hIndices.Length
+    printfn "hIndices: %A" hIndices
+    let hDataToInsert = [|1000..10..((hIndices.Length*10+1000)-10)|]
+    printfn "hDataToInsert size: (%A)" hDataToInsert.Length
+    printfn "hDataToInsert: %A" hDataToInsert
+
+    //let z = Array.zeroCreate<int> (hDataSource.Length + hDataToInsert.Length)
+
+    let dResult = pcalc {
+        let! dDataToInsert = DArray.scatterInBlob worker hDataToInsert
+        let! dIndices = DArray.scatterInBlob worker hIndices
+        let! dDataSource = DArray.scatterInBlob worker hDataSource
+        //let! z = DArray.scatterInBlob worker z
+        let! inserted = bi dDataToInsert dIndices dDataSource //z
+        let! results = inserted.Gather()
+        return results } |> PCalc.run
+    
+
+    for i = 0 to dResult.Length - 1 do
+        printfn "(%d,%d)" i dResult.[i]
+    //printfn "%A" dResult
+
+    

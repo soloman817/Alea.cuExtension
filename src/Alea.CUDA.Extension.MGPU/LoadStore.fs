@@ -264,7 +264,7 @@ let deviceTransferMergeValuesB (NT:int) (VT:int) =
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)
-        let bOffset = b_global.[0] - a_global.[0] - bStart
+        let bOffset = int(b_global.Handle - a_global.Handle) - bStart
 
         if count >= NT * VT then
             for i = 0 to VT - 1 do
