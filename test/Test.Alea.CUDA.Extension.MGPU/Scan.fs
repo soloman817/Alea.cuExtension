@@ -32,7 +32,8 @@ let nIterations = BenchmarkStats.scanIterations
 
 let worker = getDefaultWorker()
 
-let scanBMS4 = new BenchmarkStats4("Scan", worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let scanKernelsUsed = [| "kernelParallelScan"; "kernelScanDownsweep" |] 
+let scanBMS4 = new BenchmarkStats4("Scan", scanKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
 
 
 // we can probably organize this a lot better, but for now, if you just change

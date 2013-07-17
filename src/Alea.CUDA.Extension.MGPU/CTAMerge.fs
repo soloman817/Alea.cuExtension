@@ -31,7 +31,7 @@ type IFindMergesortInterval =
 
 type IComputeMergeRange =
     abstract Host : (int -> int -> int -> int -> int -> int[] -> int4)
-    abstract Device : Expr<int -> int -> int -> int -> int -> RWPtr<int> -> int4>
+    abstract Device : Expr<int -> int -> int -> int -> int -> DevicePtr<int> -> int4>
 
 // SerialMerge
 let serialMerge (VT:int) (rangeCheck:int) (comp:IComp<'T>) =
@@ -67,13 +67,13 @@ let serialMerge (VT:int) (rangeCheck:int) (comp:IComp<'T>) =
 // merge pass levels) locate lists within the single source array.
 
 // Returns (offset of a, offset of b, length of list).
-let findMergesortFrame() =
+let findMergesortFrame =
     { new IFindMergesortFrame with    
         member fmf.Host =
             fun (coop:int) (block:int) (nv:int) ->
                 let start = ~~~(coop - 1) &&& block
                 let size = nv * (coop >>> 1)
-                int3((nv * start), (nv * start + size), (size))
+                int3((nv * start), (nv * start + size), size)
          
         member fmf.Device =
             <@ fun (coop:int) (block:int) (nv:int) ->
@@ -82,7 +82,7 @@ let findMergesortFrame() =
                 int3((nv * start), (nv * start + size), (size)) @> }
 
 // Returns (a0, a1, b0, b1) into mergesort input lists between mp0 and mp1.
-let findMergesortInterval() =
+let findMergesortInterval =
     { new IFindMergesortInterval with
         member fmi.Host =
             fun (frame:int3) (coop:int) (block:int) (nv:int) (count:int) (mp0:int) (mp1:int) ->
@@ -111,45 +111,45 @@ let findMergesortInterval() =
 
 
 // ComputeMergeRange
-let computeMergeRange() =
+let computeMergeRange =
     { new IComputeMergeRange with
         member cmr.Host =
-            fun (aCount:int) (bCount:int) (block:int) (coop:int) (NV:int) (mp_global:int[]) ->
+            fun (aCount:int) (bCount:int) (block:int) (coop:int) (nv:int) (mp_global:int[]) ->
                 let mp0 = mp_global.[block]
                 let mp1 = mp_global.[block + 1]
-                let gid = NV * block
+                let gid = nv * block
 
                 let mutable range = int4(0,0,0,0)
                 if coop > 0 then
-                    let frame = findMergesortFrame().Host coop block NV
-                    range <- findMergesortInterval().Host frame coop block NV aCount mp0 mp1
+                    let frame = findMergesortFrame.Host coop block nv
+                    range <- findMergesortInterval.Host frame coop block nv aCount mp0 mp1
                 else
                     range.x <- mp0
                     range.y <- mp1
                     range.z <- gid - range.x
-                    range.w <- min (aCount + bCount) (gid + NV) - range.y
+                    range.w <- (min (aCount + bCount) (gid + nv)) - range.y
                 range
 
         member cmr.Device =
-            let findMergesortFrame = findMergesortFrame().Device
-            let findMergesortInterval = findMergesortInterval().Device
-            <@ fun (aCount:int) (bCount:int) (block:int) (coop:int) (NV:int) (mp_global:RWPtr<int>) ->
+            let findMergesortFrame = findMergesortFrame.Device
+            let findMergesortInterval = findMergesortInterval.Device
+            <@ fun (aCount:int) (bCount:int) (block:int) (coop:int) (nv:int) (mp_global:DevicePtr<int>) ->
                 let findMergesortFrame = %findMergesortFrame
                 let findMergesortInterval = %findMergesortInterval
 
                 let mp0 = mp_global.[block]
                 let mp1 = mp_global.[block + 1]
-                let gid = NV * block
+                let gid = nv * block
 
                 let mutable range = int4(0,0,0,0)
                 if coop > 0 then
-                    let frame = findMergesortFrame coop block NV
-                    range <- findMergesortInterval frame coop block NV aCount mp0 mp1
+                    let frame = findMergesortFrame coop block nv
+                    range <- findMergesortInterval frame coop block nv aCount mp0 mp1
                 else
                     range.x <- mp0
                     range.y <- mp1
                     range.z <- gid - range.x
-                    range.w <- min (aCount + bCount) (gid + NV) - range.y
+                    range.w <- (min (aCount + bCount) (gid + nv)) - range.y
                 range @> }
 
 

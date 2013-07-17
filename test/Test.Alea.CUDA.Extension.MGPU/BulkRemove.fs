@@ -31,7 +31,8 @@ let rng = System.Random()
 let sourceCounts = BenchmarkStats.sourceCounts
 let nIterations = BenchmarkStats.bulkRemoveIterations
 
-let brBMS4 = new BenchmarkStats4("Bulk Remove", worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let brKernelsUsed = [| "kernelBulkRemove"; "binary search partitions" |]
+let brBMS4 = new BenchmarkStats4("Bulk Remove", brKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above all of this should adjust accordingly

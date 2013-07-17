@@ -26,18 +26,18 @@ let kernelBulkInsert (plan:Plan) =
     let NV = NT * VT
 
     
-    let capacity, S = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
+    let capacity, scan2 = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
     let sharedSize = max NV capacity
  
     let deviceGlobalToReg = deviceGlobalToReg NT VT
-    let computeMergeRange = computeMergeRange().Device
+    let computeMergeRange = computeMergeRange.Device
     let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
     <@ fun (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
         let deviceGlobalToReg = %deviceGlobalToReg
         let computeMergeRange = %computeMergeRange
         let deviceTransferMergeValues = %deviceTransferMergeValues
-        let S = %S
+        let S = %scan2
         
 
         let shared = __shared__<int>(sharedSize).Ptr(0)
@@ -54,6 +54,7 @@ let kernelBulkInsert (plan:Plan) =
         let a1 = range.y
         let b0 = range.z
         let b1 = range.w
+
         aCount <- a1 - a0
         bCount <- b1 - b0
 
@@ -80,8 +81,13 @@ let kernelBulkInsert (plan:Plan) =
 
         for i = 0 to VT - 1 do
             let index = VT * tid + i
-            let gather = if indices.[i] <> 0 then scan else aCount + index - scan
-            scan <- scan + 1
+            let gather = 
+                if indices.[i] = 1 then 
+                    scan 
+                    //scan <- scan + 1
+                else 
+                    aCount + index - scan
+            if indices.[i] = 1 then scan <- scan + 1
             sharedIndices.[index] <- gather
         __syncthreads()
 
@@ -92,7 +98,7 @@ let kernelBulkInsert (plan:Plan) =
 
 type IBulkInsert<'T> =
     {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<int> -> int -> DevicePtr<'T> -> int -> DevicePtr<int> -> DevicePtr<'T> -> unit
+        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit
         NumPartitions : int
     }
 
@@ -112,16 +118,14 @@ let bulkInsert()  = cuda {
         
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
-            let numPartitions = numBlocks
             let lp = LaunchParam(numBlocks, plan.NT)
                         
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (partitions:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
+            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (zeroItr:DevicePtr<int>) (b_global:DevicePtr<'T>) (parts:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
                     let mpp = mpp aCount bCount NV
-                    let partitionsDevice = mpp.Action hint indices_global (DevicePtr<int>(0L)) 0 partitions
-                                
-                    kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount partitions dest_global
+                    let partitions = mpp.Action hint indices_global zeroItr 0 parts
+                    kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount parts dest_global
                 |> worker.Eval
             
             { Action = action; NumPartitions = numBlocks + 1 } ) }

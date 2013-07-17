@@ -39,7 +39,7 @@ let deviceRegToShared (NT:int) (VT:int) =
         if sync then __syncthreads() @>
 
 let deviceRegToGlobal (NT:int) (VT:int) =
-    <@ fun (count:int) (reg:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (reg:RWPtr<'T>) (tid:int) (dest:DevicePtr<'T>) (sync:bool) ->
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then
@@ -103,7 +103,7 @@ let deviceGlobalToShared (NT:int) (VT:int)  =
 let deviceGlobalToGlobal (NT:int) (VT:int) =
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (source:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (source:DevicePtr<'T>) (tid:int) (dest:DevicePtr<'T>) (sync:bool) ->
         let deviceGlobalToReg = %deviceGlobalToReg
         let deviceRegToGlobal = %deviceRegToGlobal
 
@@ -217,7 +217,7 @@ let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
 // DeviceGatherGlobalToGlobal
 let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (data_global:RWPtr<'T>) (indices_shared:RPtr<int>) (tid:int) (dest_global:RWPtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (data_global:DevicePtr<'T>) (indices_shared:RPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)
@@ -236,11 +236,14 @@ let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
 // Like DeviceGatherGlobalToGlobal, but for two arrays at once.
 let deviceTransferMergeValuesA (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:RWPtr<'T>) (b_global:RWPtr<'T>) (bStart:int) (indices_shared:RPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (bStart:int) (indices_shared:RWPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
                      
         let values = __local__<'T>(VT).Ptr(0)
-        b_global.[0] <- b_global.[0] - bStart
+        let mutable b_global = b_global
+        b_global <- b_global - bStart
+        //b_global.[0] <- b_global.[0] - bStart
+
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 let gather = indices_shared.[NT * i + tid]
@@ -257,7 +260,7 @@ let deviceTransferMergeValuesA (NT:int) (VT:int) =
 
 let deviceTransferMergeValuesB (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:RWPtr<'T>) (b_global:RWPtr<'T>) (bStart:int) (indices_shared:RPtr<int>) (tid:int) (dest_global:RWPtr<'T>) (sync:bool) ->
+    <@ fun (count:int) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (bStart:int) (indices_shared:RWPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)

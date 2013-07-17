@@ -22,31 +22,31 @@ let nIterations = BenchmarkStats.bulkRemoveIterations
 
 let hostBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) =
     let result : int[] = Array.zeroCreate (dataA.Length + dataB.Length)
-    Array.blit dataA 0 result 0 indices.[0]
-    Array.set result indices.[0] dataB.[0]
+    Array.blit dataB 0 result 0 indices.[0]
+    Array.set result indices.[0] dataA.[0]
     for i = 1 to indices.Length - 1 do
-        Array.blit dataA indices.[i - 1] result (indices.[i - 1] + i) (indices.[i] - indices.[i - 1])
-        Array.set result (indices.[i] + i) dataB.[i]
+        Array.blit dataB indices.[i - 1] result (indices.[i - 1] + i) (indices.[i] - indices.[i - 1])
+        Array.set result (indices.[i] + i) dataA.[i]
     let i = indices.Length - 1
-    Array.blit dataA indices.[i] result (indices.[i] + i + 1) (result.Length - (indices.[i] + i + 1))
+    Array.blit dataB indices.[i] result (indices.[i] + i + 1) (result.Length - (indices.[i] + i + 1))
     result
         
 
 
 [<Test>]
 let ``bulkInsert simple example`` () =
-    let hDataA = Array.init 20 (fun i -> i)        
+    let hDataSource = Array.init 20 (fun i -> i)        
     let hIndices = [| 3; 7; 11; 14; 19 |]
-    let hDataB = [| 93; 97; 911; 914; 919 |]
+    let hDataToInsert = [| 93; 97; 911; 914; 919 |]
 
     let pfunct = MGPU.PArray.bulkInsert()
     let bi = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {
-        let! dataA = DArray.scatterInBlob worker hDataA
-        let! indices = DArray.scatterInBlob worker hIndices
-        let! dataB = DArray.scatterInBlob worker hDataB
-        let! inserted = bi dataA indices dataB
+        let! dDataToInsert = DArray.scatterInBlob worker hDataToInsert
+        let! dIndices = DArray.scatterInBlob worker hIndices
+        let! dDataSource = DArray.scatterInBlob worker hDataSource
+        let! inserted = bi dDataToInsert dIndices dDataSource
         let! results = inserted.Gather()
         return results } |> PCalc.run
 
@@ -56,9 +56,9 @@ let ``bulkInsert simple example`` () =
 
 [<Test>]
 let ``bulkInsert moderngpu website example 1`` () =
-    let hDataA = Array.init 100 int
+    let hDataSource = Array.init 100 int
     let hIndices = [|2..5..100|]
-    let hDataB = [|1000..10..((hIndices.Length*10+1000)-10)|]  // values to be inserted
+    let hDataToInsert = [|1000..10..((hIndices.Length*10+1000)-10)|]  // values to be inserted
 
     let answer = [|     0;  1; 1000;  2;     3;  4;    5;  6; 1010;  7;
                         8;  9;   10; 11;  1020; 12;   13; 14;   15; 16;
@@ -73,17 +73,17 @@ let ``bulkInsert moderngpu website example 1`` () =
                        83; 84;   85; 86;  1170; 87;   88; 89;   90; 91;
                      1180; 92;   93; 94;    95; 96; 1190; 97;   98; 99 |]
     
-    let hResult = hostBulkInsert hDataA hIndices hDataB
+    let hResult = hostBulkInsert hDataToInsert hIndices hDataSource
     (hResult, answer) ||> Array.iter2 (fun h a -> Assert.AreEqual(h, a))
 
     let pfunct = MGPU.PArray.bulkInsert()
     let bi = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {
-        let! dataA = DArray.scatterInBlob worker hDataA
-        let! indices = DArray.scatterInBlob worker hIndices
-        let! dataB = DArray.scatterInBlob worker hDataB
-        let! inserted = bi dataA indices dataB
+        let! dDataToInsert = DArray.scatterInBlob worker hDataToInsert
+        let! dIndices = DArray.scatterInBlob worker hIndices
+        let! dDataSource = DArray.scatterInBlob worker hDataSource
+        let! inserted = bi dDataToInsert dIndices dDataSource
         let! results = inserted.Gather()
         return results } |> PCalc.run
     
@@ -108,7 +108,26 @@ let ``bulkInsert moderngpu website example 2`` () =
                               340;  349;  352;  363;  366;  367;  369;  374;  381;  383;
                               383;  384;  386;  388;  388;  389;  393;  398;  398;  399 |]
     
-    printfn "derp"
+    printfn "x"
 
+
+[<Test>]
+let ``bulkInsert misc test`` () =
+    let hDataSource = Array.init 400 int
+    let hIndices = Array.init 100 (fun _ -> rng.Next(300)) |> Array.sort
+    let hDataToInsert = Array.init 100 (fun _ -> 99999999)
+
+    let pfunct = MGPU.PArray.bulkInsert()
+    let bi = worker.LoadPModule(pfunct).Invoke
+
+    let dResult = pcalc {
+        let! dDataToInsert = DArray.scatterInBlob worker hDataToInsert
+        let! dIndices = DArray.scatterInBlob worker hIndices
+        let! dDataSource = DArray.scatterInBlob worker hDataSource
+        let! inserted = bi dDataToInsert dIndices dDataSource
+        let! results = inserted.Gather()
+        return results } |> PCalc.run
+
+    printfn "%A" dResult
     
 
