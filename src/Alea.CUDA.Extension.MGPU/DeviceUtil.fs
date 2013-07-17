@@ -35,7 +35,7 @@ type Int4 =
     val mutable w : int
     [<ReflectedDefinition>] // @HERE!!@
     new (x, y, z, w) = { x = x; y = y; z = z; w = w }
-
+    
 type int4 = Int4
 
 let divideTaskRange (numItems:int) (numWorkers:int) =

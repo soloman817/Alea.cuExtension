@@ -28,14 +28,10 @@ module MergePartition =
         
         <@ fun (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
             let mergePath = %mergePath
-            
-                        
-            let mutable aCount = aCount
-            let mutable bCount = bCount
-            
-            
+                     
             let partition = NT * blockIdx.x * threadIdx.x
             if partition < numSearches then
+                
                 let mutable a0 = 0
                 let mutable b0 = 0                
                 let mutable gid = nv * partition
@@ -105,7 +101,7 @@ module BulkInsert =
 
     
         let capacity, scan2 = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
-        let alignOfInt, sizeOfInt = TypeUtil.cudaAlignOf typeof<int>, sizeof<int>
+        //let alignOfInt, sizeOfInt = TypeUtil.cudaAlignOf typeof<int>, sizeof<int>
         //let sharedAlign = alignOfInt
         let sharedSize = max NV capacity //max (sizeOfInt * NV) (sizeOfInt * capacity)
         //let createSharedExpr = createSharedExpr sharedAlign sharedSize
@@ -224,15 +220,15 @@ module BulkInsert =
             let worker = m.Worker
             let api = api.Apply m
             fun (data_A:DArray<int>) (indices:DArray<int>) (data_B:DArray<int>) (*zeroitr:DArray<int>*) ->
-                let N = 100
-                let insertCount = divup (N - 2) 5
+                let aCount = data_A.Length
+                let bCount = data_B.Length
                 
-                let api = api insertCount N
+                let api = api aCount bCount
                 pcalc {
-                    let! partition = DArray.createInBlob<int> worker ((divup (insertCount + N) (128 * 7)) + 1)
-                    let! zeroitr = DArray.createInBlob worker (N + insertCount)
+                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    let! zeroitr = DArray.createInBlob worker (aCount + bCount)
 
-                    let! inserted = DArray.createInBlob<int> worker (insertCount + N)
+                    let! inserted = DArray.createInBlob<int> worker (aCount + bCount)
                     do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroitr.Ptr data_B.Ptr partition.Ptr inserted.Ptr)
                     return inserted } ) }
 

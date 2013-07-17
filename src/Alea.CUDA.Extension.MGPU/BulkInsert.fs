@@ -82,12 +82,12 @@ let kernelBulkInsert (plan:Plan) =
         for i = 0 to VT - 1 do
             let index = VT * tid + i
             let gather = 
-                if indices.[i] = 1 then 
+                if indices.[i] > 0 then 
                     scan 
                     //scan <- scan + 1
                 else 
                     aCount + index - scan
-            if indices.[i] = 1 then scan <- scan + 1
+            if indices.[i] > 0 then scan <- scan + 1
             sharedIndices.[index] <- gather
         __syncthreads()
 
