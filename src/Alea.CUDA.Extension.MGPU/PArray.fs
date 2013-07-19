@@ -50,18 +50,18 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
 
 
 
-let binarySearchPartitions (bounds:int) (compOp:IComp<'TI>) = cuda {
+let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
     let! api = Search.binarySearchPartitions bounds compOp
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let api = api.Apply m
         
-        fun (count:int) (data_global:DArray<'TI>) (numItems:int) (nv:int) ->
+        fun (count:int) (data_global:DArray<int>) (numItems:int) (nv:int) ->
             pcalc {                
                 let api = api count numItems nv
                 let n = ((divup count nv) + 1)
-                let! partData = DArray.createInBlob<'TI> worker n
+                let! partData = DArray.createInBlob<int> worker n
                 do! PCalc.action (fun hint -> api.Action hint data_global.Ptr partData.Ptr)
                                     
                 let result =
@@ -108,8 +108,7 @@ let bulkInsert() = cuda {
             let api = api aCount bCount
             pcalc {
                 let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                let! zeroitr = DArray.createInBlob worker (aCount + bCount)
-
+                let! zeroitr = DArray.createInBlob worker 1
                 let! inserted = DArray.createInBlob<'TI> worker (aCount + bCount)
                 do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroitr.Ptr data_B.Ptr partition.Ptr inserted.Ptr)
                 return inserted } ) }

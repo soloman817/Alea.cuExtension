@@ -67,7 +67,7 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 
 // MergePathPartitions
-let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<'TI, int>) = 
+let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<'TI>) = 
     let NT = plan.NT
     let bounds = plan.Bounds
     let mergePath = mergeSearch.DMergePath
@@ -80,11 +80,10 @@ let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<'TI, int>) =
         let partition = NT * blockIdx.x * threadIdx.x
         let mutable aCount = aCount
         let mutable bCount = bCount
-        //let mutable aCount, bCount = aCount, bCount
+        
         if partition < numSearches then
             let mutable a0 = 0
             let mutable b0 = 0
-            //let mutable a0, b0 = 0G, 0G
             let mutable gid = nv * partition
             if coop > 0 then
                 let frame = findMergesortFrame coop partition nv
@@ -98,13 +97,13 @@ let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<'TI, int>) =
             mp_global.[partition] <- mp @>
 
 
-type IMergePathPartitions<'T> =
+type IMergePathPartitions<'TI> =
     {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> int -> DevicePtr<int> -> unit                
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TI> -> DevicePtr<int> -> unit                
     }
 
 
-let mergePathPartitions (bounds:int) (compOp:IComp<'T>) = cuda {
+let mergePathPartitions (bounds:int) (compOp:IComp<'TI>) = cuda {
     let plan = { NT = 64; Bounds = bounds }
     let mergeSearch = mergeSearch bounds compOp
     let! kernelMergePartition = (kernelMergePartition plan mergeSearch) |> defineKernelFuncWithName "mpp"
@@ -113,12 +112,12 @@ let mergePathPartitions (bounds:int) (compOp:IComp<'T>) = cuda {
         let worker = m.Worker
         let kernelMergePartition = kernelMergePartition.Apply m
 
-        fun (aCount:int) (bCount:int) (nv:int) ->
+        fun (aCount:int) (bCount:int) (nv:int) (coop:int) ->
             let numPartitions = divup (aCount + bCount) nv
             let numPartitionBlocks = divup (numPartitions + 1) plan.NT
             let lp = LaunchParam(numPartitionBlocks, plan.NT)
             
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (coop:int) (partitionsDevice:DevicePtr<int>) =
+            let action (hint:ActionHint) (a_global:DevicePtr<'TI>) (b_global:DevicePtr<'TI>) (partitionsDevice:DevicePtr<int>) =
                 let lp = lp |> hint.ModifyLaunchParam
                 kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
                 
