@@ -31,7 +31,11 @@ module MergePartition =
         
         <@ fun (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
             let mergePath = %mergePath
-            let partition = NT * blockIdx.x * threadIdx.x
+            // @COMMENT@
+            // uhmm, a stupid error here
+            // C++ code: int partition = NT * blockIdx.x + threadIdx.x;
+            //let partition = NT * blockIdx.x * threadIdx.x
+            let partition = NT * blockIdx.x + threadIdx.x
             if partition < numSearches then                
                 let a0 = 0
                 let b0 = 0                
@@ -93,25 +97,39 @@ let deviceTransferMergeValues (NT:int) (VT:int) =
     <@ fun (count:int) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (bStart:int) (indices_shared:RWPtr<int>) (tid:int) (dest_global:DevicePtr<int>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
+        // in C++, it is:
+        // typedef typename std::iterator_traits<InputIt1>::value_type ValType;
+        // ValType values[VT];
+        // which means the type is ValType, a value type, so if you want to make it general, this should be generic
         let values = __local__<int>(VT).Ptr(0)
         // here is where I believe the main problem is.  I was able to get my insertions to actually show up by
         // changing the way I casted these.  The result was still incorrect, and the original indices still
         // werent being inserted/copied back to the new array
-        let bOffset = b_global.Handle64 - a_global.Handle64
-        let bOffset = int(bOffset) - bStart
-        
+        //let bOffset = b_global.Handle64 - a_global.Handle64
+        //let bOffset = int(bOffset) - bStart
 
+        // @COMMENT@
+        //let b_global = DevicePtr<int>((b_global.Handle64 - a_global.Handle64) / int64(sizeof<int>))
+        // the c++ code is : 	b_global -= bStart;
+        // so b_global is a pointer, while bStart is an int, why you need do that pointer handle stuff?
+        let b_global = b_global - bStart
+        
         if count >= NT * VT then
             for i = 0 to VT - 1 do
-                let mutable gather = indices_shared.[NT * i + tid]
-                if gather >= bStart then gather <- gather + bOffset
-                values.[i] <- a_global.[gather]
+                //let mutable gather = indices_shared.[NT * i + tid]
+                //if gather >= bStart then gather <- gather + bOffset
+                //values.[i] <- a_global.[gather]
+                let gather = indices_shared.[NT * i + tid]
+                values.[i] <- if gather < bStart then a_global.[gather] else b_global.[gather]
         else
             for i = 0 to VT - 1 do
                 let index = NT * i + tid
-                let mutable gather = indices_shared.[index]
-                if gather >= bStart then gather <- gather + bOffset
-                if index < count then values.[i] <- a_global.[gather]
+//                let mutable gather = indices_shared.[index]
+//                if gather >= bStart then gather <- gather + bOffset
+//                if index < count then values.[i] <- a_global.[gather]
+                let gather = indices_shared.[index]
+                if index < count then
+                    values.[i] <- if gather < bStart then a_global.[gather] else b_global.[gather]
 
         if sync then __syncthreads()
 
@@ -125,20 +143,28 @@ module BulkInsert =
             VT : int
         }
            
-    
+    // @COMMENT@ why not remove op here? because it is used for index calculation
+    // and index is always int, so we can directly write it down, like bulkRemove
     let kernelBulkInsert (plan:Plan2) (op:IScanOp<int, int, int>) =
+    //let kernelBulkInsert (plan:Plan2) =
         let NT = plan.NT
         let VT = plan.VT
         let NV = NT * VT
             
+
         let capacity, scan2 = ctaScan2 NT op
+        let sharedSize = max NV capacity
         
-        let sharedSize = capacity // Alignment is another source of error
+//        let sharedSize = capacity // Alignment is another source of error
         // If I understand correctly, either the sharedSize must be constrained to NV or NV
         // needs to be the shared size.  Some of his writings on the website suggest NV isn't constant
         // throughout, but others things he says make it seem like it is.  The reason I think NV may change is
         // due to his example on the website.  The code doesn't show it changing anywhere as far as I can tell
         // so I'm not sure??
+
+        // @COMMENT@
+        // well, from the C++ code, NV is static, and the C++ code is quite similar to bulkRemove, so I
+        // just copy it
 
         //let NV = sharedSize
         //let NV = capacity
@@ -242,7 +268,23 @@ module BulkInsert =
                     fun () ->
                         let lp = lp |> hint.ModifyLaunchParam
                         let mpp = mpp aCount bCount NV 0
-                        let partitions = mpp.Action hint indices_global (DevicePtr(0L)) parts
+                        mpp.Action hint indices_global (DevicePtr<int>(0n)) parts // @COMMENT@ try use DevicePtr<int> explictly to indicate it is int type
+                        // @COMMENT@
+                        // I run C++ program with same aCount=100 and bCount=400
+                        // and I found the parts should be [| 0, 100 |]
+                        // but on this F# program, sometime it returns correct answer, but most time it gives wrong number
+                        // so first I force to set it to [| 0, 100 |], then the result be more stable
+                        // so based on this sometime wrong, I guess there might be some sync problem, still checking.
+                        // and I first know I should focus on mpp kernel.
+                        // Uhmm, I seems fixed the problem it is a type error.
+                        // so now I remove these stuff
+//                        let host = Array.zeroCreate<int> 2
+//                        DevicePtrUtil.Gather(worker, parts, host, 2)
+//                        printfn "%A" host
+//                        host.[0] <- 0
+//                        host.[1] <- 100
+//                        DevicePtrUtil.Scatter(worker, host, parts, 2)
+
                         // that (DevicePtr(0L)) is another thing causing problems.  I've tried creating it / passing it a few different ways
                         // when I had the 9999s showing up in the result like they were supposed to, I was passing it like this (above) instead
                         // of passing via the DArray.createInBlob worker 1.
@@ -268,6 +310,7 @@ module BulkInsert =
                 
                 pcalc {
                     let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    //printfn "api.NumPartitions=%d" api.NumPartitions
                     //let! zeroitr = DArray.createInBlob<int> worker 1
                     let! inserted = DArray.createInBlob worker (aCount + bCount)
                     do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr (*zeroitr.Ptr*) data_B.Ptr partition.Ptr inserted.Ptr)
