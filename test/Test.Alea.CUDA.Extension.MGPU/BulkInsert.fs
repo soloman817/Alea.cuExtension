@@ -1,6 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.BulkInsert
 
 open System
+open System.IO
 open System.Diagnostics
 open System.Collections.Generic
 open Microsoft.FSharp.Quotations
@@ -11,17 +12,81 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.BulkInsert
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
+open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.Output.CSV
+open Alea.CUDA.Extension.Output.Excel
 
 open NUnit.Framework
+
+
+////////////////////////////
+// set this to your device or add your device's C++ output to BenchmarkStats.fs
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
+// in the future maybe we try to get the C++ to interop somehow
+/////////////////////////////
+
 
 let worker = Engine.workers.DefaultWorker
 let rng = System.Random()
 
 let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.bulkRemoveIterations
+let nIterations = BenchmarkStats.bulkInsertIterations
 
-let hostBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) =
-    let result : int[] = Array.zeroCreate (dataA.Length + dataB.Length)
+let aib count =
+    let aCount = count / 2
+    let bCount = count - aCount
+    aCount,bCount
+
+let aibCounts = sourceCounts |> List.map (fun x -> aib x)
+
+let sourceCounts2 = [512; 1024; 2048; 3000; 6000; 12000; 24000; 100000; 1000000]
+let aibCounts2 = sourceCounts2 |> List.map (fun x -> aib x)
+
+
+
+let aCounts, bCounts = aibCounts |> List.unzip
+
+let biKernelsUsed = [| "kernelBulkInsert"; "kernelMergePartition" |]
+let biBMS4 = new BenchmarkStats4("Bulk Insert", biKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+
+// we can probably organize this a lot better, but for now, if you just change
+// what module you open above and all of this should adjust accordingly
+let oIntTP, oIntBW = moderngpu_bulkInsertStats_int |> List.unzip
+let oInt64TP, oInt64BW = moderngpu_bulkInsertStats_int64 |> List.unzip
+let oFloat32TP, oFloat32BW = moderngpu_bulkInsertStats_float32 |> List.unzip
+let oFloat64TP, oFloat64BW = moderngpu_bulkInsertStats_float64 |> List.unzip
+
+
+for i = 0 to sourceCounts.Length - 1 do
+    // this is setting the opponent (MGPU) stats for the int type
+    biBMS4.Ints.OpponentThroughput.[i].Value <- oIntTP.[i]
+    biBMS4.Ints.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    // set opponent stats for int64
+    biBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
+    biBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
+    // set oppenent stats for float32
+    biBMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP.[i]
+    biBMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW.[i]
+    // set oppenent stats for float64
+    biBMS4.Floats.OpponentThroughput.[i].Value <- oFloat64TP.[i]
+    biBMS4.Floats.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
+
+let mainDir = Directory.CreateDirectory("Benchmark_CSV")
+let workingDir = mainDir.CreateSubdirectory("BulkInsert")
+let workingPath = workingDir.FullName + "/"
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                              IMPORTANT                                                       //
+//                                      Choose an Output Type                                                   // 
+// This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
+// want to see the console prints.                                                                              //
+let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+let hostBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) =
+    let result : 'T[] = Array.zeroCreate (dataA.Length + dataB.Length)
     Array.blit dataB 0 result 0 indices.[0]
     Array.set result indices.[0] dataA.[0]
     for i = 1 to indices.Length - 1 do
@@ -30,7 +95,115 @@ let hostBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) =
     let i = indices.Length - 1
     Array.blit dataB indices.[i] result (indices.[i] + i + 1) (result.Length - (indices.[i] + i + 1))
     result
+
+let testBulkInsert() =
+    let test verify eps (dataA:'T[]) (indices:int[]) (dataB:'T[]) = pcalc {
+        let bulkin = worker.LoadPModule(MGPU.PArray.bulkInsert()).Invoke
+    
+        let aCount = dataA.Length
+        let bCount = dataB.Length
+        printfn "Testing %d items inserted into %d..." aCount bCount
+
+        let! dA = DArray.scatterInBlob worker dataA     // elements to insert
+        let! dI = DArray.scatterInBlob worker indices   // where to insert them
+        let! dB = DArray.scatterInBlob worker dataB     // collection they are inserted into
+        let! dR = bulkin dA dI dB
+
+        if verify then
+            let hResults = hostBulkInsert dataA indices dataB
+            let! dResults = dR.Gather()
+            (hResults, dResults) ||> Array.iter2 (fun h d -> Assert.AreEqual(h, d))
+                    
+        else 
+            do! PCalc.force() }
+
+    let eps = 1e-10
+//    let values1 na nb = 
+//        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+//        let hA,hI,hB = r
+//        hA,hI,hB
+    let values1 na nb =
+        let hA = Array.init na (fun _ -> 999)
+        let hI = Array.init na (fun _ -> rng.Next(nb)) |> Array.sort
+        let hB = Array.init nb (fun i -> i)
+        hA,hI,hB
+//
+//    let values2 na nb = 
+//        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+//        let hA,hI,hB = r
+//        hA,hI,hB
+//
+//    let values3 na nb = 
+//        let (r:float[]*int[]*float[]) = rngGenericArrayAIB na nb
+//        let hA,hI,hB = r
+//        hA,hI,hB  
         
+
+    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
+                                            //printfn "%A, %A, %A" <||| (values1 na nb)
+                                            values1 na nb |||> test |> PCalc.run)
+
+//    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
+//                                            values2 na nb |||> test |> PCalc.run)
+//
+//    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
+//                                            values3 na nb |||> test |> PCalc.run)
+        
+    let n = 2097152
+    let na,nb = aib n
+    let test = (values1 na nb) |||> test false eps
+
+    let _, loggers = test |> PCalc.runWithTimingLogger in loggers.["default"].DumpLogs()
+    let _, ktc = test |> PCalc.runWithKernelTiming 10 in ktc.Dump()
+    test |> PCalc.runWithDiagnoser(PCalcDiagnoser.All(1))
+        
+
+let benchmarkBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) (numIt:int) (testIdx:int) =
+    let inserter = worker.LoadPModule(PArray.bulkInsertInPlace()).Invoke
+
+    let calc = pcalc {
+        let! dA = DArray.scatterInBlob worker dataA
+        let! dI = DArray.scatterInBlob worker indices
+        let! dB = DArray.scatterInBlob worker dataB
+        let! dR = DArray.createInBlob worker (dataA.Length + dataB.Length)
+
+        let! insert = inserter dataA.Length dataB.Length
+
+        // warm up
+        do! insert dA dI dB dR
+
+        let! dStopwatch = DStopwatch.startNew worker
+        for i = 1 to numIt do
+            do! insert dA dI dB dR
+        do! dStopwatch.Stop()
+
+        let! results = dR.Gather()
+        let! timing = dStopwatch.ElapsedMilliseconds
+
+        return results, timing }
+
+    let count, aCount, bCount = (dataA.Length + dataB.Length), dataA.Length, dataB.Length
+    // I use runInWorker to avoid thread switching.
+    let hResults, timing' = calc |> PCalc.runInWorker worker
+    let timing = timing' / 1000.0 // timing (in second), timing' (in millisecond)
+    let bytes = (sizeof<int> + 2 * sizeof<'T>) * aCount + 2 * sizeof<'T> * bCount |> float
+    let throughput = (float count) * (float numIt) / timing
+    let bandwidth = bytes * (float numIt) / timing
+    
+    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
+        count
+        (throughput / 1e6)
+        (bandwidth / 1e9)
+        (timing' / (float numIt))
+        numIt
+        timing'
+
+    match typeof<'T> with
+    | x when x = typeof<int> -> biBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<int64> -> biBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float32> -> biBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float> -> biBMS4.Floats.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | _ -> ()
 
 
 [<Test>]
@@ -52,10 +225,35 @@ let ``bulkInsert simple example`` () =
 
     printfn "%A" dResult
 
+[<Test>]
+let ``bulkInsert mem debug`` () =
+    let count = 512
+    let aCount, bCount = aib count
+    //let bCount = count
+    //let aCount = count / 3
+    printfn "count = %d" count
+    printfn "aCount = %d\tbCount = %d" aCount bCount
+    let hB = Array.init bCount (fun i -> i)
+    let hI = Array.init aCount (fun _ -> rng.Next(bCount)) |> Array.sort
+    let hA = Array.init aCount (fun _ -> 2048)
+
+    let pfunct = MGPU.PArray.bulkInsert()
+    let bulkin = worker.LoadPModule(pfunct).Invoke
+
+    let dResult = pcalc {
+        let! dA = DArray.scatterInBlob worker hA
+        let! dB = DArray.scatterInBlob worker hB
+        let! dI = DArray.scatterInBlob worker hI
+        let! dR = bulkin dA dI dB
+        let! results = dR.Gather()
+        return results } |> PCalc.run
+
+    printfn "%A" dResult
+
 
 
 [<Test>]
-let ``bulkInsert moderngpu website example 1`` () =
+let ``bulkInsert moderngpu website example`` () =
     let hI = [|2..5..100|]
     let aCount, bCount = hI.Length, 100
     
@@ -95,36 +293,6 @@ let ``bulkInsert moderngpu website example 1`` () =
     printfn "%A" dResult
 
 
-[<Test>]
-let ``bulkInsert moderngpu website example 2`` () =
-    let aCount, bCount = 100, 400  // insert 100 elements into a 400 element array
-    let hA = Array.init aCount (fun _ -> 9999) // what to insert
-    let hB = Array.init bCount (fun i -> i)
-    
-    let hI = [|   1;   12;   13;   14;   14;   18;   20;   38;   39;   44;
-                 45;   50;   50;   50;   54;   56;   59;   63;   68;   69;
-                 74;   75;   84;   84;   88;  111;  111;  119;  121;  123;
-                126;  127;  144;  153;  157;  159;  163;  169;  169;  175;
-                178;  183;  190;  194;  195;  196;  196;  201;  219;  219;
-                253;  256;  259;  262;  262;  266;  272;  273;  278;  283;
-                284;  291;  296;  297;  302;  303;  306;  306;  317;  318;
-                318;  319;  319;  320;  320;  323;  326;  329;  330;  334;
-                340;  349;  352;  363;  366;  367;  369;  374;  381;  383;
-                383;  384;  386;  388;  388;  389;  393;  398;  398;  399 |]
-    
-    let pfunct = MGPU.PArray.bulkInsert()
-    let bulkin = worker.LoadPModule(pfunct).Invoke
-    
-    let dResult = pcalc {
-        let! dA = DArray.scatterInBlob worker hA
-        let! dB = DArray.scatterInBlob worker hB
-        let! dI = DArray.scatterInBlob worker hI
-        let! dR = bulkin dA dI dB
-        let! results = dR.Gather()
-        return results } |> PCalc.run
-
-    printfn "x"
-
 
 [<Test>]
 let ``bulkInsert misc test`` () =
@@ -146,3 +314,83 @@ let ``bulkInsert misc test`` () =
     printfn "%A" dResult
     
 
+[<Test>]
+let ``BulkInsert 3 value test`` () =
+    testBulkInsert()
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  BENCHMARKING                                                                                                //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+[<Test>]
+let ``BulkInsert moderngpu benchmark : int`` () =    
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+    
+    benchmarkOutput outputType workingPath biBMS4.Ints
+
+
+[<Test>]
+let ``BulkInsert moderngpu benchmark : int64`` () =    
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:int64[]*int[]*int64[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+
+    benchmarkOutput outputType workingPath biBMS4.Int64s
+    
+
+[<Test>]
+let ``BulkInsert moderngpu benchmark : float32`` () =    
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:float32[]*int[]*float32[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+
+    benchmarkOutput outputType workingPath biBMS4.Float32s
+
+[<Test>]
+let ``BulkInsert moderngpu benchmark : float`` () =    
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:float[]*int[]*float[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+
+    benchmarkOutput outputType workingPath biBMS4.Floats
+
+
+//[<Test>]
+//let ``bulkInsert moderngpu website example 2`` () =
+//    let aCount, bCount = 100, 400  // insert 100 elements into a 400 element array
+//    let hA = Array.init aCount (fun _ -> 9999) // what to insert
+//    let hB = Array.init bCount (fun i -> i)
+//    
+//    let hI = [|   1;   12;   13;   14;   14;   18;   20;   38;   39;   44;
+//                 45;   50;   50;   50;   54;   56;   59;   63;   68;   69;
+//                 74;   75;   84;   84;   88;  111;  111;  119;  121;  123;
+//                126;  127;  144;  153;  157;  159;  163;  169;  169;  175;
+//                178;  183;  190;  194;  195;  196;  196;  201;  219;  219;
+//                253;  256;  259;  262;  262;  266;  272;  273;  278;  283;
+//                284;  291;  296;  297;  302;  303;  306;  306;  317;  318;
+//                318;  319;  319;  320;  320;  323;  326;  329;  330;  334;
+//                340;  349;  352;  363;  366;  367;  369;  374;  381;  383;
+//                383;  384;  386;  388;  388;  389;  393;  398;  398;  399 |]
+//    
+//    let pfunct = MGPU.PArray.bulkInsert()
+//    let bulkin = worker.LoadPModule(pfunct).Invoke
+//    
+//    let dResult = pcalc {
+//        let! dA = DArray.scatterInBlob worker hA
+//        let! dB = DArray.scatterInBlob worker hB
+//        let! dI = DArray.scatterInBlob worker hI
+//        let! dR = bulkin dA dI dB
+//        let! results = dR.Gather()
+//        return results } |> PCalc.run
+//
+//    printfn "x"

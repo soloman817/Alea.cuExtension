@@ -2,6 +2,7 @@
 
 open Alea.CUDA.Extension.Util
 
+
 type IHeaders = 
     abstract member HList : List<string> with get, set
 
@@ -162,5 +163,7 @@ type BenchmarkStats4 =
           Int64s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Int64", opponent, sourceCounts, nIterations);
           Float32s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Float32", opponent, sourceCounts, nIterations);
           Floats = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Float", opponent, sourceCounts, nIterations) }
+
+
 
 

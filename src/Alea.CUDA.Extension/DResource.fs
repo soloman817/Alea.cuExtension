@@ -23,10 +23,10 @@ type DArray<'T when 'T:unmanaged> internal (worker:DeviceWorker, offset:int, len
         PCalc(fun s ->
             s.RunActions()
             let logger = s.TimingLogger("default")
-            logger.Log("gather array")
+            //logger.Log("gather array")
             let host = Array.zeroCreate<'T> length
             DevicePtrUtil.Gather(worker, this.Ptr, host, length)
-            logger.Touch()
+            //logger.Touch()
             host, s)
 
     override this.Dispose(disposing) =

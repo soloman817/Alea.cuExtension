@@ -4,6 +4,9 @@ module Test.Alea.CUDA.Extension.MGPU.Util
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
+open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.Output.CSV
+open Alea.CUDA.Extension.Output.Excel
 
 let rng = System.Random()
 
@@ -12,6 +15,25 @@ let eps = 1e-8
 let getDefaultWorker() =
     if Device.Count = 0 then Assert.Inconclusive("We need at least one device of compute capability 2.0 or greater.")
     Engine.workers.DefaultWorker
+
+
+type OutputType =
+    | OutputTypeBoth
+    | OutputTypeCSV
+    | OutputTypeExcel
+    | OutputTypeNone    
+
+let benchmarkOutput (opt:OutputType) (workingPath:string) (bms:BenchmarkStats) =
+    match opt with
+    | OutputTypeBoth ->
+        benchmarkCSVOutput bms workingPath
+        benchmarkExcelOutput bms
+    | OutputTypeCSV ->
+        benchmarkCSVOutput bms workingPath
+    | OutputTypeExcel ->
+        benchmarkExcelOutput bms
+    | OutputTypeNone ->
+        ()
 
 
 //////////////////////////////
@@ -38,6 +60,17 @@ let inline rngGenericArrayI sCount iCount : 'T[] * int[] =
     let source = Array.init sCount (fun _ -> genValue())
     let indices = Array.init iCount (fun _ -> rng.Next sCount) |> Seq.distinct |> Seq.toArray |> Array.sort
     source, indices
+
+
+// generate (A,I,B) where A is aCount random elements, I is aCount random indices constrained by bCount,
+// and B is bCount random elements.  This is used for inserting A into B where I are the random places to insert
+let inline rngGenericArrayAIB aCount bCount : ('T[] * int[] * 'T[]) =
+    let convert = (RngOverloads $ Unchecked.defaultof<'T>)
+    let genValue() = rng.Next() |> convert
+    let hA = Array.init aCount (fun _ -> genValue())
+    let hI = Array.init aCount (fun _ -> rng.Next(bCount)) |> Array.sort
+    let hB = Array.init bCount (fun _ -> genValue())
+    hA, hI, hB
 
 
 let displayHandD (h:'T[]) (d:'T[]) =

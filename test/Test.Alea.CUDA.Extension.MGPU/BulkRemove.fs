@@ -35,9 +35,12 @@ let brKernelsUsed = [| "kernelBulkRemove"; "binary search partitions" |]
 let brBMS4 = new BenchmarkStats4("Bulk Remove", brKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
 
 // we can probably organize this a lot better, but for now, if you just change
-// what module you open above all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_bulkRemoveStats_int |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_bulkRemoveStats_int64 |> List.unzip
+// what module you open above and all of this should adjust accordingly
+let oIntTP, oIntBW = moderngpu_bulkInsertStats_int |> List.unzip
+let oInt64TP, oInt64BW = moderngpu_bulkInsertStats_int64 |> List.unzip
+let oFloat32TP, oFloat32BW = moderngpu_bulkInsertStats_float32 |> List.unzip
+let oFloat64TP, oFloat64BW = moderngpu_bulkInsertStats_float64 |> List.unzip
+
 
 for i = 0 to sourceCounts.Length - 1 do
     // this is setting the opponent (MGPU) stats for the int type
@@ -46,11 +49,25 @@ for i = 0 to sourceCounts.Length - 1 do
     // set opponent stats for int64
     brBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
     brBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
-    // dont have the other types yet
+    // set oppenent stats for float32
+    brBMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP.[i]
+    brBMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW.[i]
+    // set oppenent stats for float64
+    brBMS4.Floats.OpponentThroughput.[i].Value <- oFloat64TP.[i]
+    brBMS4.Floats.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
 
 let mainDir = Directory.CreateDirectory("Benchmark_CSV")
 let workingDir = mainDir.CreateSubdirectory("BulkRemove")
 let workingPath = workingDir.FullName + "/"
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                              IMPORTANT                                                       //
+//                                      Choose an Output Type                                                   // 
+// This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
+// want to see the console prints.                                                                              //
+let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 let removeAmount = 2 //half
 let removeCount c = c / removeAmount
@@ -75,14 +92,14 @@ let hostBulkRemove (data:'T[]) (indices:int[]) =
 // @COMMENTS@: index we assume always be int type
 let testBulkRemove() =
     let test verify eps (data:'T[]) (indices:int[]) = pcalc {
-        let brp = worker.LoadPModule(MGPU.PArray.bulkRemove()).Invoke
+        let bulkrem = worker.LoadPModule(MGPU.PArray.bulkRemove()).Invoke
     
         let n = data.Length
         printfn "Testing size %d..." n
 
         let! dSource = DArray.scatterInBlob worker data
         let! dRemoveIndices = DArray.scatterInBlob worker indices
-        let! dRemoved = brp dSource dRemoveIndices
+        let! dRemoved = bulkrem dSource dRemoveIndices
 
         if verify then
             let hResults = hostBulkRemove data indices
@@ -287,9 +304,9 @@ let ``BulkRemove moderngpu benchmark : int`` () =
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i  )
+    
+    benchmarkOutput outputType workingPath brBMS4.Ints    
 
-    benchmarkCSVOutput brBMS4.Ints workingPath
-    benchmarkExcelOutput brBMS4.Ints
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : int64`` () =    
@@ -297,8 +314,8 @@ let ``BulkRemove moderngpu benchmark : int64`` () =
         let (source:int64[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
 
-    benchmarkCSVOutput brBMS4.Int64s workingPath
-    benchmarkExcelOutput brBMS4.Int64s
+    benchmarkOutput outputType workingPath brBMS4.Int64s
+
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : float32`` () =    
@@ -306,8 +323,8 @@ let ``BulkRemove moderngpu benchmark : float32`` () =
         let (source:float32[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
 
-    benchmarkCSVOutput brBMS4.Float32s workingPath
-    benchmarkExcelOutput brBMS4.Float32s
+    benchmarkOutput outputType workingPath brBMS4.Float32s
+
 
 [<Test>]
 let ``BulkRemove moderngpu benchmark : float`` () =    
@@ -315,5 +332,4 @@ let ``BulkRemove moderngpu benchmark : float`` () =
         let (source:float[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
 
-    benchmarkCSVOutput brBMS4.Floats workingPath
-    benchmarkExcelOutput brBMS4.Floats
+    benchmarkOutput outputType workingPath brBMS4.Floats

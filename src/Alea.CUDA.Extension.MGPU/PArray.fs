@@ -108,7 +108,7 @@ let bulkInsert() = cuda {
             let api = api aCount bCount
             pcalc {
                 let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                let! zeroitr = DArray.createInBlob worker 1
+                let! zeroitr = DArray.createInBlob<int> worker 1
                 let! inserted = DArray.createInBlob<'TI> worker (aCount + bCount)
                 do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroitr.Ptr data_B.Ptr partition.Ptr inserted.Ptr)
                 return inserted } ) }
@@ -152,5 +152,24 @@ let bulkRemoveInPlace() = cuda {
                     pcalc { do! PCalc.action (fun hint -> api.Action hint indices.Length partition.Ptr data.Ptr indices.Ptr removed.Ptr) }
 
                 return remove } ) }
+
+
+let bulkInsertInPlace() = cuda {
+    let! api = BulkInsert.bulkInsert()
+    
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+
+        fun (aCount:int) (bCount:int) ->
+            let api = api aCount bCount 
+            pcalc {
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                let! zeroitr = DArray.createInBlob<int> worker 1
+                
+                let insert (data_A:DArray<'T>) (indices:DArray<int>) (data_B:DArray<'T>) (inserted:DArray<'T>) =    
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroitr.Ptr data_B.Ptr partition.Ptr inserted.Ptr) }
+
+                return insert } ) }
 
 

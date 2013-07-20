@@ -246,14 +246,12 @@ let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
 // Like DeviceGatherGlobalToGlobal, but for two arrays at once.
 let deviceTransferMergeValuesA (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (bStart:int) (indices_shared:RWPtr<int>) (tid:int) (dest_global:DevicePtr<int>) (sync:bool) ->
+    <@ fun (count:int) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (bStart:int) (indices_shared:RWPtr<int>) (tid:int) (dest_global:DevicePtr<'T>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
                      
-        let values = __local__<int>(VT).Ptr(0)
-        let mutable b_global = b_global
-        b_global <- b_global - bStart
-        //b_global.[0] <- int(b_global.Handle64 - (int64 bStart))
-
+        let values = __local__<'T>(VT).Ptr(0)
+        let b_global = b_global - bStart
+        
         if count >= ( NT * VT ) then
             for i = 0 to VT - 1 do
                 let gather = indices_shared.[NT * i + tid]
@@ -278,12 +276,8 @@ let deviceTransferMergeValuesB (NT:int) (VT:int) =
         let deviceRegToGlobal = %deviceRegToGlobal
         
         let values = __local__<'T>(VT).Ptr(0)
-        let bOffset = (b_global.Handle64 - a_global.Handle64) - int64(bStart)
-        //let bH = b_global.Handle64
-        //let aH = a_global.Handle64
-        //let bS = int64(bStart)
-        let bOffset = int(bOffset)
-
+        let bOffset = (int(b_global.Handle64 - a_global.Handle64) / sizeof<int>) - bStart
+        
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 let mutable gather = indices_shared.[NT * i + tid]

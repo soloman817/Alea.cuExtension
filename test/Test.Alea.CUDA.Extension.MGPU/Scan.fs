@@ -54,6 +54,16 @@ let mainDir = Directory.CreateDirectory("Benchmark_CSV")
 let workingDir = mainDir.CreateSubdirectory("Scan")
 let workingPath = workingDir.FullName + "/"
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                              IMPORTANT                                                       //
+//                                      Choose an Output Type                                                   // 
+// This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
+// want to see the console prints.                                                                              //
+let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
 let hostScan (mgpuScanType:int) (n:int) =
     fun (scannedData:'TI[]) ->
         if mgpuScanType = ExclusiveScan then
@@ -234,8 +244,8 @@ let ``benchmark moderngpu scan : int`` () =
         let (source:int[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source i)
     
-    benchmarkCSVOutput scanBMS4.Ints workingPath
-    benchmarkExcelOutput scanBMS4.Ints
+    benchmarkOutput outputType workingPath scanBMS4.Ints
+
 
 [<Test>]
 let ``benchmark moderngpu scan : int64`` () =
@@ -243,8 +253,8 @@ let ``benchmark moderngpu scan : int64`` () =
         let (source:int64[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0L) totalNotAtEnd ni source i)
 
-    benchmarkCSVOutput scanBMS4.Int64s workingPath
-    benchmarkExcelOutput scanBMS4.Int64s
+    benchmarkOutput outputType workingPath scanBMS4.Int64s
+
 
 [<Test>]
 let ``benchmark moderngpu scan : float32`` () =
@@ -252,8 +262,8 @@ let ``benchmark moderngpu scan : float32`` () =
         let (source:float32[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd ni source i)
 
-    benchmarkCSVOutput scanBMS4.Float32s workingPath
-    benchmarkExcelOutput scanBMS4.Float32s
+    benchmarkOutput outputType workingPath scanBMS4.Float32s
+
 
 [<Test>]
 let ``benchmark moderngpu scan : float`` () =
@@ -261,5 +271,4 @@ let ``benchmark moderngpu scan : float`` () =
         let (source:float[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
 
-    benchmarkCSVOutput scanBMS4.Floats workingPath
-    benchmarkExcelOutput scanBMS4.Floats
+    benchmarkOutput outputType workingPath scanBMS4.Floats

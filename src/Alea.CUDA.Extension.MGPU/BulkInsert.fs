@@ -27,11 +27,11 @@ let kernelBulkInsert (plan:Plan) =
 
     
     let capacity, scan2 = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
-    let sharedSize = NV // must be NV
+    let sharedSize = max NV capacity
  
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let computeMergeRange = computeMergeRange.Device
-    let deviceTransferMergeValues = deviceTransferMergeValuesB NT VT
+    let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
     <@ fun (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
         let deviceGlobalToReg = %deviceGlobalToReg
@@ -39,7 +39,6 @@ let kernelBulkInsert (plan:Plan) =
         let deviceTransferMergeValues = %deviceTransferMergeValues
         let S = %scan2
         
-
         let shared = __shared__<int>(sharedSize).Ptr(0)
         let sharedScan = shared
         let sharedIndices = shared
@@ -81,10 +80,11 @@ let kernelBulkInsert (plan:Plan) =
             let index = VT * tid + i
             let gather = 
                 if indices.[i] > 0 then 
-                    scan 
+                    let s = scan
+                    scan <- scan + 1
+                    s
                 else 
-                    aCount + index - scan
-            if indices.[i] > 0 then scan <- scan + 1
+                    aCount + index - scan            
             sharedIndices.[index] <- gather
         __syncthreads()
 
