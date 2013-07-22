@@ -1,6 +1,54 @@
 ﻿module Alea.CUDA.Extension.Output.Util
 
+open System.IO
 open Alea.CUDA.Extension.Util
+
+
+type WorkingOutputPaths =
+    {
+        Excel : string
+        CSV : string
+    }
+
+let getWorkingPathCSV (deviceFolderName:string) (algorithmName:string) (*overwrite:bool*) = 
+    let perfDataDir = Directory.CreateDirectory("../../New Performance Data")
+    let mutable workingPath = ""    
+    //if overwrite then
+    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmerk_CSV")
+    let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
+    let workingDir = deviceDir.CreateSubdirectory(algorithmName)
+    workingPath <- workingDir.FullName + "/"
+//    else 
+//        let newPerfData = perfDataDir.CreateSubdirectory("new")
+//        let benchCsvDir = newPerfData.CreateSubdirectory("Benchmerk_CSV")
+//        let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
+//        let workingDir = deviceDir.CreateSubdirectory(algorithmName)
+//        workingPath <- workingDir.FullName + "/"    
+    workingPath
+
+
+let getWorkingPathExcel (deviceFolderName:string) (algorithmName:string) = 
+    let perfDataDir = Directory.CreateDirectory("../../New Performance Data")
+    let mutable workingPath = ""    
+    //if overwrite then
+    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmerk_Excel")
+    let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
+    let workingDir = deviceDir.CreateSubdirectory(algorithmName)
+    workingPath <- workingDir.FullName + "/"
+//    else 
+//        let newPerfData = perfDataDir.CreateSubdirectory("new")
+//        let benchCsvDir = newPerfData.CreateSubdirectory("Benchmerk_Excel")
+//        let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
+//        let workingDir = deviceDir.CreateSubdirectory(algorithmName)
+//        workingPath <- workingDir.FullName + "/"    
+    workingPath
+
+
+let getWorkingOutputPaths (deviceFolderName:string) (algorithmName:string) (*overwrite:bool*) = 
+    let wop = 
+        { Excel = getWorkingPathExcel deviceFolderName algorithmName (*overwrite*)
+          CSV = getWorkingPathCSV deviceFolderName algorithmName (*overwrite*) }
+    wop
 
 
 type IHeaders = 
@@ -9,6 +57,9 @@ type IHeaders =
 type IOutputColumn<'T> =
     abstract member Label : string with get, set
     abstract member Values : List<'T> with get, set
+
+
+
 
 type Entry =
     val mutable Kernel : string     // which kernel this came from

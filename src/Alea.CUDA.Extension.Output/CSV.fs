@@ -22,6 +22,7 @@ type IHeaders =
 //    abstract AppendEntry : (Entry -> File -> unit)
 //    abstract AppendEntryPair : (Entry -> Entry -> File -> unit)
 
+
 let writeHeading (bms:BenchmarkStats) (w:StreamWriter) =
     w.WriteLine(System.DateTime.Now.ToShortDateString())
     w.WriteLine("Algorithm:\t" + bms.AlgorithmName)
@@ -38,7 +39,7 @@ let benchmarkCSVOutput (bms:BenchmarkStats) (outPath:string) =
     let tpHeaders = "Iterations,Elements,Alea.cuBase," + bms.Opponent + ","
     let bwHeaders = tpHeaders
     let ktTitles = bms.KernelsUsed
-    let ktHeaders = "Elements,Alea.cuBase," + bms.Opponent + "Difference,"
+    let ktHeaders = "Elements,Alea.cuBase," + bms.Opponent + "," + "Difference,"
 
     let counts, nItrs = bms.SourceCounts, bms.NumIterations
     let throughputCSV =

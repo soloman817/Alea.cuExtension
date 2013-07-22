@@ -15,6 +15,8 @@ let bulkInsertIterations = bulkRemoveIterations
 //Mem Clock: 2600.000 Mhz x 320 bits   (208.000 GB/s)
 //ECC Enabled
 module TeslaK20c =
+    let deviceFolderName = "teslaK20c"
+
                               // throughput (M/s)     bandwidth (GB/s)
     let moderngpu_scanStats_int = [(  433.734,     5.205 );     // 10k
                                    (  702.083,     8.425 );     // 50k
@@ -113,6 +115,8 @@ module TeslaK20c =
 //Mem Clock: 2004.000 Mhz x 256 bits   (128.256 GB/s)
 //ECC Disabled
 module GF560Ti = 
+    let deviceFolderName = "gtx560Ti"
+
                             // throughput (M/s)     bandwidth (GB/s)
     let moderngpu_scanStats_int = [ ( 522.294,     6.268);    
                                     (1409.874,    16.918);     

@@ -87,7 +87,9 @@ let benchmarkExcelOutput (bms:BenchmarkStats) =
         worksheet.Range(rangeStrCol (i + 1) nTests).Value2 <- bwDataCols.[i]
     // bandwidth chart
     let chartobjects = (worksheet.ChartObjects() :?> ChartObjects)
-    let chartobject = chartobjects.Add(300.0, 320.0, 700.0, 300.0)
+    let chartobject = chartobjects.Add(300.0, 330.0, 700.0, 300.0)
+    let range1 = "B" + (!cr - 1).ToString() + ":" + "B" + (!cr + nTests - 1).ToString()
+    let range2 = "C" + (!cr - 1).ToString() + ":" + "D" + (!cr + nTests - 1).ToString()
     chartobject.Chart.ChartWizard
         ( Title = "Bandwidth (GB/s)",
           Source = worksheet.Range(range1, range2),

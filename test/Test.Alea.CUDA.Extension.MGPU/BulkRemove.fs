@@ -31,8 +31,9 @@ let rng = System.Random()
 let sourceCounts = BenchmarkStats.sourceCounts
 let nIterations = BenchmarkStats.bulkRemoveIterations
 
+let algName = "Bulk Remove"
 let brKernelsUsed = [| "kernelBulkRemove"; "binary search partitions" |]
-let brBMS4 = new BenchmarkStats4("Bulk Remove", brKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let brBMS4 = new BenchmarkStats4(algName, brKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above and all of this should adjust accordingly
@@ -56,16 +57,15 @@ for i = 0 to sourceCounts.Length - 1 do
     brBMS4.Floats.OpponentThroughput.[i].Value <- oFloat64TP.[i]
     brBMS4.Floats.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
 
-let mainDir = Directory.CreateDirectory("Benchmark_CSV")
-let workingDir = mainDir.CreateSubdirectory("BulkRemove")
-let workingPath = workingDir.FullName + "/"
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                              IMPORTANT                                                       //
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
 // want to see the console prints.                                                                              //
-let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+let outputType = OutputTypeBoth    // Choices are CSV, Excel, Both, or None                                     //
+// only one path, we aren't auto-saving excel stuff yet                                                         //
+let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -332,4 +332,39 @@ let ``BulkRemove moderngpu benchmark : float`` () =
         let (source:float[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
 
+    benchmarkOutput outputType workingPath brBMS4.Floats
+
+
+
+[<Test>] // above 4 tests, done in sequence (to make output easier)
+let ``BulkRemove moderngpu benchmark : 4 type`` () =
+    // INT
+    printfn "Running BulkRemove moderngpu benchmark : Int"    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
+        let (source:int[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni i  )    
+    benchmarkOutput outputType workingPath brBMS4.Ints    
+
+
+    // INT64
+    printfn "\nRunning BulkRemove moderngpu benchmark : Int64"    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
+        let (source:int64[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni i   )
+    benchmarkOutput outputType workingPath brBMS4.Int64s
+
+
+    // FLOAT32
+    printfn "\nRunning BulkRemove moderngpu benchmark : Float32"
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
+        let (source:float32[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni i   )
+    benchmarkOutput outputType workingPath brBMS4.Float32s
+
+
+    // FLOAT64
+    printfn "\nRunning BulkRemove moderngpu benchmark : Float64"    
+    (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
+        let (source:float[]), indices = rngGenericArrayI ns nr
+        benchmarkBulkRemove source indices ni i   )
     benchmarkOutput outputType workingPath brBMS4.Floats

@@ -130,25 +130,25 @@ let mergePathPartitions (bounds:int) (compOp:IComp<int>) = cuda {
                 
             { Action = action } ) }
 
-let mergePathPartitionsB (bounds:int) (compOp:IComp<int>) = cuda {
-    let plan = { NT = 64; Bounds = bounds }
-    let mergeSearch = mergeSearch bounds compOp
-    let! kernelMergePartition = (kernelMergePartition plan mergeSearch) |> defineKernelFuncWithName "mpp"
-
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelMergePartition = kernelMergePartition.Apply m
-
-        fun (aCount:int) (bCount:int) (nv:int) (coop:int) ->
-            let numPartitions = divup (aCount + bCount) nv
-            let numPartitionBlocks = divup (numPartitions + 1) plan.NT
-            let lp = LaunchParam(numPartitionBlocks, plan.NT)
-            
-            let action (hint:ActionHint) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                kernelMergePartition.Launch lp a_global aCount (DevicePtr<int>(0n)) bCount nv coop partitionsDevice (numPartitions + 1)
-                
-            { Action = action } ) }
+//let mergePathPartitionsB (bounds:int) (compOp:IComp<int>) = cuda {
+//    let plan = { NT = 64; Bounds = bounds }
+//    let mergeSearch = mergeSearch bounds compOp
+//    let! kernelMergePartition = (kernelMergePartition plan mergeSearch) |> defineKernelFuncWithName "mpp"
+//
+//    return PFunc(fun (m:Module) ->
+//        let worker = m.Worker
+//        let kernelMergePartition = kernelMergePartition.Apply m
+//
+//        fun (aCount:int) (bCount:int) (nv:int) (coop:int) ->
+//            let numPartitions = divup (aCount + bCount) nv
+//            let numPartitionBlocks = divup (numPartitions + 1) plan.NT
+//            let lp = LaunchParam(numPartitionBlocks, plan.NT)
+//            
+//            let action (hint:ActionHint) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
+//                let lp = lp |> hint.ModifyLaunchParam
+//                kernelMergePartition.Launch lp a_global aCount (DevicePtr<int>(0n)) bCount nv coop partitionsDevice (numPartitions + 1)
+//                
+//            { Action = action } ) }
 
 
 

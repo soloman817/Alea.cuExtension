@@ -46,8 +46,10 @@ let aibCounts2 = sourceCounts2 |> List.map (fun x -> aib x)
 
 let aCounts, bCounts = aibCounts |> List.unzip
 
+let algName = "Bulk Insert"
 let biKernelsUsed = [| "kernelBulkInsert"; "kernelMergePartition" |]
-let biBMS4 = new BenchmarkStats4("Bulk Insert", biKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let biBMS4 = new BenchmarkStats4(algName, biKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+ 
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above and all of this should adjust accordingly
@@ -71,17 +73,16 @@ for i = 0 to sourceCounts.Length - 1 do
     biBMS4.Floats.OpponentThroughput.[i].Value <- oFloat64TP.[i]
     biBMS4.Floats.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
 
-let mainDir = Directory.CreateDirectory("Benchmark_CSV")
-let workingDir = mainDir.CreateSubdirectory("BulkInsert")
-let workingPath = workingDir.FullName + "/"
-
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                              IMPORTANT                                                       //
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
 // want to see the console prints.                                                                              //
-let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+let outputType = OutputTypeBoth     // Choices are CSV, Excel, Both, or None                                     //
+//let overwrite = false               // overwrite old data or create new data?                                 //
+// only one path, we aren't auto-saving excel stuff yet                                                         //
+let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -118,36 +119,30 @@ let testBulkInsert() =
             do! PCalc.force() }
 
     let eps = 1e-10
-//    let values1 na nb = 
-//        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
-//        let hA,hI,hB = r
-//        hA,hI,hB
-    let values1 na nb =
-        let hA = Array.init na (fun _ -> 999)
-        let hI = Array.init na (fun _ -> rng.Next(nb)) |> Array.sort
-        let hB = Array.init nb (fun i -> i)
+    let values1 na nb = 
+        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
         hA,hI,hB
-//
-//    let values2 na nb = 
-//        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
-//        let hA,hI,hB = r
-//        hA,hI,hB
-//
-//    let values3 na nb = 
-//        let (r:float[]*int[]*float[]) = rngGenericArrayAIB na nb
-//        let hA,hI,hB = r
-//        hA,hI,hB  
+
+    let values2 na nb = 
+        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        hA,hI,hB
+
+    let values3 na nb = 
+        let (r:float[]*int[]*float[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        hA,hI,hB  
         
 
     aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
-                                            //printfn "%A, %A, %A" <||| (values1 na nb)
                                             values1 na nb |||> test |> PCalc.run)
 
-//    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
-//                                            values2 na nb |||> test |> PCalc.run)
-//
-//    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
-//                                            values3 na nb |||> test |> PCalc.run)
+    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
+                                            values2 na nb |||> test |> PCalc.run)
+
+    aibCounts2 |> List.iter (fun (na,nb) -> let test = test true eps
+                                            values3 na nb |||> test |> PCalc.run)
         
     let n = 2097152
     let na,nb = aib n
@@ -225,32 +220,6 @@ let ``bulkInsert simple example`` () =
 
     printfn "%A" dResult
 
-[<Test>]
-let ``bulkInsert mem debug`` () =
-    let count = 512
-    let aCount, bCount = aib count
-    //let bCount = count
-    //let aCount = count / 3
-    printfn "count = %d" count
-    printfn "aCount = %d\tbCount = %d" aCount bCount
-    let hB = Array.init bCount (fun i -> i)
-    let hI = Array.init aCount (fun _ -> rng.Next(bCount)) |> Array.sort
-    let hA = Array.init aCount (fun _ -> 2048)
-
-    let pfunct = MGPU.PArray.bulkInsert()
-    let bulkin = worker.LoadPModule(pfunct).Invoke
-
-    let dResult = pcalc {
-        let! dA = DArray.scatterInBlob worker hA
-        let! dB = DArray.scatterInBlob worker hB
-        let! dI = DArray.scatterInBlob worker hI
-        let! dR = bulkin dA dI dB
-        let! results = dR.Gather()
-        return results } |> PCalc.run
-
-    printfn "%A" dResult
-
-
 
 [<Test>]
 let ``bulkInsert moderngpu website example`` () =
@@ -293,26 +262,6 @@ let ``bulkInsert moderngpu website example`` () =
     printfn "%A" dResult
 
 
-
-[<Test>]
-let ``bulkInsert misc test`` () =
-    let hDataSource = Array.init 400 int
-    let hIndices = Array.init 100 (fun _ -> rng.Next(300)) |> Array.sort
-    let hDataToInsert = Array.init 100 (fun _ -> 99999999)
-
-    let pfunct = MGPU.PArray.bulkInsert()
-    let bi = worker.LoadPModule(pfunct).Invoke
-
-    let dResult = pcalc {
-        let! dDataToInsert = DArray.scatterInBlob worker hDataToInsert
-        let! dIndices = DArray.scatterInBlob worker hIndices
-        let! dDataSource = DArray.scatterInBlob worker hDataSource
-        let! inserted = bi dDataToInsert dIndices dDataSource
-        let! results = inserted.Gather()
-        return results } |> PCalc.run
-
-    printfn "%A" dResult
-    
 
 [<Test>]
 let ``BulkInsert 3 value test`` () =
@@ -363,6 +312,42 @@ let ``BulkInsert moderngpu benchmark : float`` () =
         benchmarkBulkInsert hA hI hB ni i  )
 
     benchmarkOutput outputType workingPath biBMS4.Floats
+
+
+[<Test>] // above 4 tests, done in sequence (to make output easier)
+let ``BulkInsert moderngpu benchmark : 4 type`` () =    
+    // INT
+    printfn "Running BulkInsert moderngpu benchmark : Int"
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:int[]*int[]*int[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )    
+    benchmarkOutput outputType workingPath biBMS4.Ints
+
+    // INT64
+    printfn "\nRunning BulkInsert moderngpu benchmark : Int64"
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:int64[]*int[]*int64[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+    benchmarkOutput outputType workingPath biBMS4.Int64s
+    
+    // FLOAT32
+    printfn "\nRunning BulkInsert moderngpu benchmark : Float32"
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:float32[]*int[]*float32[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+    benchmarkOutput outputType workingPath biBMS4.Float32s
+
+    // FLOAT64
+    printfn "\nRunning BulkInsert moderngpu benchmark : Float64"
+    (aCounts, bCounts, nIterations) |||> List.zip3 |> List.iteri (fun i (na, nb, ni) ->
+        let (r:float[]*int[]*float[]) = rngGenericArrayAIB na nb
+        let hA,hI,hB = r
+        benchmarkBulkInsert hA hI hB ni i  )
+    benchmarkOutput outputType workingPath biBMS4.Floats
+
 
 
 //[<Test>]

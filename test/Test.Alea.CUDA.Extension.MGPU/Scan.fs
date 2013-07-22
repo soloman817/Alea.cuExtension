@@ -32,6 +32,7 @@ let nIterations = BenchmarkStats.scanIterations
 
 let worker = getDefaultWorker()
 
+let algName = "Scan"
 let scanKernelsUsed = [| "kernelParallelScan"; "kernelScanDownsweep" |] 
 let scanBMS4 = new BenchmarkStats4("Scan", scanKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
 
@@ -50,16 +51,15 @@ for i = 0 to sourceCounts.Length - 1 do
     scanBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
     // dont have the other types yet
 
-let mainDir = Directory.CreateDirectory("Benchmark_CSV")
-let workingDir = mainDir.CreateSubdirectory("Scan")
-let workingPath = workingDir.FullName + "/"
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                              IMPORTANT                                                       //
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
 // want to see the console prints.                                                                              //
-let outputType = OutputTypeNone     // Choices are CSV, Excel, Both, or None                                    //
+let outputType = OutputTypeBoth     // Choices are CSV, Excel, Both, or None                                    //
+// only one path, we aren't auto-saving excel stuff yet                                                         //
+let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -271,4 +271,35 @@ let ``benchmark moderngpu scan : float`` () =
         let (source:float[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
 
+    benchmarkOutput outputType workingPath scanBMS4.Floats
+
+
+[<Test>] // above 4 tests, done in sequence (to make output easier)
+let ``Scan moderngpu benchmark : 4 type`` () =
+    // INT
+    printfn "Running Scan moderngpu benchmark : Int"
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
+        let (source:int[]) = rngGenericArray ns
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source i)    
+    benchmarkOutput outputType workingPath scanBMS4.Ints
+
+    // INT64
+    printfn "\nRunning Scan moderngpu benchmark : Int64"
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
+        let (source:int64[]) = rngGenericArray ns
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0L) totalNotAtEnd ni source i)
+    benchmarkOutput outputType workingPath scanBMS4.Int64s
+
+    // FLOAT32
+    printfn "\nRunning Scan moderngpu benchmark : Float32"
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
+        let (source:float32[]) = rngGenericArray ns
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd ni source i)
+    benchmarkOutput outputType workingPath scanBMS4.Float32s
+
+    // FLOAT64
+    printfn "\nRunning Scan moderngpu benchmark : Float64"
+    (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
+        let (source:float[]) = rngGenericArray ns
+        benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
     benchmarkOutput outputType workingPath scanBMS4.Floats
