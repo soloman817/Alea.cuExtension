@@ -34,8 +34,14 @@ let benchmarkCSVOutput (bms:BenchmarkStats) (outPath:string) =
     let fname = bms.AlgorithmName + "_" + bms.TestedType + ".txt"
     let csvFStream = File.Create((outPath + fname))
     let csvWriter = new StreamWriter(csvFStream)
-    writeHeading bms csvWriter
     
+    let firstRow = "Algorithm,Tested Type,Device Used,Compared Against,"
+    let mainHeaders = bms.AlgorithmName + "," + bms.TestedType + "," + bms.DeviceName + "," + bms.Opponent + ","
+    //writeHeading bms csvWriter
+    csvWriter.WriteLine(firstRow)
+    csvWriter.WriteLine(mainHeaders)
+    csvWriter.WriteLine("")
+
     let tpHeaders = "Iterations,Elements,Alea.cuBase," + bms.Opponent + ","
     let bwHeaders = tpHeaders
     let ktTitles = bms.KernelsUsed
