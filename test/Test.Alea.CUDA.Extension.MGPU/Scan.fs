@@ -16,7 +16,7 @@ open NUnit.Framework
 
 ////////////////////////////
 // set this to your device or add your device's C++ output to BenchmarkStats.fs
-open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
 
@@ -57,7 +57,7 @@ for i = 0 to sourceCounts.Length - 1 do
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
 // want to see the console prints.                                                                              //
-let outputType = OutputTypeBoth     // Choices are CSV, Excel, Both, or None                                    //
+let outputType = OutputTypeCSV     // Choices are CSV, Excel, Both, or None                                    //
 // only one path, we aren't auto-saving excel stuff yet                                                         //
 let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////

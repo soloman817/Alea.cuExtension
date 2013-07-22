@@ -14,7 +14,7 @@ let getWorkingPathCSV (deviceFolderName:string) (algorithmName:string) (*overwri
     let perfDataDir = Directory.CreateDirectory("../../New Performance Data")
     let mutable workingPath = ""    
     //if overwrite then
-    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmerk_CSV")
+    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmark_CSV")
     let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
     let workingDir = deviceDir.CreateSubdirectory(algorithmName)
     workingPath <- workingDir.FullName + "/"
@@ -31,7 +31,7 @@ let getWorkingPathExcel (deviceFolderName:string) (algorithmName:string) =
     let perfDataDir = Directory.CreateDirectory("../../New Performance Data")
     let mutable workingPath = ""    
     //if overwrite then
-    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmerk_Excel")
+    let benchCsvDir = perfDataDir.CreateSubdirectory("Benchmark_Excel")
     let deviceDir = benchCsvDir.CreateSubdirectory(deviceFolderName)
     let workingDir = deviceDir.CreateSubdirectory(algorithmName)
     workingPath <- workingDir.FullName + "/"

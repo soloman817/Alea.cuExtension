@@ -1,7 +1,7 @@
 ﻿module Alea.CUDA.Extension.Output.CSV
 
 open System.IO
-open Microsoft.Office.Interop.Excel
+//open Microsoft.Office.Interop.Excel
 open Alea.CUDA.Extension.Output.Util
 
 
