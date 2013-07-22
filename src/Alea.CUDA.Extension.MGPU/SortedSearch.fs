@@ -10,9 +10,48 @@ open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
+open Alea.CUDA.Extension.MGPU.CTASearch
+open Alea.CUDA.Extension.MGPU.CTAMerge
+open Alea.CUDA.Extension.MGPU.CTASortedSearch
 
 
 
+
+
+
+let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:MgpuBounds) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TC>) =
+    
+    let deviceLoad2ToShared = deviceLoad2ToShared NT VT (VT + 1)
+
+    let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
+
+    <@ fun (range:int4) (a_global:DevicePtr<'TI>) (aCount:int) (b_global:DevicePtr<'TI>) (bCount:int) (tid:int) (block:int) (keys_shared:RWPtr<'T>) (indices_shared:RWPtr<int>) ->
+        let deviceLoad2ToShared = %deviceLoad2ToShared
+        let ctaSortedSearch = %ctaSortedSearch
+
+        let a0 = range.x
+        let a1 = range.y
+        let b0 = range.z
+        let b1 = range.w
+        let aCount2 = a1 - a0
+        let bCount2 = b1 - b0
+
+        let leftA = matchB && (bounds = MgpuBoundsLower) && (a0 > 0)
+        let leftB = matchA && (bounds = MgpuBoundsUpper) && (b0 > 0)
+        let rightA = a1 < aCount
+        let rightB = b1 < bCount
+
+        let aStart = leftA
+        let aEnd = (if aStart then 1 else 0) + aCount2 + (if rightA then 1 else 0) 
+        let bStart = aEnd + leftB
+        let bEnd = bStart + bCount2 + rightB
+
+        let extended = rightA && rightB && ((not matchA) || leftB) && ((not matchB) || leftA)
+        
+        let matchCount = ctaSortedSearch keys_shared aStart aCount2 aEnd a0 bStart bCount2 bEnd b0 extended tid indices_shared
+
+        matchCount
+    @>
 
 
 //////////////////////////////////////////////////////////////////////////////////

@@ -89,6 +89,9 @@ let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
 
     capacity, reduce
 
+//let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
+    
+
 // CTAScan
 let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let size = NT

@@ -18,6 +18,16 @@ type Int2 =
 type int2 = Int2
 
 [<Struct;Align(8)>]
+type UInt2 =
+    val mutable x : uint32
+    val mutable y : uint32
+    [<ReflectedDefinition>]
+    new (x, y) = { x = x; y = y }
+
+type uint2 = UInt2
+
+
+[<Struct;Align(8)>]
 type Int3 =
     val mutable x : int
     val mutable y : int
@@ -37,6 +47,7 @@ type Int4 =
     new (x, y, z, w) = { x = x; y = y; z = z; w = w }
     
 type int4 = Int4
+
 
 let divideTaskRange (numItems:int) (numWorkers:int) =
     let quot = numItems / numWorkers

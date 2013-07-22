@@ -15,6 +15,13 @@ open Alea.CUDA.Extension.MGPU.CTASearch
 open Alea.CUDA.Extension.MGPU.CTAMerge
 
 
+type MgpuSearchType =
+    | MgpuSearchTypeNone
+    | MgpuSearchTypeIndex
+    | MgpuSearchTypeMatch
+    | MgpuSearchTypeIndexMatch
+
+
 type Plan =
     {
         NT : int
