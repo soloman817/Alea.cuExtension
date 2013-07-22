@@ -93,10 +93,16 @@ module MergePartition =
                     let NT = 64
                     let numPartitions = divup (aCount + bCount) nv
                     let numPartitionBlocks = divup (numPartitions + 1) NT
-                    let zeroItr = worker.Malloc<int>([|0|])
+
+                    let bGlobalHost = Array.init<int> bCount (fun i -> i)
+                    let! bGlobal = DArray.scatterInBlob worker bGlobalHost
+                    //let zeroItr = DevicePtr<int>(0n)
+                    //let zeroItr = worker.Malloc<int>([|0|])
 
                     let! parts = DArray.createInBlob<int> worker (numPartitions + 1)
-                    do! PCalc.action (fun hint -> api.Action hint aGlobal.Ptr zeroItr.Ptr parts.Ptr)
+                    do! PCalc.action (fun hint ->
+                        api.Action hint aGlobal.Ptr bGlobal.Ptr parts.Ptr
+                        ())
 
                     return parts } ) }
 
@@ -223,13 +229,15 @@ module BulkInsert =
             let api = api.Apply m
             fun (aCount:int) (bCount:int) ->
                 pcalc {
+                    let sequence = Array.init bCount (fun i -> i)
                     
                     let insert (data_A:DArray<int>) (indices:DArray<int>) (data_B:DArray<int>) (inserted:DArray<int>) =
                         pcalc { 
                             let api = api aCount bCount
-                            let zeroItr = worker.Malloc<int>([|0|])
+                            let! counter = DArray.scatterInBlob worker sequence
+                            //let zeroItr = worker.Malloc<int>([|0|])
                             let! partition = DArray.createInBlob<int> worker api.NumPartitions                          
-                            do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr zeroItr.Ptr data_B.Ptr partition.Ptr inserted.Ptr) }
+                            do! PCalc.action (fun hint -> api.Action hint data_A.Ptr indices.Ptr counter.Ptr data_B.Ptr partition.Ptr inserted.Ptr) }
                     return insert } ) }
 
 
@@ -260,7 +268,7 @@ module BulkInsert =
 
 [<Test>]
 let ``bulk insert debug mem debug`` () =
-    let count = 1024
+    let count = 1024000
     let aCount, bCount = aib count
     //let bCount = count
     //let aCount = count / 3
@@ -373,7 +381,7 @@ let ``MPP debug mem debug`` () =
     //printfn "%A" dResult
     printfn "%A" dParts
 
-    let count = 2048
+    let count = 1024000
     let aCount, bCount = aib count
     //let bCount = count
     //let aCount = count / 3
