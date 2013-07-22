@@ -204,16 +204,16 @@ type BenchmarkStats (algorithmName : string, kernelsUsed:string[], deviceName : 
 
 
 type BenchmarkStats4 =
-    val mutable Ints : BenchmarkStats
+    val mutable Int32s : BenchmarkStats
     val mutable Int64s : BenchmarkStats
     val mutable Float32s : BenchmarkStats
-    val mutable Floats : BenchmarkStats
+    val mutable Float64s : BenchmarkStats
     
     new(algorithmName : string, kernelsUsed : string[], deviceName : string, opponent : string, sourceCounts : int list, nIterations: int list) =
-        { Ints = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Int", opponent, sourceCounts, nIterations);
+        { Int32s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Int32", opponent, sourceCounts, nIterations);
           Int64s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Int64", opponent, sourceCounts, nIterations);
           Float32s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Float32", opponent, sourceCounts, nIterations);
-          Floats = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Float", opponent, sourceCounts, nIterations) }
+          Float64s = new BenchmarkStats(algorithmName, kernelsUsed, deviceName, "Float64", opponent, sourceCounts, nIterations) }
 
 
 

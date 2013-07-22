@@ -1,2 +1,2 @@
-﻿Test.Alea.CUDA.Extension.MGPU.BulkRemove.``BulkRemove moderngpu benchmark : float``()
+﻿Test.Alea.CUDA.Extension.MGPU.Scan.``Scan moderngpu benchmark : float64``()
 

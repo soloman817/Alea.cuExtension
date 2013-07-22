@@ -1,5 +1,6 @@
 ﻿module Alea.CUDA.Extension.Output.Excel
 
+open System.IO
 open Microsoft.Office.Interop.Excel
 open Alea.CUDA.Extension.Output.Util
 
@@ -113,3 +114,9 @@ let benchmarkExcelOutput (bms:BenchmarkStats) =
             worksheet.Range(rangeStrCol (j + 1) nTests).Value2 <- ktDataCols.[j]
         cr := !cr + nTests + 1
     
+//
+//let csvToExcel (csvPath:string) =
+//    let app = new ApplicationClass(Visible = true)
+//    let workbook = app.Workbooks.Add(XlWBATemplate.xlWBATWorksheet)
+//    let worksheet = (workbook.Worksheets.[1] :?> Worksheet)
+//    app.Workbooks.Open(csvPath)

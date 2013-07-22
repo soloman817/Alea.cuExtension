@@ -245,16 +245,16 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
     let rsDownsweepPlan = {NT = 256; VT = 3; ST = mgpuScanType}
 
     let kernelPS = kernelParallelScan psPlan op
-    let! kernelPS = kernelPS |> defineKernelFunc
+    let! kernelPS = kernelPS |> defineKernelFuncWithName "ps"
 
     let kernelRRUpsweep = Reduce.kernelReduce rrUpsweepPlan op
-    let! kernelRRUpsweep = kernelRRUpsweep |> defineKernelFunc
+    let! kernelRRUpsweep = kernelRRUpsweep |> defineKernelFuncWithName "rrUpsweep"
 
     let kernelPLOS = kernelParallelScan plosPlan op
-    let! kernelPLOS = kernelPLOS |> defineKernelFunc
+    let! kernelPLOS = kernelPLOS |> defineKernelFuncWithName "plos"
 
     let kernelRSDownsweep = kernelScanDownsweep rsDownsweepPlan op
-    let! kernelRSDownsweep = kernelRSDownsweep |> defineKernelFunc
+    let! kernelRSDownsweep = kernelRSDownsweep |> defineKernelFuncWithName "rsDownsweep"
     
     let hplus = op.HPlus
         

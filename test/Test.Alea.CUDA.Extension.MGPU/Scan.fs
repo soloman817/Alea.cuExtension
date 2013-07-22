@@ -44,8 +44,8 @@ let oInt64TP, oInt64BW = moderngpu_scanStats_int64 |> List.unzip
 
 for i = 0 to sourceCounts.Length - 1 do
     // this is setting the opponent (MGPU) stats for the int type
-    scanBMS4.Ints.OpponentThroughput.[i].Value <- oIntTP.[i]
-    scanBMS4.Ints.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    scanBMS4.Int32s.OpponentThroughput.[i].Value <- oIntTP.[i]
+    scanBMS4.Int32s.OpponentBandwidth.[i].Value <- oIntBW.[i]
     // set opponent stats for int64
     scanBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
     scanBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
@@ -56,8 +56,8 @@ for i = 0 to sourceCounts.Length - 1 do
 //                                              IMPORTANT                                                       //
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
-// want to see the console prints.                                                                              //
-let outputType = OutputTypeCSV     // Choices are CSV, Excel, Both, or None                                    //
+// want to see the console prInt32s.                                                                            //
+let outputType = OutputTypeNone // Choices are CSV, Excel, Both, or None. Set to None for doing kernel timing   //
 // only one path, we aren't auto-saving excel stuff yet                                                         //
 let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,13 +154,13 @@ let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int
         timing'
     
     match typeof<'TI> with
-    | x when x = typeof<int> -> scanBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<int> -> scanBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<int64> -> scanBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<float32> -> scanBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
-    | x when x = typeof<float> -> scanBMS4.Floats.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float> -> scanBMS4.Float64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | _ -> ()
 
-let printScanType (mgpuScanType:int) =
+let prInt32scanType (mgpuScanType:int) =
     if mgpuScanType = ExclusiveScan then
         printfn "Scan Type: Exclusive"
     else
@@ -239,16 +239,16 @@ let ``Scan 3 value test`` () =
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 [<Test>]
-let ``benchmark moderngpu scan : int`` () =
+let ``Scan moderngpu benchmark : int32`` () =
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:int[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source i)
     
-    benchmarkOutput outputType workingPath scanBMS4.Ints
+    benchmarkOutput outputType workingPath scanBMS4.Int32s
 
 
 [<Test>]
-let ``benchmark moderngpu scan : int64`` () =
+let ``Scan moderngpu benchmark : int64`` () =
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:int64[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0L) totalNotAtEnd ni source i)
@@ -257,7 +257,7 @@ let ``benchmark moderngpu scan : int64`` () =
 
 
 [<Test>]
-let ``benchmark moderngpu scan : float32`` () =
+let ``Scan moderngpu benchmark : float32`` () =
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:float32[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.f) totalNotAtEnd ni source i)
@@ -266,22 +266,22 @@ let ``benchmark moderngpu scan : float32`` () =
 
 
 [<Test>]
-let ``benchmark moderngpu scan : float`` () =
+let ``Scan moderngpu benchmark : float64`` () =
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:float[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
 
-    benchmarkOutput outputType workingPath scanBMS4.Floats
+    benchmarkOutput outputType workingPath scanBMS4.Float64s
 
 
 [<Test>] // above 4 tests, done in sequence (to make output easier)
 let ``Scan moderngpu benchmark : 4 type`` () =
     // INT
-    printfn "Running Scan moderngpu benchmark : Int"
+    printfn "Running Scan moderngpu benchmark : Int32"
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:int[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0) totalNotAtEnd ni source i)    
-    benchmarkOutput outputType workingPath scanBMS4.Ints
+    benchmarkOutput outputType workingPath scanBMS4.Int32s
 
     // INT64
     printfn "\nRunning Scan moderngpu benchmark : Int64"
@@ -302,4 +302,4 @@ let ``Scan moderngpu benchmark : 4 type`` () =
     (sourceCounts, nIterations) ||> List.iteri2 (fun i ns ni ->
         let (source:float[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
-    benchmarkOutput outputType workingPath scanBMS4.Floats
+    benchmarkOutput outputType workingPath scanBMS4.Float64s

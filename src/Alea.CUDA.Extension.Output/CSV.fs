@@ -23,12 +23,12 @@ type IHeaders =
 //    abstract AppendEntryPair : (Entry -> Entry -> File -> unit)
 
 
-let writeHeading (bms:BenchmarkStats) (w:StreamWriter) =
-    w.WriteLine(System.DateTime.Now.ToShortDateString())
-    w.WriteLine("Algorithm:\t" + bms.AlgorithmName)
-    w.WriteLine("Tested Type:\t" + bms.TestedType)
-    w.WriteLine("Device Used:\t" + bms.DeviceName)
-    w.WriteLine("")
+//let writeHeading (bms:BenchmarkStats) (w:StreamWriter) =
+//    w.WriteLine(System.DateTime.Now.ToShortDateString())
+//    w.WriteLine("Algorithm:\t" + bms.AlgorithmName)
+//    w.WriteLine("Tested Type:\t" + bms.TestedType)
+//    w.WriteLine("Device Used:\t" + bms.DeviceName)
+//    w.WriteLine("")
 
 let benchmarkCSVOutput (bms:BenchmarkStats) (outPath:string) =
     let fname = bms.AlgorithmName + "_" + bms.TestedType + ".txt"
@@ -91,11 +91,11 @@ let benchmarkCSVOutput (bms:BenchmarkStats) (outPath:string) =
 let benchmarkCSVOutput4 (bms4:BenchmarkStats4) =
     let mainDir = Directory.CreateDirectory("../../BenchmarkOutput_CSV")
     while not mainDir.Exists do
-    let algName = bms4.Ints.AlgorithmName
+    let algName = bms4.Int32s.AlgorithmName
     let workingDir = Directory.CreateDirectory(mainDir.ToString() + "/" + algName)
     while not mainDir.Exists do
     let workingPath = workingDir.ToString()
-    benchmarkCSVOutput bms4.Ints workingPath
+    benchmarkCSVOutput bms4.Int32s workingPath
     benchmarkCSVOutput bms4.Int64s workingPath
     benchmarkCSVOutput bms4.Float32s workingPath
-    benchmarkCSVOutput bms4.Floats workingPath
+    benchmarkCSVOutput bms4.Float64s workingPath

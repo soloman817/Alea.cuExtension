@@ -45,8 +45,8 @@ let oFloat64TP, oFloat64BW = moderngpu_bulkInsertStats_float64 |> List.unzip
 
 for i = 0 to sourceCounts.Length - 1 do
     // this is setting the opponent (MGPU) stats for the int type
-    brBMS4.Ints.OpponentThroughput.[i].Value <- oIntTP.[i]
-    brBMS4.Ints.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    brBMS4.Int32s.OpponentThroughput.[i].Value <- oIntTP.[i]
+    brBMS4.Int32s.OpponentBandwidth.[i].Value <- oIntBW.[i]
     // set opponent stats for int64
     brBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
     brBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
@@ -54,16 +54,16 @@ for i = 0 to sourceCounts.Length - 1 do
     brBMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP.[i]
     brBMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW.[i]
     // set oppenent stats for float64
-    brBMS4.Floats.OpponentThroughput.[i].Value <- oFloat64TP.[i]
-    brBMS4.Floats.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
+    brBMS4.Float64s.OpponentThroughput.[i].Value <- oFloat64TP.[i]
+    brBMS4.Float64s.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                              IMPORTANT                                                       //
 //                                      Choose an Output Type                                                   // 
 // This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
-// want to see the console prints.                                                                              //
-let outputType = OutputTypeCSV    // Choices are CSV, Excel, Both, or None                                     //
+// want to see the console prInt32s.                                                                            //
+let outputType = OutputTypeNone // Choices are CSV, Excel, Both, or None. Set to None for doing kernel timing   //
 // only one path, we aren't auto-saving excel stuff yet                                                         //
 let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -192,10 +192,10 @@ let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
         timing'
 
     match typeof<'T> with
-    | x when x = typeof<int> -> brBMS4.Ints.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<int> -> brBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<int64> -> brBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | x when x = typeof<float32> -> brBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
-    | x when x = typeof<float> -> brBMS4.Floats.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
+    | x when x = typeof<float> -> brBMS4.Float64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
     | _ -> ()
  
  
@@ -300,12 +300,12 @@ let ``BulkRemove 3 value test`` () =
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 [<Test>]
-let ``BulkRemove moderngpu benchmark : int`` () =    
+let ``BulkRemove moderngpu benchmark : int32`` () =    
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i  )
     
-    benchmarkOutput outputType workingPath brBMS4.Ints    
+    benchmarkOutput outputType workingPath brBMS4.Int32s    
 
 
 [<Test>]
@@ -327,12 +327,12 @@ let ``BulkRemove moderngpu benchmark : float32`` () =
 
 
 [<Test>]
-let ``BulkRemove moderngpu benchmark : float`` () =    
+let ``BulkRemove moderngpu benchmark : float64`` () =    
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:float[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
 
-    benchmarkOutput outputType workingPath brBMS4.Floats
+    benchmarkOutput outputType workingPath brBMS4.Float64s
 
 
 
@@ -343,7 +343,7 @@ let ``BulkRemove moderngpu benchmark : 4 type`` () =
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:int[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i  )    
-    benchmarkOutput outputType workingPath brBMS4.Ints    
+    benchmarkOutput outputType workingPath brBMS4.Int32s    
 
 
     // INT64
@@ -367,4 +367,4 @@ let ``BulkRemove moderngpu benchmark : 4 type`` () =
     (sourceCounts, nIterations, removeCounts) |||> List.zip3 |> List.iteri (fun i (ns, ni, nr) ->
         let (source:float[]), indices = rngGenericArrayI ns nr
         benchmarkBulkRemove source indices ni i   )
-    benchmarkOutput outputType workingPath brBMS4.Floats
+    benchmarkOutput outputType workingPath brBMS4.Float64s
