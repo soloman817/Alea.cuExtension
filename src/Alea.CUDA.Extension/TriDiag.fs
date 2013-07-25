@@ -67,11 +67,57 @@ let [<ReflectedDefinition>] inline triDiagPcrSingleBlock n (l:SharedPtr<'T>) (d:
             h.[rank] <- h.[rank] / d.[rank]
 
 
-let inline triDiag () = cuda {
+let [<ReflectedDefinition>] inline triDiagPcrSingleBlockTempShared (size:int) (tid:int) 
+                                                                   (a:SharedPtr<'T>) (b:SharedPtr<'T>) (c:SharedPtr<'T>) (d:SharedPtr<'T>) (x:SharedPtr<'T>) 
+                                                                   (aTemp:SharedPtr<'T>) (bTemp:SharedPtr<'T>) (cTemp:SharedPtr<'T>) (dTemp:SharedPtr<'T>) = 
+    let mutable k1 = 0G
+    let mutable k2 = 0G   
+    let mutable s = 1
+
+    while s < size do
+        let boundaryMin = tid-s
+        let boundaryMax = tid+s
+
+        if boundaryMin < 0 then
+            k2 <- c.[tid]/b.[tid+s]
+            aTemp.[tid] <- 0G
+            bTemp.[tid] <- b.[tid] - a.[tid+s]*k2
+            cTemp.[tid] <- -c.[tid+s]*k2
+            dTemp.[tid] <- d.[tid] - d.[tid+s]*k2
+
+        if boundaryMax >= size then
+            k1 <- a.[tid]/b.[tid-s]
+            aTemp.[tid] <- -a.[tid-s]*k1
+            bTemp.[tid] <- b.[tid] - c.[tid-s]*k1
+            cTemp.[tid] <- 0G
+            dTemp.[tid] <- d.[tid] - d.[tid-s]*k1
+     
+        if boundaryMax < size && boundaryMin >= 0 then
+            k1 <- a.[tid]/b.[tid-s]
+            k2 <- c.[tid]/b.[tid+s]  
+            aTemp.[tid] <- -a.[tid-s]*k1
+            bTemp.[tid] <- b.[tid] - c.[tid-s]*k1 - a.[tid+s]*k2
+            cTemp.[tid] <- -c.[tid+s]*k2
+            dTemp.[tid] <- d.[tid] - d.[tid-s]*k1 - d.[tid+s]*k2
+   
+        __syncthreads()
+
+        a.[tid] <- aTemp.[tid]
+        b.[tid] <- bTemp.[tid]
+        c.[tid] <- cTemp.[tid]
+        d.[tid] <- dTemp.[tid]
+
+        s <- s*2
+
+    x.[tid] <- d.[tid]/b.[tid] 
+
+
+/// Tridiagonal solver with temporary memory in registers
+let inline triDiagTempReg () = cuda {
 
     let! kernel =     
         <@ fun n (dl:DevicePtr<'T>) (dd:DevicePtr<'T>) (du:DevicePtr<'T>) (dh:DevicePtr<'T>) ->  
-            let rank = threadIdx.x
+            let tid = threadIdx.x
             
             let shared = __extern_shared__<'T>()
             let l = shared
@@ -79,10 +125,10 @@ let inline triDiag () = cuda {
             let u = d + n
             let h = u + n
         
-            l.[rank] <- dl.[rank]
-            d.[rank] <- dd.[rank]
-            u.[rank] <- du.[rank]
-            h.[rank] <- dh.[rank]
+            l.[tid] <- dl.[tid]
+            d.[tid] <- dd.[tid]
+            u.[tid] <- du.[tid]
+            h.[tid] <- dh.[tid]
         
             __syncthreads()       
                 
@@ -90,19 +136,60 @@ let inline triDiag () = cuda {
             
             __syncthreads() 
         
-            dh.[rank] <- h.[rank] @> |> defineKernelFunc
+            dh.[tid] <- h.[tid] @> |> defineKernelFunc
 
-    return PFunc(fun (m:Module) (l:'T[]) (d:'T[]) (u:'T[]) (h:'T[])->
-        let n = d.Length
-        let numThreads = n
-        let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
-        let numBlocks = 1
-        use dl = m.Worker.Malloc(l)
-        use dd = m.Worker.Malloc(d)
-        use du = m.Worker.Malloc(u)
-        use dh = m.Worker.Malloc(h)
-        let lp = LaunchParam(1, numThreads, 4*n*sizeof<'T>)
-        kernel.Launch m lp n dl.Ptr dd.Ptr du.Ptr dh.Ptr
-        dh.ToHost()) }
+    return PFunc(fun (m:Module) ->
+        fun (l:DArray<'T>) (d:DArray<'T>) (u:DArray<'T>) (h:DArray<'T>) ->
+            pcalc {
+                do! PCalc.action (fun hint ->
+                    let n = d.Length
+                    let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
+                    if n > maxThreads then failwithf "cannot support systems of dimension larger than %d" maxThreads
+                    let lp = LaunchParam(1, n, 4*n*sizeof<'T>) |> hint.ModifyLaunchParam
+                    kernel.Launch m lp n l.Ptr d.Ptr u.Ptr h.Ptr
+                )
+                
+                return h } ) }
+
+/// Tridiagonal system solver with temporary memory in shared memory.
+/// The additional shared memory requirement limits the dimension of the system.
+let inline triDiagTempShared () = cuda {
+
+    let! kernel =     
+        <@ fun n (dl:DevicePtr<'T>) (dd:DevicePtr<'T>) (du:DevicePtr<'T>) (dh:DevicePtr<'T>) ->  
+            let tid = threadIdx.x
+            
+            let shared = __extern_shared__<'T>()
+            let l = shared
+            let d = l + n
+            let u = d + n
+            let h = u + n
+            let x = h + n
+            let aTemp = x + n
+            let bTemp = aTemp + n
+            let cTemp = bTemp + n
+            let dTemp = cTemp + n
+
+            l.[tid] <- dl.[tid]
+            d.[tid] <- dd.[tid]
+            u.[tid] <- du.[tid]
+            h.[tid] <- dh.[tid]
+           
+            triDiagPcrSingleBlockTempShared n tid l d u h x aTemp bTemp cTemp dTemp 
+                                                                          
+            dh.[tid] <- x.[tid] @> |> defineKernelFunc
+
+    return PFunc(fun (m:Module) ->
+        fun (l:DArray<'T>) (d:DArray<'T>) (u:DArray<'T>) (h:DArray<'T>) ->
+            pcalc {
+                do! PCalc.action (fun hint ->
+                    let n = d.Length
+                    let maxThreads = m.Worker.Device.Attribute DeviceAttribute.CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK
+                    if n > maxThreads then failwithf "cannot support systems of dimension larger than %d" maxThreads
+                    let lp = LaunchParam(1, n, 9*n*sizeof<'T>) |> hint.ModifyLaunchParam
+                    kernel.Launch m lp n l.Ptr d.Ptr u.Ptr h.Ptr
+                )
+                
+                return h } ) }
 
 

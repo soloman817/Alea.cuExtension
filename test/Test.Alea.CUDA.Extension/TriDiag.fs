@@ -57,7 +57,7 @@ let inline maxErr (b:'T[]) (b':'T[]) =
     Array.map2 (fun bi bi' -> abs (bi - bi')) b b' |> Array.max
 
 [<Test>]
-let ``tridiag ForsytheMoler cpu`` () =
+let ``tridiag Forsythe Moler cpu`` () =
 
     let test n tol =
         let A = createSystem n 0.1 0.01
@@ -74,19 +74,19 @@ let ``tridiag ForsytheMoler cpu`` () =
 
     [4; 8; 16; 18; 20; 22] |> List.iter (fun e -> test (2<<<e) 0.005)
 
-
-[<Test>]
-let ``tridiag pcr single block gpu`` () =
-
-    let worker = getDefaultWorker()
-    let triPcrM = worker.LoadPModule(triDiag ())
-    let triPcr = triPcrM.Invoke
-
-    let test n tol =
+let test (solver:DArray<float> -> DArray<float> -> DArray<float> -> DArray<float> -> PCalc<DArray<float>>) worker n tol = 
+    pcalc {
         let A = createSystem n 0.1 0.01
         let b = Array.init n (fun _ -> 1.0)
         let x = A.solve b
-        let x' = triPcr A.lower A.diag A.upper b
+
+        let! l = DArray.scatterInBlob worker A.lower
+        let! d = DArray.scatterInBlob worker A.diag
+        let! u = DArray.scatterInBlob worker A.upper
+        let! b' = DArray.scatterInBlob worker b
+
+        let! x' = solver l d u b'
+        let! x' = x'.Gather()
 
         let b1 = A.apply x
         let b1' = A.apply x'
@@ -95,15 +95,58 @@ let ``tridiag pcr single block gpu`` () =
         let bErrCpu = maxErr b b1
         let bErrGpu = maxErr b b1'
 
-        //printfn "n = %d, xErr = %e, bErrGpu = %e, bErrCpu = %e" n xErr bErrGpu bErrCpu 
+        printfn "n = %d, xErr = %e, bErrGpu = %e, bErrCpu = %e" n xErr bErrGpu bErrCpu 
+
+        //for i = 0 to n-1 do
+        //    let e = abs (x.[i] - x'.[i])
+        //    let s = if e > 1e-8 then "***" else ""
+        //    printfn "[%d] CPU = %f, GPU = %f (%f) %s" i x.[i] x'.[i] e s
         
         Assert.IsTrue(xErr < tol)
         Assert.IsTrue(bErrCpu < tol)
         Assert.IsTrue(bErrGpu < tol)
+    }
 
-        ()
+[<Test>]
+let ``tridiag pcr single block gpu temp in reg`` () =
 
-    [32; 64; 128; 512; 1024] |> List.iter (fun n -> test n 1e-10)
+    let worker = getDefaultWorker()
+    let triPcrM = worker.LoadPModule(triDiagTempReg ())
+    let triPcr = triPcrM.Invoke
 
+    [32; 64; 128; 512; 1024] |> List.iter (fun n -> (test triPcr worker n 1e-10) |> PCalc.run)
+
+[<Test>]
+let ``tridiag pcr single block gpu temp in reg timings`` () =
+
+    let worker = getDefaultWorker()
+    let triPcrM = worker.LoadPModule(triDiagTempReg ())
+    let triPcr = triPcrM.Invoke
+
+    [32; 64; 128; 512; 1024] |> List.iter (fun n -> 
+        let _, result = (test triPcr worker n 1e-10) |> PCalc.runWithKernelTiming(10)
+        printfn "%A" result)
+
+[<Test>]
+let ``tridiag pcr single block gpu temp in shared`` () =
+
+    let worker = getDefaultWorker()
+    let triPcrM = worker.LoadPModule(triDiagTempShared ())
+    let triPcr = triPcrM.Invoke
+
+    // not enough shared memory for grid size of 1024 on M650  
+    [32; 64; 128; 512] |> List.iter (fun n -> (test triPcr worker n 1e-10) |> PCalc.run)
+
+[<Test>]
+let ``tridiag pcr single block gpu temp in shared timings`` () =
+
+    let worker = getDefaultWorker()
+    let triPcrM = worker.LoadPModule(triDiagTempShared ())
+    let triPcr = triPcrM.Invoke
+
+    // not enough shared memory for grid size of 1024 on M650  
+    [32; 64; 128; 512] |> List.iter (fun n -> 
+        let _, result = (test triPcr worker n 1e-10) |> PCalc.runWithKernelTiming(10)
+        printfn "%A" result)
 
 
