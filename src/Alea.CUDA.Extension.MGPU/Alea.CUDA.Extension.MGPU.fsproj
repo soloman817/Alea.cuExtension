@@ -54,6 +54,7 @@
     <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
     <Compile Include="BulkInsert.fs" />
+    <Compile Include="SortedSearch.fs" />
     <Compile Include="IntervalMove.fs" />
     <None Include="Join.fs" />
     <Compile Include="LoadBalance.fs" />
@@ -63,7 +64,6 @@
     <Compile Include="SegmentedSort.fs" />
     <Compile Include="SerialSets.fs" />
     <Compile Include="Sets.fs" />
-    <None Include="SortedSearch.fs" />
     <Compile Include="PArray.fs" />
     <None Include="packages.config" />
   </ItemGroup>

@@ -124,3 +124,9 @@ let inline swap (ident:'T) =
                 let c = a
                 a.[0] <- b.[0]
                 b.[0] <- c.[0] @> }
+
+type MgpuSearchType =
+    | MgpuSearchTypeNone
+    | MgpuSearchTypeIndex
+    | MgpuSearchTypeMatch
+    | MgpuSearchTypeIndexMatch

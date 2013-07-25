@@ -33,7 +33,7 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
     
 
     let comp = compOp.Device
-    <@ fun (keys_shared:RWPtr<int>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:DevicePtr<int>) ->
+    <@ fun (keys_shared:RWPtr<'TC>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:RWPtr<int>) ->
         let comp = %comp
 
         let flagA = if indexA then 0x80000000 else 1
@@ -65,9 +65,9 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
                     if bounds = MgpuBoundsUpper then
                         let inRange = (not rangeCheck) || (bBegin > aEnd)
                         match' <- inRange && not (comp bPrev aKey)
-                else
-                    let inRange = (not rangeCheck) || (bBegin < bEnd)
-                    match' <- inRange && not (comp aKey bKey)
+                    else
+                        let inRange = (not rangeCheck) || (bBegin < bEnd)
+                        match' <- inRange && not (comp aKey bKey)
             
                 let mutable index = 0
                 if indexA then index <- bOffset + bBegin
@@ -83,10 +83,10 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
                 let mutable match' = false
                 if matchB then
                     if MgpuBoundsUpper = bounds then
-                        let inRange = (not rangeCheck) || ((aBegin < bEnd) && (aBegin > 0))
-                        match' <- inRange && not (comp aPrev bKey)
+                        let inRange = (not rangeCheck) || ((bBegin < bEnd) && (aBegin < aEnd))
+                        match' <- inRange && not (comp bKey aKey)
                     else
-                        let inRange = (not rangeCheck) || ((aBegin < bEnd) && (aBegin > 0))
+                        let inRange = (not rangeCheck) || ((bBegin < bEnd) && (aBegin > 0))
                         match' <- inRange && not (comp aPrev bKey)
 
                 let mutable index = 0
@@ -105,45 +105,42 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
     
 
 
-let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TC>) =
+let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
     
     let NV = NT * VT
     
-    let mergePath = (mergeSearch bounds (comp CompTypeLess 0)).DMergePath
+    let mergePath = (mergeSearch bounds compOp).DMergePath
     let deviceSerialSearch1 = deviceSerialSearch VT bounds false indexA matchA indexB matchB compOp
     let deviceSerialSearch2 = deviceSerialSearch VT bounds true indexA matchA indexB matchB compOp
 
-    let sharedSize = NV
+    
 
-    <@ fun (keys_shared:RWPtr<int>) (aStart:int) (aCount:int) (aEnd:int) (a0:int) (bStart:int) (bCount:int) (bEnd:int) (b0:int) (extended:bool) (tid:int) (indices_shared:RWPtr<int>) ->
+    <@ fun (keys_shared:RWPtr<'T>) (aStart:int) (aCount:int) (aEnd:int) (a0:int) (bStart:int) (bCount:int) (bEnd:int) (b0:int) (extended:bool) (tid:int) (indices_shared:RWPtr<int>) ->
         let mergePath = %mergePath
         let deviceSerialSearch1 = %deviceSerialSearch1
         let deviceSerialSearch2 = %deviceSerialSearch2
-
-        let shared = __shared__<int>(sharedSize).Ptr(0)
-        
+                        
         let diag = VT * tid
-        let ksas = DevicePtr(keys_shared.Handle64 + int64(aStart))
-        let ksbs = DevicePtr(keys_shared.Handle64 + int64(bStart))
-        let mp = mergePath ksas aCount ksbs bCount diag
+        let mp = mergePath (keys_shared + aStart) aCount (keys_shared + bStart) bCount diag
         let mutable a0tid = mp
         let mutable b0tid = diag - mp
 
         let indices = __local__<int>(VT).Ptr(0)
         let mutable results = int3(0,0,0)
         if extended then
-            results <- deviceSerialSearch1 keys_shared (a0tid + aStart) aEnd (b0tid + bStart) bEnd (a0 - aStart) (b0 - bStart) (DevicePtr(indices.Handle64))
+            results <- deviceSerialSearch1 keys_shared (a0tid + aStart) aEnd (b0tid + bStart) bEnd (a0 - aStart) (b0 - bStart) indices
         else
-            results <- deviceSerialSearch2 keys_shared (a0tid + aStart) aEnd (b0tid + bStart) bEnd (a0 - aStart) (b0 - bStart) (DevicePtr(indices.Handle64))
+            results <- deviceSerialSearch2 keys_shared (a0tid + aStart) aEnd (b0tid + bStart) bEnd (a0 - aStart) (b0 - bStart) indices
         __syncthreads()
 
         let mutable decisions = results.x
         b0tid <- b0tid + aCount
         for i = 0 to VT - 1 do
-            if ((1 <<< i) &&& decisions) <> 0 then
+            if ((1 <<< i) &&& decisions) > 0 then
                 if (indexA || matchA) then 
                     indices_shared.[a0tid] <- indices.[i]
                     a0tid <- a0tid + 1
+            else
                 if (indexB || matchB) then
                     indices_shared.[b0tid] <- indices.[i]
                     b0tid <- b0tid + 1

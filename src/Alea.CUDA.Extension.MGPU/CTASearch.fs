@@ -29,7 +29,7 @@ type IBinarySearch<'T> =
     
 type IMergeSearch<'TI> =
     abstract HMergePath : ('TI[] -> int -> 'TI[] -> int -> int -> int)
-    abstract DMergePath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int>
+    abstract DMergePath : Expr<RWPtr<'TI> -> int -> RWPtr<'TI> -> int -> int -> int>
     abstract HSegmentedMergePath : ('TI[] -> int -> int -> int -> int -> int -> int -> int -> int)
     abstract DSegmentedMergePath : Expr<DevicePtr<'TI> -> int -> int -> int -> int -> int -> int -> int -> int>
 
@@ -166,7 +166,7 @@ let mergeSearch (bounds:int) (compOp:IComp<'TC>) =
 
             member this.DMergePath =
                 let comp = compOp.Device
-                <@ fun (a:DevicePtr<'TC>) (aCount:int) (b:DevicePtr<'TC>) (bCount:int) (diag:int) ->
+                <@ fun (a:RWPtr<'TC>) (aCount:int) (b:RWPtr<'TC>) (bCount:int) (diag:int) ->
                     let comp = %comp
                     let mutable begin' = max 0 (diag - bCount)
                     let mutable end' = min diag aCount

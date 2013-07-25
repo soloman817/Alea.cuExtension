@@ -161,67 +161,67 @@ let deviceSharedToThread (VT:int) =
         if sync then __syncthreads() @>
 
 ///////////
-//let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
-//    let deviceRegToShared = deviceRegToShared NT VT1
-//    <@ fun (a_global:RWPtr<'T>) (aCount:int) (b_global:RWPtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
-//        let deviceRegToShared = %deviceRegToShared
-//
-//        let b0 = b_global.[0] - a_global.[0] - aCount
-//        let total = aCount + bCount
-//        let reg = __local__<'T>(VT1).Ptr(0)
-//        if total >= NT * VT0 then
-//            for i = 0 to VT0 - 1 do
-//                let index = NT * i + tid
-//                let x = if index >= aCount then b0 else 0
-//                reg.[i] <- a_global.[index + x]
-//        else
-//            for i = 0 to VT0 - 1 do
-//                let index = NT * i + tid
-//                if index < total then
-//                    let x = if index >= aCount then b0 else 0
-//                    reg.[i] <- a_global.[index + x]
-//
-//        for i = VT0 to VT1 - 1 do
-//            let index = NT * i + tid
-//            if index < total then
-//                let x = if index >= aCount then b0 else 0
-//                reg.[i] <- a_global.[index + x]
-//
-//        deviceRegToShared (NT * VT1) reg tid shared sync @>
+let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
+    let deviceRegToShared = deviceRegToShared NT VT1
+    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
+        let deviceRegToShared = %deviceRegToShared
+        let b0 = (int(b_global.Handle64 - a_global.Handle64) / sizeof<'T>) - aCount
+        
+        let total = aCount + bCount
+        let reg = __local__<'T>(VT1).Ptr(0)
+        if total >= NT * VT0 then
+            for i = 0 to VT0 - 1 do
+                let index = NT * i + tid
+                let x = if index >= aCount then b0 else 0
+                reg.[i] <- a_global.[index + x]
+        else
+            for i = 0 to VT0 - 1 do
+                let index = NT * i + tid
+                if index < total then
+                    let x = if index >= aCount then b0 else 0
+                    reg.[i] <- a_global.[index + x]
 
-//let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
-//    let deviceRegToShared = deviceRegToShared NT VT1
-//    <@ fun (a_global:RWPtr<'T>) (aCount:int) (b_global:RWPtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
-//        let deviceRegToShared = %deviceRegToShared
-//
-//        b_global.[0] <- b_global.[0] - aCount
-//        let total = aCount + bCount
-//        let reg = __local__<'T>(VT1).Ptr(0)
-//        if total >= NT * VT0 then
-//            for i = 0 to VT0 - 1 do
-//                let index = NT * i + tid
-//                if index < aCount then
-//                    reg.[i] <- a_global.[index]
-//                else
-//                    reg.[i] <- b_global.[index]
-//        else
-//            for i = 0 to VT0 - 1 do
-//                let index = NT * i + tid
-//                if index < aCount then
-//                    reg.[i] <- a_global.[index]
-//                else if index < total then
-//                    reg.[i] <- b_global.[index]
-//                else
-//                    ()
-//
-//        for i = VT0 to VT1 - 1 do
-//            let index = NT * i + tid
-//            if index < aCount then
-//                reg.[i] <- a_global.[index]
-//            else if index < total then
-//                reg.[i] <- b_global.[index]
-//
-//        deviceRegToShared (NT * VT1) reg tid shared sync @>
+        for i = VT0 to VT1 - 1 do
+            let index = NT * i + tid
+            if index < total then
+                let x = if index >= aCount then b0 else 0
+                reg.[i] <- a_global.[index + x]
+
+        deviceRegToShared (NT * VT1) reg tid shared sync @>
+
+let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
+    let deviceRegToShared = deviceRegToShared NT VT1
+    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
+        let deviceRegToShared = %deviceRegToShared
+        //let mutable b_global = b_global
+        
+        let b_global = b_global - aCount
+        let total = aCount + bCount
+
+        let reg = __local__<'T>(VT1).Ptr(0)
+        
+        if total >= NT * VT0 then
+            for i = 0 to VT0 - 1 do
+                let index = NT * i + tid
+                reg.[i] <- if index < aCount then a_global.[index] else b_global.[index]                
+        else
+            for i = 0 to VT0 - 1 do
+                let index = NT * i + tid
+                if index < aCount then
+                    reg.[i] <- a_global.[index]
+                else if index < total then
+                    reg.[i] <- b_global.[index]
+                else
+                    ()
+
+        for i = VT0 to VT1 - 1 do
+            let index = NT * i + tid
+            if index < aCount then
+                reg.[i] <- a_global.[index]
+            else if index < total then
+                reg.[i] <- b_global.[index]
+
+        deviceRegToShared (NT * VT1) reg tid shared sync @>
 
 
 // DeviceGatherGlobalToGlobal
