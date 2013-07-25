@@ -51,6 +51,12 @@ let inline rngGenericArray sCount : 'T[] =
     let source = Array.init sCount (fun _ -> genValue())
     source
 
+let inline rngGenericArrayBounded sCount b : 'T[] =
+    let convert = (RngOverloads $ Unchecked.defaultof<'T>)
+    let genValue() = rng.Next(b) |> convert
+    let source = Array.init sCount (fun _ -> genValue())
+    source
+
 // generate an array of random 'T values along with a sorted array of random indices
 // that are within the bounds of the source array
 // example: let (r : float[] * _) = rngGenericArray 10 10

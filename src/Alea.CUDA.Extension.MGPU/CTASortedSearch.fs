@@ -29,20 +29,23 @@ open Alea.CUDA.Extension.MGPU.CTAMerge
 //    }
 
 
-let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TC>) =
+let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
     
-
+    let compId = compOp.Identity
     let comp = compOp.Device
-    <@ fun (keys_shared:RWPtr<'TC>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:RWPtr<int>) ->
+    <@ fun (keys_shared:RWPtr<'T>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:RWPtr<int>) ->
         let comp = %comp
+        //let compId = %compId
 
         let flagA = if indexA then 0x80000000 else 1
         let flagB = if indexB then 0x80000000 else 1
 
+        //let keys_shared = keys_shared.Reinterpret<int>()
+
         let mutable aKey = keys_shared.[aBegin]
         let mutable bKey = keys_shared.[bBegin]
-        let mutable aPrev = 0
-        let mutable bPrev = 0
+        let mutable aPrev = compId
+        let mutable bPrev = compId
 
         let mutable aBegin = aBegin
         let mutable bBegin = bBegin

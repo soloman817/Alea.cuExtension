@@ -4,22 +4,93 @@ open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.MGPU.Intrinsics
-open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
-open Alea.CUDA.Extension.MGPU.LoadStore
-open Alea.CUDA.Extension.MGPU.PArray
-open Alea.CUDA.Extension.MGPU.CTAScan
 open Alea.CUDA.Extension.MGPU.CTASearch
-open Alea.CUDA.Extension.MGPU.CTAMerge
-open Alea.CUDA.Extension.MGPU.CTASortedSearch
+open Alea.CUDA.Extension.MGPU.SortedSearch
+open Test.Alea.CUDA.Extension.MGPU.Util
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
+open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.Output.CSV
+open Alea.CUDA.Extension.Output.Excel
 
 open NUnit.Framework
 
-let pSortedSearch = PSortedSearch()
+////////////////////////////
+// set this to your device or add your device's C++ output to BenchmarkStats.fs
+open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
+// in the future maybe we try to get the C++ to interop somehow
+/////////////////////////////
+
+let pSortedSearch = MGPU.PArray.PSortedSearch()
 let worker = getDefaultWorker()
+
+let sourceCounts = BenchmarkStats.sourceCounts
+let nIterations = BenchmarkStats.sortedSearchIterations
+
+// This is the weight used in the mgpu benchmark, make sure the data in 
+// BenchmarkStats.fs used this same weight or the comparisons will be off
+let mgpuWeight = 0.25  
+
+let algName1 = "Sorted Search 1"
+let ss1kernelsUsed = [| "kernelSortedSearch"; "kernelMergePartitions" |]
+let ss1BMS4 = new BenchmarkStats4(algName1, ss1kernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let algName2 = "Sorted Search 2"
+let ss2kernelsUsed = [| "kernelSortedSearch"; "kernelMergePartitions" |]
+let ss2BMS4 = new BenchmarkStats4(algName2, ss1kernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+
+// we can probably organize this a lot better, but for now, if you just change
+// what module you open above and all of this should adjust accordingly
+let oIntTP, oIntBW = moderngpu_sortedSearchStats_int32 |> List.unzip
+let oInt64TP, oInt64BW = moderngpu_sortedSearchStats_int64 |> List.unzip
+let oFloat32TP, oFloat32BW = moderngpu_sortedSearchStats_float32 |> List.unzip
+let oFloat64TP, oFloat64BW = moderngpu_sortedSearchStats_float64 |> List.unzip
+
+let oIntTP2, oIntBW2 = moderngpu_sortedSearch2Stats_int32 |> List.unzip
+let oInt64TP2, oInt64BW2 = moderngpu_sortedSearch2Stats_int64 |> List.unzip
+let oFloat32TP2, oFloat32BW2 = moderngpu_sortedSearch2Stats_float32 |> List.unzip
+let oFloat64TP2, oFloat64BW2 = moderngpu_sortedSearch2Stats_float64 |> List.unzip
+
+for i = 0 to sourceCounts.Length - 1 do
+    // this is setting the opponent (MGPU) stats for the int type
+    ss1BMS4.Int32s.OpponentThroughput.[i].Value <- oIntTP.[i]
+    ss1BMS4.Int32s.OpponentBandwidth.[i].Value <- oIntBW.[i]
+    // set opponent stats for int64
+    ss1BMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
+    ss1BMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
+    // set oppenent stats for float32
+    ss1BMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP.[i]
+    ss1BMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW.[i]
+    // set oppenent stats for float64
+    ss1BMS4.Float64s.OpponentThroughput.[i].Value <- oFloat64TP.[i]
+    ss1BMS4.Float64s.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
+
+for i = 0 to sourceCounts.Length - 1 do
+    // this is setting the opponent (MGPU) stats for the int type
+    ss2BMS4.Int32s.OpponentThroughput.[i].Value <- oIntTP2.[i]
+    ss2BMS4.Int32s.OpponentBandwidth.[i].Value <- oIntBW2.[i]
+    // set opponent stats for int64
+    ss2BMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP2.[i]
+    ss2BMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW2.[i]
+    // set oppenent stats for float32
+    ss2BMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP2.[i]
+    ss2BMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW2.[i]
+    // set oppenent stats for float64
+    ss2BMS4.Float64s.OpponentThroughput.[i].Value <- oFloat64TP2.[i]
+    ss2BMS4.Float64s.OpponentBandwidth.[i].Value <- oFloat64BW2.[i]
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                              IMPORTANT                                                       //
+//                                      Choose an Output Type                                                   // 
+// This is a switch for all tests, and can do a lot of extra work.  Make sure you turn it off if you just       //
+// want to see the console prInt32s.                                                                            //
+let outputType = OutputTypeNone // Choices are CSV, Excel, Both, or None. Set to None for doing kernel timing   //
+// only one path, we aren't auto-saving excel stuff yet                                                         //
+let workingPath1 = (getWorkingOutputPaths deviceFolderName algName1).CSV                                        //
+let workingPath2 = (getWorkingOutputPaths deviceFolderName algName2).CSV                                        //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 
 [<Test>]
@@ -88,131 +159,279 @@ let ``SortedSearch mgpu website example 1`` () =
     printfn "%A" dResult
 
 
-//[<Test>]
-//let ``SortedSearch demo 2`` () =
-//    let aCount = 100
-//    let bCount = 100
-//    let aData = Array.init aCount (fun _ -> rng.Next(299)) |> Array.sort
-//    let bData = Array.init bCount (fun _ -> rng.Next(299)) |> Array.sort
-//    let aIndices = Array.init aCount (fun _ -> 0)
-//    let bIndices = Array.init bCount (fun _ -> 0)
-//
-//    let pfunct = SortedSearch.pSortedSearch MgpuBoundsLower
-//    let sortedSearch = worker.LoadPModule(pfunct).Invoke
-//
-//    let dResult = pcalc {
-//        let! dAData = DArray.scatterInBlob worker aData
-//        let! dAIndices = DArray.scatterInBlob worker aIndices
-//
-//        let! dBData = DArray.scatterInBlob worker bData
-//        let! dBIndices = DArray.scatterInBlob worker bIndices
-//                
-//        let! sortedSearch = sortedSearch aCount bCount
-//        
-//        do! sortedSearch dAData dBData dAIndices dBIndices
-//        
-//        let! results = dAIndices.Gather()
-//        return results } |> PCalc.runInWorker worker
-//
-//    printfn "%A" dResult
-//
-//[<Test>]
-//let ``SortedSearch demo 2 copy`` () = 
-//    let aCount = 100
-//    let bCount = 100
-//
-//    let aData = [| 1;    9;   10;   10;   10;   13;   15;   29;   29;   32;
-//                   33;   37;   37;   38;   40;   42;   44;   47;   51;   52;
-//                   56;   56;   63;   63;   66;   83;   83;   89;   90;   92;
-//                   94;   95;  108;  114;  117;  119;  122;  126;  126;  131;
-//                   133;  137;  142;  145;  146;  146;  147;  151;  164;  164;
-//                   189;  191;  193;  196;  196;  199;  203;  204;  208;  211;
-//                   212;  217;  222;  222;  226;  227;  229;  229;  237;  238;
-//                   238;  239;  239;  239;  240;  242;  244;  246;  247;  250;
-//                   254;  261;  263;  271;  274;  274;  276;  280;  285;  287;
-//                   287;  287;  289;  290;  290;  291;  294;  297;  298;  298 |]
-//
-//    let bData = [|  0;    3;    4;    5;   16;   20;   22;   35;   38;   41;
-//                   44;   46;   47;   48;   58;   62;   65;   67;   69;   73;
-//                   75;   76;   76;   77;   82;   85;   89;   99;  101;  102;
-//                   104;  105;  105;  106;  114;  116;  116;  117;  118;  121;
-//                   123;  126;  136;  140;  141;  149;  151;  158;  159;  164;
-//                   164;  168;  170;  170;  172;  174;  175;  175;  177;  178;
-//                   184;  193;  196;  203;  203;  208;  209;  211;  213;  218;
-//                   219;  225;  226;  227;  228;  232;  233;  233;  238;  242;
-//                   242;  244;  246;  246;  249;  252;  254;  263;  267;  272;
-//                   275;  278;  280;  282;  286;  287;  287;  289;  296;  296 |]
-//
-////Lower bound of A into B (* for match):
-////    0:     1;    4;    4;    4;    4;    4;    4;    7;    7;    7;
-////   10:     7;    8;    8; *  8;    9;   10; * 10; * 12;   14;   14;
-////   20:    14;   14;   16;   16;   17;   25;   25; * 26;   27;   27;
-////   30:    27;   27;   34; * 34; * 37;   39;   40; * 41; * 41;   42;
-////   40:    42;   43;   45;   45;   45;   45;   45; * 46; * 49; * 49;
-////   50:    61;   61; * 61; * 62; * 62;   63; * 63;   65; * 65; * 67;
-////   60:    68;   69;   71;   71; * 72; * 73;   75;   75;   78; * 78;
-////   70:  * 78;   79;   79;   79;   79; * 79; * 81; * 82;   84;   85;
-////   80:  * 86;   87; * 87;   89;   90;   90;   91; * 92;   94; * 95;
-////   90:  * 95; * 95; * 97;   98;   98;   98;   98;  100;  100;  100;
-////
-////Upper bound of B into A (* for match):
-////    0:     0;    1;    1;    1;    7;    7;    7;   11; * 14;   15;
-////   10:  * 17;   17; * 18;   18;   22;   22;   24;   25;   25;   25;
-////   20:    25;   25;   25;   25;   25;   27; * 28;   32;   32;   32;
-////   30:    32;   32;   32;   32; * 34;   34;   34; * 35;   35;   36;
-////   40:    37; * 39;   41;   42;   42;   47; * 48;   48;   48; * 50;
-////   50:  * 50;   50;   50;   50;   50;   50;   50;   50;   50;   50;
-////   60:    50; * 53; * 55; * 57; * 57; * 59;   59; * 60;   61;   62;
-////   70:    62;   64; * 65; * 66;   66;   68;   68;   68; * 71; * 76;
-////   80:  * 76; * 77; * 78; * 78;   79;   80; * 81; * 83;   83;   84;
-////   90:    86;   87; * 88;   88;   89; * 92; * 92; * 93;   97;   97;
-//
-//    
-//    let pfunct = SortedSearch.pSortedSearch MgpuBoundsLower
-//    let sortedSearch = worker.LoadPModule(pfunct).Invoke
-//
-//    let dResult = pcalc {
-//        let! dAData = DArray.scatterInBlob worker aData
-//        let! dAIndices = DArray.createInBlob worker aCount
-//
-//        let! dBData = DArray.scatterInBlob worker bData
-//        let! dBIndices = DArray.createInBlob worker bCount
-//                
-//        let! sortedSearch = sortedSearch aCount bCount
-//        
-//        do! sortedSearch dAData dBData dAIndices dBIndices
-//        
-//        let! results = dAIndices.Gather()
-//        return results } |> PCalc.runInWorker worker
-//
-//    printfn "rA: %A" dResult
-//    //printfn "rB: %A" rB
-//
-//
-//
-//[<Test>]
-//let ``pointer test`` () = 
-//    let pfunct = cuda {
-//        let! kernel =
-//            <@ fun (data:DevicePtr<int>) (h1:DevicePtr<int64>) (h2:DevicePtr<int64>) (output:DevicePtr<int>) ->
-//                let tid = threadIdx.x
-//                h1.[0] <- data.Handle64
-//                let data = data + 50
-//                h2.[0] <- data.Handle64
-//                @>
-//            |> defineKernelFunc
-//
-//        return PFunc(fun (m:Module) ->
-//            use output = m.Worker.Malloc 100
-//            use data = m.Worker.Malloc((Array.init 100 (fun i -> i)))
-//            use hA = m.Worker.Malloc(1)
-//            use hB = m.Worker.Malloc(1)
-//            let lp = LaunchParam(1, 1)
-//            kernel.Launch m lp data.Ptr hA.Ptr hB.Ptr output.Ptr
-//            hA.ToHost(), hB.ToHost() ) }
-//
-//    let pfuncm = Engine.workers.DefaultWorker.LoadPModule(pfunct)
-//
-//    let a, b = pfuncm.Invoke
-//    printfn "a: %A" a
-//    printfn "b: %A" b
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  BENCHMARKING : Sorted Search (1)                                                                            //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+let benchmarkSortedSearch (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+    let search = worker.LoadPModule(pSortedSearch.SortedSearch(MgpuBoundsLower, compOp)).Invoke
+    let aData = aData |> Array.sort
+    let bData = bData |> Array.sort
+
+    let calc = pcalc {
+        let! dA = DArray.scatterInBlob worker aData
+        let! daI = DArray.createInBlob worker aCount
+        let! dB = DArray.scatterInBlob worker bData
+        let! search = search aCount bCount
+
+        // warm up
+        do! search dA dB daI
+
+        let! dStopwatch = DStopwatch.startNew worker
+        for i = 1 to numIt do
+            do! search dA dB daI
+        do! dStopwatch.Stop()
+
+        let! results = daI.Gather()
+        let! timing = dStopwatch.ElapsedMilliseconds
+
+        return results, timing }
+
+    let hResults, timing' = calc |> PCalc.runInWorker worker
+    let timing = timing' / 1000.0
+    let bytes = ( sizeof<'T> * count + sizeof<int> * aCount ) |> float
+    let bandwidth = bytes * (float numIt) / timing
+    let throughput = (float count) * (float numIt) / timing
+    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
+        count
+        (throughput / 1e6)
+        (bandwidth / 1e9)
+        (timing' / (float numIt))
+        numIt
+        timing'
+
+
+[<Test>]
+let ``SortedSearch1 moderngpu benchmark : int32`` () =
+    let compOp = comp CompTypeLess 0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Int32s
+
+[<Test>]
+let ``SortedSearch1 moderngpu benchmark : int64`` () =
+    let compOp = comp CompTypeLess 0L
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int64[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int64[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Int64s
+
+[<Test>]
+let ``SortedSearch1 moderngpu benchmark : float32`` () =
+    let compOp = comp CompTypeLess 0.f
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float32[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float32[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Float32s
+
+[<Test>]
+let ``SortedSearch1 moderngpu benchmark : float64`` () =
+    let compOp = comp CompTypeLess 0.0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Float64s
+
+
+[<Test>] // above 4 tests, done in sequence (to make output easier)
+let ``SortedSearch1 moderngpu benchmark : 4 type`` () =    
+    // INT
+    printfn "Running Sorted Search (1) moderngpu benchmark : Int32"
+    let compOp = comp CompTypeLess 0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Int32s
+
+
+    // INT64
+    printfn "Running Sorted Search (1) moderngpu benchmark : Int64"
+    let compOp = comp CompTypeLess 0L
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int64[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int64[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Int64s
+
+
+    // FLOAT32
+    printfn "Running Sorted Search (1) moderngpu benchmark : Float32"
+    let compOp = comp CompTypeLess 0.f
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float32[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float32[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Float32s
+
+    // FLOAT64
+    printfn "Running Sorted Search (1) moderngpu benchmark : Float64"
+    let compOp = comp CompTypeLess 0.0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath1 ss1BMS4.Float64s
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  BENCHMARKING : Sorted Search (2)                                                                            //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+let benchmarkSortedSearch2 (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+    let search = worker.LoadPModule(pSortedSearch.SortedSearch(MgpuBoundsLower, MgpuSearchTypeIndexMatch, MgpuSearchTypeIndexMatch, compOp)).Invoke
+    let aData = aData |> Array.sort
+    let bData = bData |> Array.sort
+
+    let calc = pcalc {
+        let! dA = DArray.scatterInBlob worker aData
+        let! daI = DArray.createInBlob worker aCount
+        let! dbI = DArray.createInBlob worker bCount
+        let! dB = DArray.scatterInBlob worker bData
+        let! search = search aCount bCount
+
+        // warm up
+        do! search dA dB daI dbI
+
+        let! dStopwatch = DStopwatch.startNew worker
+        for i = 1 to numIt do
+            do! search dA dB daI dbI
+        do! dStopwatch.Stop()
+
+        let! results = dbI.Gather()
+        let! timing = dStopwatch.ElapsedMilliseconds
+
+        return results, timing }
+
+    let hResults, timing' = calc |> PCalc.runInWorker worker
+    let timing = timing' / 1000.0
+    let bytes = ( sizeof<'T> * count + sizeof<int> * aCount ) |> float
+    let bandwidth = bytes * (float numIt) / timing
+    let throughput = (float count) * (float numIt) / timing
+    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
+        count
+        (throughput / 1e6)
+        (bandwidth / 1e9)
+        (timing' / (float numIt))
+        numIt
+        timing'
+
+
+[<Test>]
+let ``SortedSearch2 moderngpu benchmark : int32`` () =
+    let compOp = comp CompTypeLess 0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Int32s
+
+[<Test>]
+let ``SortedSearch2 moderngpu benchmark : int64`` () =
+    let compOp = comp CompTypeLess 0L
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int64[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int64[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Int64s
+
+[<Test>]
+let ``SortedSearch2 moderngpu benchmark : float32`` () =
+    let compOp = comp CompTypeLess 0.f
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float32[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float32[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Float32s
+
+[<Test>]
+let ``SortedSearch2 moderngpu benchmark : float64`` () =
+    let compOp = comp CompTypeLess 0.0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Float64s
+
+
+[<Test>] // above 4 tests, done in sequence (to make output easier)
+let ``SortedSearch2 moderngpu benchmark : 4 type`` () =    
+    // INT
+    printfn "Running Sorted Search (2) moderngpu benchmark : Int32"
+    let compOp = comp CompTypeLess 0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Int32s
+
+
+    // INT64
+    printfn "Running Sorted Search (2) moderngpu benchmark : Int64"
+    let compOp = comp CompTypeLess 0L
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:int64[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:int64[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Int64s
+
+
+    // FLOAT32
+    printfn "Running Sorted Search (2) moderngpu benchmark : Float32"
+    let compOp = comp CompTypeLess 0.f
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float32[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float32[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Float32s
+
+    // FLOAT64
+    printfn "Running Sorted Search (2) moderngpu benchmark : Float64"
+    let compOp = comp CompTypeLess 0.0
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let aCount = int(mgpuWeight * (float ns))
+        let bCount = ns - aCount
+        let (a:float[]) = rngGenericArrayBounded aCount (ns - 1)
+        let (b:float[]) = rngGenericArrayBounded bCount (ns - 1)
+        benchmarkSortedSearch2 ns a aCount b bCount compOp ni i )
+    benchmarkOutput outputType workingPath2 ss2BMS4.Float64s

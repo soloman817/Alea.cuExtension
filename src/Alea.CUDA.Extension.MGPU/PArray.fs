@@ -116,7 +116,7 @@ let bulkInsert() = cuda {
 
 
 type PSortedSearch() =
-    member pss.SortedSearch(bounds:int, typeA:MgpuSearchType, typeB:MgpuSearchType, compOp:IComp<'T>) = cuda {
+    member pss.SortedSearch(bounds:int, typeA:MgpuSearchType, typeB:MgpuSearchType, compOp:IComp<'TI>) = cuda {
         let! api = SortedSearch.sortedSearch bounds typeA typeB compOp
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
@@ -125,11 +125,11 @@ type PSortedSearch() =
                 pcalc {
                     let api = api aCount bCount
                     let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                    let sortedSearch (aData:DArray<int>) (bData:DArray<int>) (aIndices:DArray<int>) (bIndices:DArray<int>) = 
+                    let sortedSearch (aData:DArray<'TI>) (bData:DArray<'TI>) (aIndices:DArray<int>) (bIndices:DArray<int>) = 
                         pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr aIndices.Ptr bIndices.Ptr) }
                     return sortedSearch } ) }  
 
-    member pss.SortedSearch(bounds:int, compOp:IComp<'T>) = cuda {
+    member pss.SortedSearch(bounds:int, compOp:IComp<'TI>) = cuda {
         let! api = SortedSearch.sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone compOp
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
@@ -138,11 +138,11 @@ type PSortedSearch() =
                 pcalc {
                     let api = api aCount bCount
                     let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                    let sortedSearch (aData:DArray<int>) (bData:DArray<int>) (aIndices:DArray<int>) = 
+                    let sortedSearch (aData:DArray<'TI>) (bData:DArray<'TI>) (aIndices:DArray<int>) = 
                         pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr aIndices.Ptr (DevicePtr(0n)) ) }
                     return sortedSearch } ) } 
                      
-    member pss.SortedSearch(bounds:int, ident:'T) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
+    member pss.SortedSearch(bounds:int, ident:'TI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
         
 
 

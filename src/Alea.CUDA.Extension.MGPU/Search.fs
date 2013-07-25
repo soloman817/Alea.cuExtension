@@ -68,13 +68,13 @@ let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda {
 
 // Leaving as int for now
 // MergePathPartitions
-let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<int>) = 
+let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<'T>) = 
     let NT = plan.NT
     let bounds = plan.Bounds
     let mergePath = mergeSearch.DMergePath
     let findMergesortFrame = findMergesortFrame.Device
 
-    <@ fun (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
+    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
         let mergePath = %mergePath
         let findMergesortFrame = %findMergesortFrame
 
@@ -98,13 +98,13 @@ let kernelMergePartition (plan:Plan) (mergeSearch:IMergeSearch<int>) =
             mp_global.[partition] <- mp @>
 
 
-type IMergePathPartitions =
+type IMergePathPartitions<'T> =
     {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit                
+        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> unit                
     }
 
 
-let mergePathPartitions (bounds:int) (compOp:IComp<int>) = cuda {
+let mergePathPartitions (bounds:int) (compOp:IComp<'T>) = cuda {
     let plan = { NT = 64; Bounds = bounds }
     let mergeSearch = mergeSearch bounds compOp
     let! kernelMergePartition = (kernelMergePartition plan mergeSearch) |> defineKernelFuncWithName "mpp"
@@ -118,7 +118,7 @@ let mergePathPartitions (bounds:int) (compOp:IComp<int>) = cuda {
             let numPartitionBlocks = divup (numPartitions + 1) plan.NT
             let lp = LaunchParam(numPartitionBlocks, plan.NT)
             
-            let action (hint:ActionHint) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
+            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (partitionsDevice:DevicePtr<int>) =
                 let lp = lp |> hint.ModifyLaunchParam
                 kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
                 
