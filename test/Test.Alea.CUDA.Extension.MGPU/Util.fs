@@ -8,7 +8,7 @@ open Alea.CUDA.Extension.Output.Util
 open Alea.CUDA.Extension.Output.CSV
 open Alea.CUDA.Extension.Output.Excel
 
-let rng = System.Random()
+
 
 let eps = 1e-8
 
@@ -35,7 +35,7 @@ let benchmarkOutput (opt:OutputType) (workingPath:string) (bms:BenchmarkStats) =
     | OutputTypeNone ->
         ()
 
-
+let rng = System.Random()
 //////////////////////////////
 // see http://stackoverflow.com/questions/17002632/how-to-generate-an-array-with-a-dynamic-type-in-f
 type RngOverloads = RngOverloads with
@@ -56,6 +56,7 @@ let inline rngGenericArrayBounded sCount b : 'T[] =
     let genValue() = rng.Next(b) |> convert
     let source = Array.init sCount (fun _ -> genValue())
     source
+
 
 // generate an array of random 'T values along with a sorted array of random indices
 // that are within the bounds of the source array

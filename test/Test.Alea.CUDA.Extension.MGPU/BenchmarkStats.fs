@@ -9,7 +9,7 @@ let scanIterations = [1000; 1000; 1000; 500; 200; 200; 200; 200; 100; 100]
 let bulkRemoveIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
 let bulkInsertIterations = bulkRemoveIterations
 
-let sortedSearchIterations = [10000; 10000; 10000; 5000; 5000; 3000; 3000; 2000; 2000]
+let sortedSearchIterations = [10000; 10000; 10000; 5000; 5000; 3000; 3000; 3000; 2000; 2000]
 
 
 //Tesla K20c :  705.500 Mhz   (Ordinal 0)
