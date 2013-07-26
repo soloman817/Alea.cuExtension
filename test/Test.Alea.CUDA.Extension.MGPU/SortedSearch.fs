@@ -178,10 +178,14 @@ let ``SortedSearch mgpu website example : float64`` () =
         
         do! sortedSearch dfNeedles dHaystack dNeedles 
         
-        let! results = dNeedles.Gather()
-        return results } |> PCalc.run
+        let! result = pcalc {   let! dN = dNeedles.Gather()
+                                let! dfN = dfNeedles.Gather()
+                                return dN, dfN }
+        return result } |> PCalc.runInWorker worker
 
-    printfn "%A" dResult    
+    let hN, hfN = dResult
+    printfn "hN: %A" hN
+    printfn "hfN: %A" hfN
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////

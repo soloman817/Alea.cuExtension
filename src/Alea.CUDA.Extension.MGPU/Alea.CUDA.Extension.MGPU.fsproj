@@ -55,8 +55,8 @@
     <Compile Include="BulkRemove.fs" />
     <Compile Include="BulkInsert.fs" />
     <Compile Include="SortedSearch.fs" />
-    <Compile Include="IntervalMove.fs" />
     <None Include="Join.fs" />
+    <Compile Include="IntervalMove.fs" />
     <Compile Include="LoadBalance.fs" />
     <Compile Include="LocalitySort.fs" />
     <Compile Include="Merge.fs" />

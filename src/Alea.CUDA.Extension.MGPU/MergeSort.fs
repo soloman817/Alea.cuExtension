@@ -10,8 +10,74 @@ open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
+open Alea.CUDA.Extension.MGPU.CTAMerge
 
 
+type Plan =
+    {
+        NT : int
+        VT : int
+    }
+
+let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TK>) =
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let hasValues = if hasValues = 1 then true else false
+
+    let sharedSize = max NV (NT * (VT + 1))
+    let comp = compOp.Device
+    
+    let deviceGlobalToShared = deviceGlobalToShared NT VT
+    let deviceSharedToThread = deviceSharedToThread VT
+    let deviceSharedToGlobal = deviceSharedToGlobal NT VT
+    let deviceThreadToShared = deviceThreadToShared VT
+    let ctaMergesort = ctaMergesort NT VT hasValues compOp
+
+    <@ fun (keysSource_global:DevicePtr<'TK>) (valsSource_global:DevicePtr<'TV>) (count:int) (keysDest_global:DevicePtr<'TK>) (valsDest_global:DevicePtr<'TV>) ->
+        let comp = %comp
+        let deviceGlobalToShared = %deviceGlobalToShared
+        let deviceSharedToThread = %deviceSharedToThread
+        let deviceSharedToGlobal = %deviceSharedToGlobal
+        let deviceThreadToShared = %deviceThreadToShared
+        let ctaMergesort = %ctaMergesort
+
+        let shared = __shared__<'TK>(sharedSize).Ptr(0)
+        let sharedKeys = shared.Reinterpret<'TK>()
+        let sharedValues = shared.Reinterpret<'TV>()
+
+        let tid = threadIdx.x
+        let block = blockIdx.x
+        let gid = NV * block
+        let count2 = min NV (count - gid)
+
+        let threadValues = __local__<'TV>(VT).Ptr(0)
+        if hasValues then
+            deviceGlobalToShared count2 (valsSource_global + gid) tid sharedValues true
+            deviceSharedToThread sharedValues tid threadValues true
+
+        let threadKeys = __local__<'TK>(VT).Ptr(0)
+        deviceGlobalToShared count2 (keysSource_global + gid) tid sharedKeys true
+        deviceSharedToThread sharedKeys tid threadKeys true
+
+        let first = VT * tid
+        if ((first + VT) > count2) && (first < count2) then
+            let mutable maxKey = threadKeys.[0]
+            for i = 1 to VT - 1 do
+                if (first + i) < count2 then
+                    maxKey <- if comp maxKey threadKeys.[i] then threadKeys.[i] else maxKey
+            for i = 0 to VT - 1 do
+                if (first + i) >= count2 then threadKeys.[i] <- maxKey
+
+        ctaMergesort threadKeys threadValues sharedKeys sharedValues count2 tid
+
+        deviceSharedToGlobal count2 sharedKeys tid (keysDest_global + gid) true
+
+        if hasValues then
+            deviceThreadToShared threadValues tid sharedValues true
+            deviceSharedToGlobal count2 sharedValues tid (valsDest_global + gid) true
+        @>
 
 
 //namespace mgpu {

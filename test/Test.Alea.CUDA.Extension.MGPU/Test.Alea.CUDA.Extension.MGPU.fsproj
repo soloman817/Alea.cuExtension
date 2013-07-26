@@ -86,6 +86,7 @@
     <Compile Include="BulkRemove.fs" />
     <Compile Include="BulkInsert.fs" />
     <Compile Include="SortedSearch.fs" />
+    <Compile Include="Merge.fs" />
     <Compile Include="Debug.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />

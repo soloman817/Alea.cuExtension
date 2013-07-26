@@ -38,12 +38,12 @@ type IOddEvenTransposeSortT<'TK, 'TV, 'TC> =
 //                    swap values.[i] values.[i + 1]
 //                i <- i + 2
 //            () @>
-let inline oddEvenTransposeSortT (ident:'T) (I:int) (VT:int) (compType:CompType) =
+let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
     { new IOddEvenTransposeSortT<'T,'T,'T> with
         member this.Sort = 
-            let swap = (swap ident).Device
+            let swap = (swap compOp.Identity).Device
             //let sort = oddEvenTransposeSortT(I + 1, VT).Sort ident comp
-            let comp = (comp compType ident).Device            
+            let comp = compOp.Device            
             <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
                 let swap = %swap
                 let comp = %comp
@@ -58,11 +58,11 @@ let inline oddEvenTransposeSortT (ident:'T) (I:int) (VT:int) (compType:CompType)
                 (*sort keys values flags*)
                  @> }
 
-let OddEvenTransposeSortT (I:int) (VT:int) (ident:'T) (compType:CompType) =
-    let swap = (swap ident).Device
-    let oddEvenTransposeSortT = (oddEvenTransposeSortT ident (I + 1) VT compType).Sort
-    let comp = (comp compType ident).Device
-    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int) ->
+let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
+    let swap = (swap compOp.Identity).Device
+    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
+    let comp = compOp.Device
+    <@ fun (keys:RWPtr<'TK>) (values:RWPtr<'TV>) (flags:int) ->
         let swap = %swap
         let comp = %comp
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
@@ -77,9 +77,9 @@ let OddEvenTransposeSortT (I:int) (VT:int) (ident:'T) (compType:CompType) =
             @>
 
 
-let oddEvenTransposeSort (VT:int) (compType:CompType) (ident:'T) =
-    let oddEvenTransposeSortT = OddEvenTransposeSortT 0 VT ident compType
-    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) ->
+let oddEvenTransposeSort (VT:int) (compOp:IComp<'TK>) =
+    let oddEvenTransposeSortT = OddEvenTransposeSortT 0 VT compOp
+    <@ fun (keys:RWPtr<'TK>) (values:RWPtr<'TV>) ->
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
         oddEvenTransposeSortT keys values 0
     @>

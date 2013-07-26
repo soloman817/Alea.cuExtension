@@ -117,7 +117,7 @@ let bulkInsert() = cuda {
 
 type PSortedSearch() =
     member pss.SortedSearch(bounds:int, typeA:MgpuSearchType, typeB:MgpuSearchType, compOp:IComp<'TI>) = cuda {
-        let! api = SortedSearch.sortedSearch bounds typeA typeB compOp
+        let! api = SortedSearch.sortedSearch bounds typeA typeB compOp (scanOp ScanOpTypeAdd compOp.Identity)
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -130,7 +130,7 @@ type PSortedSearch() =
                     return sortedSearch } ) }  
 
     member pss.SortedSearch(bounds:int, compOp:IComp<'TI>) = cuda {
-        let! api = SortedSearch.sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone compOp
+        let! api = SortedSearch.sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone compOp (scanOp ScanOpTypeAdd compOp.Identity)
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -139,11 +139,39 @@ type PSortedSearch() =
                     let api = api aCount bCount
                     let! partition = DArray.createInBlob<int> worker api.NumPartitions
                     let sortedSearch (aData:DArray<'TI>) (bData:DArray<'TI>) (aIndices:DArray<int>) = 
-                        pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr aIndices.Ptr (DevicePtr(0n)) ) }
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr aIndices.Ptr (DevicePtr<int>(0n)) ) }
                     return sortedSearch } ) } 
                      
     member pss.SortedSearch(bounds:int, ident:'TI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
         
+
+let mergeKeys (compOp:IComp<'TK>) = cuda {
+    let! api = Merge.mergeKeys compOp
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (aCount:int) (bCount:int) -> 
+            let api = api aCount bCount           
+            pcalc {
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                let merger (aData:DArray<'TK>) (bData:DArray<'TK>) (cData:DArray<'TK>) =
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr cData.Ptr) }
+                return merger } ) }
+
+let mergePairs (compOp:IComp<'TK>) = cuda {
+    let! api = Merge.mergePairs compOp
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (aCount:int) (bCount:int) -> 
+            let api = api aCount bCount           
+            pcalc {
+                let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                let merger (aKeys:DArray<'TK>) (aVals:DArray<'TV>) (bKeys:DArray<'TK>) (bVals:DArray<'TV>) (cKeys:DArray<'TK>) (cVals:DArray<'TV>) =
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint aKeys.Ptr aVals.Ptr bKeys.Ptr bVals.Ptr partition.Ptr cKeys.Ptr cVals.Ptr) }
+                return merger } ) }
 
 
 let scanInPlace (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
