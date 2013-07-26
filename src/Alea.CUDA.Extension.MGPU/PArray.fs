@@ -117,7 +117,7 @@ let bulkInsert() = cuda {
 
 type PSortedSearch() =
     member pss.SortedSearch(bounds:int, typeA:MgpuSearchType, typeB:MgpuSearchType, compOp:IComp<'TI>) = cuda {
-        let! api = SortedSearch.sortedSearch bounds typeA typeB compOp (scanOp ScanOpTypeAdd compOp.Identity)
+        let! api = SortedSearch.sortedSearch bounds typeA typeB compOp
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -130,7 +130,7 @@ type PSortedSearch() =
                     return sortedSearch } ) }  
 
     member pss.SortedSearch(bounds:int, compOp:IComp<'TI>) = cuda {
-        let! api = SortedSearch.sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone compOp (scanOp ScanOpTypeAdd compOp.Identity)
+        let! api = SortedSearch.sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone compOp
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -145,7 +145,7 @@ type PSortedSearch() =
     member pss.SortedSearch(bounds:int, ident:'TI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
         
 
-let mergeKeys (compOp:IComp<'TK>) = cuda {
+let mergeKeys (compOp:IComp<'TV>) = cuda {
     let! api = Merge.mergeKeys compOp
 
     return PFunc(fun (m:Module) ->
@@ -155,11 +155,11 @@ let mergeKeys (compOp:IComp<'TK>) = cuda {
             let api = api aCount bCount           
             pcalc {
                 let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                let merger (aData:DArray<'TK>) (bData:DArray<'TK>) (cData:DArray<'TK>) =
+                let merger (aData:DArray<'TV>) (bData:DArray<'TV>) (cData:DArray<'TV>) =
                     pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr cData.Ptr) }
                 return merger } ) }
 
-let mergePairs (compOp:IComp<'TK>) = cuda {
+let mergePairs (compOp:IComp<'TV>) = cuda {
     let! api = Merge.mergePairs compOp
 
     return PFunc(fun (m:Module) ->
@@ -169,7 +169,7 @@ let mergePairs (compOp:IComp<'TK>) = cuda {
             let api = api aCount bCount           
             pcalc {
                 let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                let merger (aKeys:DArray<'TK>) (aVals:DArray<'TV>) (bKeys:DArray<'TK>) (bVals:DArray<'TV>) (cKeys:DArray<'TK>) (cVals:DArray<'TV>) =
+                let merger (aKeys:DArray<'TV>) (aVals:DArray<'TV>) (bKeys:DArray<'TV>) (bVals:DArray<'TV>) (cKeys:DArray<'TV>) (cVals:DArray<'TV>) =
                     pcalc { do! PCalc.action (fun hint -> api.Action hint aKeys.Ptr aVals.Ptr bKeys.Ptr bVals.Ptr partition.Ptr cKeys.Ptr cVals.Ptr) }
                 return merger } ) }
 

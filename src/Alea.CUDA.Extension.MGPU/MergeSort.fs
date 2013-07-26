@@ -19,7 +19,7 @@ type Plan =
         VT : int
     }
 
-let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TK>) =
+let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
     let NT = plan.NT
     let VT = plan.VT
     let NV = NT * VT
@@ -35,7 +35,7 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TK>) =
     let deviceThreadToShared = deviceThreadToShared VT
     let ctaMergesort = ctaMergesort NT VT hasValues compOp
 
-    <@ fun (keysSource_global:DevicePtr<'TK>) (valsSource_global:DevicePtr<'TV>) (count:int) (keysDest_global:DevicePtr<'TK>) (valsDest_global:DevicePtr<'TV>) ->
+    <@ fun (keysSource_global:DevicePtr<'TV>) (valsSource_global:DevicePtr<'TV>) (count:int) (keysDest_global:DevicePtr<'TV>) (valsDest_global:DevicePtr<'TV>) ->
         let comp = %comp
         let deviceGlobalToShared = %deviceGlobalToShared
         let deviceSharedToThread = %deviceSharedToThread
@@ -43,8 +43,8 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TK>) =
         let deviceThreadToShared = %deviceThreadToShared
         let ctaMergesort = %ctaMergesort
 
-        let shared = __shared__<'TK>(sharedSize).Ptr(0)
-        let sharedKeys = shared.Reinterpret<'TK>()
+        let shared = __shared__<'TV>(sharedSize).Ptr(0)
+        let sharedKeys = shared.Reinterpret<'TV>()
         let sharedValues = shared.Reinterpret<'TV>()
 
         let tid = threadIdx.x
@@ -57,7 +57,7 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TK>) =
             deviceGlobalToShared count2 (valsSource_global + gid) tid sharedValues true
             deviceSharedToThread sharedValues tid threadValues true
 
-        let threadKeys = __local__<'TK>(VT).Ptr(0)
+        let threadKeys = __local__<'TV>(VT).Ptr(0)
         deviceGlobalToShared count2 (keysSource_global + gid) tid sharedKeys true
         deviceSharedToThread sharedKeys tid threadKeys true
 

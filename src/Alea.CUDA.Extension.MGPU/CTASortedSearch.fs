@@ -1,5 +1,5 @@
 ﻿module Alea.CUDA.Extension.MGPU.CTASortedSearch
-// NOT IMPLEMENTED YET
+
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Microsoft.FSharp.Quotations
@@ -29,11 +29,11 @@ open Alea.CUDA.Extension.MGPU.CTAMerge
 //    }
 
 
-let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
+let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TK>) =
     
     let compId = compOp.Identity
     let comp = compOp.Device
-    <@ fun (keys_shared:RWPtr<'T>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:RWPtr<int>) ->
+    <@ fun (keys_shared:RWPtr<'TK>) (aBegin:int) (aEnd:int) (bBegin:int) (bEnd:int) (aOffset:int) (bOffset:int) (indices:RWPtr<int>) ->
         let comp = %comp
         //let compId = %compId
 
@@ -108,7 +108,7 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
     
 
 
-let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
+let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TK>) =
     
     let NV = NT * VT
     
@@ -118,7 +118,7 @@ let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (
 
     
 
-    <@ fun (keys_shared:RWPtr<'T>) (aStart:int) (aCount:int) (aEnd:int) (a0:int) (bStart:int) (bCount:int) (bEnd:int) (b0:int) (extended:bool) (tid:int) (indices_shared:RWPtr<int>) ->
+    <@ fun (keys_shared:RWPtr<'TK>) (aStart:int) (aCount:int) (aEnd:int) (a0:int) (bStart:int) (bCount:int) (bEnd:int) (b0:int) (extended:bool) (tid:int) (indices_shared:RWPtr<int>) ->
         let mergePath = %mergePath
         let deviceSerialSearch1 = %deviceSerialSearch1
         let deviceSerialSearch2 = %deviceSerialSearch2

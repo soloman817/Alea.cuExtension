@@ -19,7 +19,7 @@ type Plan =
         VT : int
     }
 
-let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'T>) =
+let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'TV>) =
     let NT = plan.NT
     let VT = plan.VT
     let NV = NT * VT
@@ -29,13 +29,13 @@ let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'T>) =
     let computeMergeRange = computeMergeRange.Device
     let deviceMerge = deviceMerge NT VT hasValues compOp
 
-    <@ fun (aKeys_global:DevicePtr<'T>) (aVals_global:DevicePtr<'T>) (aCount:int) (bKeys_global:DevicePtr<'T>) (bVals_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (coop:int) (keys_global:DevicePtr<'T>) (vals_global:DevicePtr<'T>) ->
+    <@ fun (aKeys_global:DevicePtr<'TV>) (aVals_global:DevicePtr<'TV>) (aCount:int) (bKeys_global:DevicePtr<'TV>) (bVals_global:DevicePtr<'TV>) (bCount:int) (mp_global:DevicePtr<int>) (coop:int) (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) ->
         let computeMergeRange = %computeMergeRange
         let deviceMerge = %deviceMerge
 
-        let shared = __shared__<'T>(NT * (VT + 1)).Ptr(0)
+        let shared = __shared__<'TV>(NT * (VT + 1)).Ptr(0)
         let sharedKeys = shared
-        let sharedIndices = shared
+        let sharedIndices = shared.Reinterpret<int>()
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -45,13 +45,13 @@ let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'T>) =
         deviceMerge aKeys_global aVals_global bKeys_global bVals_global tid block range sharedKeys sharedIndices keys_global vals_global
         @>
 
-type IMergeKeys<'TK> =
+type IMergeKeys<'TV> =
     {
-        Action : ActionHint -> DevicePtr<'TK> -> DevicePtr<'TK> -> DevicePtr<int> -> DevicePtr<'TK> -> unit
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TV> -> unit
         NumPartitions : int
     }
 
-let mergeKeys (compOp:IComp<'TK>) = cuda {
+let mergeKeys (compOp:IComp<'TV>) = cuda {
     let plan = { NT = 128; VT = 11 }
     let NT = plan.NT
     let VT = plan.VT
@@ -69,23 +69,23 @@ let mergeKeys (compOp:IComp<'TK>) = cuda {
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TK>) (bKeys_global:DevicePtr<'TK>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TK>) =
+            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TV>) (bKeys_global:DevicePtr<'TV>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TV>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
                     let mpp = mpp aCount bCount NV 0
                     let partitions = mpp.Action hint aKeys_global bKeys_global parts
-                    kernelMerge.Launch lp aKeys_global (DevicePtr<int>(0n)) aCount bKeys_global (DevicePtr<int>(0n)) bCount parts 0 keys_global (DevicePtr<int>(0n))
+                    kernelMerge.Launch lp aKeys_global (DevicePtr<'TV>(0n)) aCount bKeys_global (DevicePtr<'TV>(0n)) bCount parts 0 keys_global (DevicePtr<'TV>(0n))
                 |> worker.Eval
             { Action = action; NumPartitions = numBlocks + 1 } ) }
 
-type IMergePairs<'TK, 'TV> =
+type IMergePairs<'TV> =
     {
-        Action : ActionHint -> DevicePtr<'TK> -> DevicePtr<'TV> -> DevicePtr<'TK> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TK> -> DevicePtr<'TV> -> unit
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TV> -> DevicePtr<'TV> -> unit
         NumPartitions : int
     }
 
 
-let mergePairs (compOp:IComp<'TK>) = cuda {
+let mergePairs (compOp:IComp<'TV>) = cuda {
     let plan = { NT = 128; VT = 7 }
     let NT = plan.NT
     let VT = plan.VT
@@ -103,7 +103,7 @@ let mergePairs (compOp:IComp<'TK>) = cuda {
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TK>) (aVals_global:DevicePtr<'TV>) (bKeys_global:DevicePtr<'TK>) (bVals_global:DevicePtr<'TV>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TK>) (vals_global:DevicePtr<'TV>) =
+            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TV>) (aVals_global:DevicePtr<'TV>) (bKeys_global:DevicePtr<'TV>) (bVals_global:DevicePtr<'TV>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
                     let mpp = mpp aCount bCount NV 0

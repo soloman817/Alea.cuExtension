@@ -13,8 +13,8 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
-type IOddEvenTransposeSortT<'TK, 'TV, 'TC> =
-    abstract member Sort : Expr<RWPtr<'TK> -> RWPtr<'TV> -> int -> unit>
+type IOddEvenTransposeSortT<'T> =
+    abstract member Sort : Expr<RWPtr<'T> -> RWPtr<'T> -> int -> unit>
 
 
 //[<Struct; StructLayout(LayoutKind.Sequential, Pack = 4)>]
@@ -38,8 +38,8 @@ type IOddEvenTransposeSortT<'TK, 'TV, 'TC> =
 //                    swap values.[i] values.[i + 1]
 //                i <- i + 2
 //            () @>
-let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
-    { new IOddEvenTransposeSortT<'T,'T,'T> with
+let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'T>) =
+    { new IOddEvenTransposeSortT<'T> with
         member this.Sort = 
             let swap = (swap compOp.Identity).Device
             //let sort = oddEvenTransposeSortT(I + 1, VT).Sort ident comp
@@ -58,11 +58,11 @@ let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
                 (*sort keys values flags*)
                  @> }
 
-let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
+let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TV>) =
     let swap = (swap compOp.Identity).Device
     let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
     let comp = compOp.Device
-    <@ fun (keys:RWPtr<'TK>) (values:RWPtr<'TV>) (flags:int) ->
+    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
         let swap = %swap
         let comp = %comp
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
@@ -77,9 +77,9 @@ let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TK>) =
             @>
 
 
-let oddEvenTransposeSort (VT:int) (compOp:IComp<'TK>) =
+let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
     let oddEvenTransposeSortT = OddEvenTransposeSortT 0 VT compOp
-    <@ fun (keys:RWPtr<'TK>) (values:RWPtr<'TV>) ->
+    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) ->
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
         oddEvenTransposeSortT keys values 0
     @>

@@ -16,26 +16,26 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 
 
 // @COMMENTS@ : I checked the C++ code, the type IT means iterator type, and here in our case,
-// iterator could be either 'T[] or DevicePtr<'T> for host and device. So it is not neccessary
+// iterator could be either 'TC[] or DevicePtr<'TC> for host and device. So it is not neccessary
 // to have two types.
-type IBinarySearch<'T> =
-    abstract Identity : 'T
-    abstract HBinarySearchIt : ('T[] -> int ref -> int ref -> 'T -> int -> unit)
-    abstract DBinarySearchIt : Expr<DevicePtr<'T> -> RWPtr<int> -> RWPtr<int> -> 'T -> int -> unit>    
-    abstract HBiasedBinarySearch : ('T[] -> int -> 'T -> int -> int)
-    abstract DBiasedBinarySearch : Expr<DevicePtr<'T> -> int -> 'T -> int -> int>
-    abstract HBinarySearch : ('T[] -> int -> 'T -> int)
-    abstract DBinarySearch : Expr<DevicePtr<'T> -> int -> 'T -> int>
+type IBinarySearch<'TC> =
+    abstract Identity : 'TC
+    abstract HBinarySearchIt : ('TC[] -> int ref -> int ref -> 'TC -> int -> unit)
+    abstract DBinarySearchIt : Expr<DevicePtr<'TC> -> RWPtr<int> -> RWPtr<int> -> 'TC -> int -> unit>    
+    abstract HBiasedBinarySearch : ('TC[] -> int -> 'TC -> int -> int)
+    abstract DBiasedBinarySearch : Expr<DevicePtr<'TC> -> int -> 'TC -> int -> int>
+    abstract HBinarySearch : ('TC[] -> int -> 'TC -> int)
+    abstract DBinarySearch : Expr<DevicePtr<'TC> -> int -> 'TC -> int>
     
-type IMergeSearch<'TI> =
-    abstract HMergePath : ('TI[] -> int -> 'TI[] -> int -> int -> int)
-    abstract DMergePath : Expr<RWPtr<'TI> -> int -> RWPtr<'TI> -> int -> int -> int>
-    abstract HSegmentedMergePath : ('TI[] -> int -> int -> int -> int -> int -> int -> int -> int)
-    abstract DSegmentedMergePath : Expr<DevicePtr<'TI> -> int -> int -> int -> int -> int -> int -> int -> int>
+type IMergeSearch<'TC> =
+    abstract HMergePath : ('TC[] -> int -> 'TC[] -> int -> int -> int)
+    abstract DMergePath : Expr<RWPtr<'TC> -> int -> RWPtr<'TC> -> int -> int -> int>
+    abstract HSegmentedMergePath : ('TC[] -> int -> int -> int -> int -> int -> int -> int -> int)
+    abstract DSegmentedMergePath : Expr<DevicePtr<'TC> -> int -> int -> int -> int -> int -> int -> int -> int>
 
-type IBalancedPathSearch<'TI> =
-    abstract HBalancedPath : ('TI[] -> int -> 'TI[] -> int -> int -> int -> int2)
-    abstract DBalancedPath : Expr<DevicePtr<'TI> -> int -> DevicePtr<'TI> -> int -> int -> int -> int2>
+type IBalancedPathSearch<'TC> =
+    abstract HBalancedPath : ('TC[] -> int -> 'TC[] -> int -> int -> int -> int2)
+    abstract DBalancedPath : Expr<DevicePtr<'TC> -> int -> DevicePtr<'TC> -> int -> int -> int -> int2>
 
 
 type SearchOpType =
@@ -52,14 +52,14 @@ let MgpuBoundsUpper = 1
 
 
 
-let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
-    { new IBinarySearch<'T> with
+let binarySearchFun (bounds:int) (compOp:IComp<'TC>)  =
+    { new IBinarySearch<'TC> with
 
         member this.Identity = compOp.Identity
 
         member this.HBinarySearchIt =
             let comp a b = compOp.Host a b
-            fun (data:'T[]) (begin':int ref) (end':int ref) (key:'T) (shift:int) ->
+            fun (data:'TC[]) (begin':int ref) (end':int ref) (key:'TC) (shift:int) ->
                 let scale = (1 <<< shift) - 1
                 let mid = (!begin' + scale * !end') >>> shift
                 let key2 = data.[mid]
@@ -73,7 +73,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                         
         member this.DBinarySearchIt = 
             let comp = compOp.Device
-            <@ fun (data:DevicePtr<'T>) (begin':RWPtr<int>) (end':RWPtr<int>) (key:'T) (shift:int) ->
+            <@ fun (data:DevicePtr<'TC>) (begin':RWPtr<int>) (end':RWPtr<int>) (key:'TC) (shift:int) ->
                 let comp = %comp
                 let scale = (1 <<< shift) - 1
                 let mid = ((begin'.[0] + scale * end'.[0]) >>> shift)
@@ -88,7 +88,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
         member this.HBiasedBinarySearch = 
             let comp a b = compOp.Host a b
-            fun (data:'T[]) (count:int) (key:'T) (levels:int) ->
+            fun (data:'TC[]) (count:int) (key:'TC) (levels:int) ->
                 let begin' = ref 0
                 let end' = ref count
 
@@ -103,7 +103,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
         member this.DBiasedBinarySearch = 
             let comp = compOp.Device
-            <@ fun (data:DevicePtr<'T>) (count:int) (key:'T) (levels:int) ->
+            <@ fun (data:DevicePtr<'TC>) (count:int) (key:'TC) (levels:int) ->
                 let comp = %comp
                 let begin' = 0
                 let end' = count
@@ -120,7 +120,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
                 begin' @>
 
         member this.HBinarySearch = 
-            fun (data:'T[]) (count:int) (key:'T) ->
+            fun (data:'TC[]) (count:int) (key:'TC) ->
                 let begin' = ref 0
                 let end' = ref count
                 while begin' < end' do
@@ -129,7 +129,7 @@ let binarySearchFun (bounds:int) (compOp:IComp<'T>)  =
 
         member this.DBinarySearch = 
             let dbs = this.DBinarySearchIt                
-            <@ fun (data:DevicePtr<'T>) (count:int) (key:'T) ->
+            <@ fun (data:DevicePtr<'TC>) (count:int) (key:'TC) ->
                 let dbs = %dbs
                     
                 let begin' = __local__<int>(1).Ptr(0)
@@ -236,11 +236,11 @@ let mergeSearch (bounds:int) (compOp:IComp<'TC>) =
                                                 
                     result @> }
 
-let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TI>) =
-        { new IBalancedPathSearch<'TI> with
+let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) =
+        { new IBalancedPathSearch<'TC> with
             member this.HBalancedPath =
                 let comp a b = compOp.Host a b
-                fun (a:'TI[]) (aCount:int) (b:'TI[]) (bCount:int) (diag:int) (levels:int) ->
+                fun (a:'TC[]) (aCount:int) (b:'TC[]) (bCount:int) (diag:int) (levels:int) ->
                     let p = (mergeSearch MgpuBoundsLower compOp).HMergePath a aCount b bCount diag
                     let mutable aIndex = p
                     let bIndex = diag - p
@@ -286,7 +286,7 @@ let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TI>) =
                 let aStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
                 let bStart = (binarySearchFun MgpuBoundsLower compOp).DBiasedBinarySearch
                 let bRunEnd = (binarySearchFun MgpuBoundsLower compOp).DBinarySearch
-                <@ fun (a:DevicePtr<'TI>) (aCount:int) (b:DevicePtr<'TI>) (bCount:int) (diag:int) (levels:int) ->
+                <@ fun (a:DevicePtr<'TC>) (aCount:int) (b:DevicePtr<'TC>) (bCount:int) (diag:int) (levels:int) ->
                     let comp = %comp
                     let mp = %mp
                     let aStart = %aStart
@@ -301,8 +301,8 @@ let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TI>) =
                         if duplicates <> 0 then
                             let x = b.[bIndex]
                                                         
-                            let aStart = aStart (a :?> DevicePtr<_>) aIndex x levels
-                            let bStart = bStart (b :?> DevicePtr<_>) bIndex x levels
+                            let aStart = aStart a aIndex x levels
+                            let bStart = bStart b bIndex x levels
 
                             let aRun = aIndex - aStart
                             let mutable bRun = bIndex - bStart
@@ -310,7 +310,7 @@ let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TI>) =
 
                             let mutable bAdvance = max (xCount >>> 1) (xCount - aRun)
                             let bEnd = min bCount (bStart + bAdvance + 1)
-                            let bRunEnd = bRunEnd ((b :?> DevicePtr<_>) + bIndex) (bEnd - bIndex) x
+                            let bRunEnd = bRunEnd (b + bIndex) (bEnd - bIndex) x
                             let bRunEnd = bRunEnd + bIndex
                             
                             bRun <- bRunEnd - bStart
