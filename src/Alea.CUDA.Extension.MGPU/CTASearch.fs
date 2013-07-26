@@ -236,6 +236,7 @@ let mergeSearch (bounds:int) (compOp:IComp<'TC>) =
                                                 
                     result @> }
 
+
 let balancedPathSearch (duplicates:int) (bounds:int) (compOp:IComp<'TC>) =
         { new IBalancedPathSearch<'TC> with
             member this.HBalancedPath =
