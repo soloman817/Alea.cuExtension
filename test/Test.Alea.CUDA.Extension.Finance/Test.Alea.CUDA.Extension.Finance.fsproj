@@ -65,6 +65,7 @@
     <Compile Include="MatrixTiling.fs" />
     <Compile Include="Heston.fs" />
     <Compile Include="HestonPreCalc.fs" />
+    <Compile Include="HestonPreCalcStruct.fs" />
     <Compile Include="LiborMarketModel.fs" />
     <Compile Include="Program.fs" />
     <None Include="packages.config" />
