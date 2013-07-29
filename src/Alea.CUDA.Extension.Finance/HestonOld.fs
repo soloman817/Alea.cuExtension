@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Finance.Heston
+﻿module Alea.CUDA.Extension.Finance.HestonOld
 
 open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
@@ -22,7 +22,7 @@ let [<ReflectedDefinition>] set (u:RMatrixRowMajor ref) (si:int) (vi:int) (value
     RMatrixRowMajor.Set(u, si, vi, value)
 
 /// Concentrate at critical point and map critical point to grid point
-let stateGrid = concentratedGrid
+let stateGrid = concentratedGridAt
 
 /// Heston model in terms of expressions to be compiled into various kernels
 type HestonModelExpr =
@@ -976,8 +976,8 @@ let douglasSolver = cuda {
          
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:Param) ->
 
-            let s = concentratedGrid param.sMin param.sMax strike param.ns param.sC
-            let v = concentratedGrid 0.0 param.vMax 0.0 param.nv param.vC
+            let s, ds = concentratedGridAt param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridAt 0.0 param.vMax 0.0 param.nv param.vC
             let t, dt = homogeneousGrid param.nt 0.0 timeToMaturity
 
             pcalc {

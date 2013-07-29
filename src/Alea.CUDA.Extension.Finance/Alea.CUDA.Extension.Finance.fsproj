@@ -39,7 +39,12 @@
   <ItemGroup>
     <Compile Include="Grid.fs" />
     <Compile Include="Heat2dAdi.fs" />
+    <Compile Include="MatrixTiling.fs" />
     <Compile Include="Heston.fs" />
+    <Compile Include="HestonPreCalc.fs" />
+    <Compile Include="HestonPreCalcStruct.fs" />
+    <Compile Include="HestonOld.fs" />
+    <Compile Include="LiborMarketModel.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

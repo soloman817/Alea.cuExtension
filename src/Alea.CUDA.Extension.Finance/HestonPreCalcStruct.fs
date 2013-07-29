@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Finance.Heston
+﻿module Alea.CUDA.Extension.Finance.HestonPreCalcStruct
 
 open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
@@ -113,10 +113,50 @@ type A =
     [<ReflectedDefinition>]
     static member apply (a:A) um u0 up = a.al*um + a.ad*u0 + a.au*up
 
+/// Calculate finite difference weights in s and v direction
+/// The s and v grid are extended with ghost points
+let fdWeights = cuda {
+
+    let! fdWeightsKernel = 
+        <@  fun (vFdWeights:DevicePtr<FdWeights>) (sFdWeights:DevicePtr<FdWeights>) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
+            let n = max ns nv
+            let mutable i = threadIdx.x + 1
+            while i < n do
+
+                if i < nv then
+                    let vi = v.[i]
+                    let dv = vi - v.[i-1]
+                    let dvp = v.[i+1] - vi
+
+                    vFdWeights.[i] <- if i = 1 then forwardWeightsSimple dvp else centralWeights dv dvp
+
+                if i < ns then
+                    let si = s.[i]
+                    let ds = si - s.[i-1]
+                    let dsp = s.[i+1] - si
+
+                    sFdWeights.[i] <- centralWeights ds dsp 
+
+                i <- i + blockDim.x @> |> defineKernelFunc
+
+    return PFunc(fun (m:Module) (s:DArray<float>) (v:DArray<float>) ns nv->
+        let worker = m.Worker
+        pcalc {
+            
+            let! sFdWeights = DArray.createInBlob<FdWeights> worker ns
+            let! vFdWeights = DArray.createInBlob<FdWeights> worker nv
+
+            do! PCalc.action (fun hint ->
+                let blockSize = 256
+                let n = max ns nv
+                let gridSize = Util.divup n blockSize           
+                let lp = LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
+                fdWeightsKernel.Launch m lp sFdWeights.Ptr vFdWeights.Ptr s.Ptr v.Ptr ns nv)
+
+            return sFdWeights, vFdWeights } ) }
+
 /// Operator A1 i-th row  
-let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) sj vi ds dsp =   
-    let fd = centralWeights ds dsp  
-                  
+let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) (fd:FdWeights) sj vi ds dsp =                     
     if j < ns-1 then
         
         // Dirichlet boundary at s = 0 for i = 1
@@ -135,19 +175,15 @@ let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) sj 
 
 /// Operator A2, j-th row for 0 < j < nv-1 so we can always build central weights for v  
 /// Note that by assumption iMin = 1 
-let [<ReflectedDefinition>] a2Operator (i:int) (nv:int) (heston:HestonModel) vi dv dvp =   
+let [<ReflectedDefinition>] a2Operator (i:int) (nv:int) (heston:HestonModel) (fd:FdWeights) vi dv dvp =   
     // i = iMin, special boundary at v = 0, one sided forward difference quotient 
     if i = 1 then
-        let fd = forwardWeightsSimple dvp         
-
         let al = 0.0
         let ad = heston.kappa*heston.eta*fd.v1 - 0.5*heston.rd
         let au = heston.kappa*heston.eta*fd.v2   
                 
         A(al, ad, au, fd.v1, fd.v2, fd.v3, fd.w1, fd.w2, fd.w3)
     else               
-        let fd = centralWeights dv dvp
-
         if i < nv-1 then
             let al = 0.5*heston.sigma*vi*fd.w1 + heston.kappa*(heston.eta - vi)*fd.v1
             let ad = 0.5*heston.sigma*vi*fd.w2 + heston.kappa*(heston.eta - vi)*fd.v2 - 0.5*heston.rd
@@ -209,7 +245,7 @@ let [<ReflectedDefinition>] b2Value i iMax (heston:HestonModel) t sj vi w3 v3 =
 ///     - *     Dirichelt boundary points, which are not going into equation and are fixed
 ///     - .     Innter points, which are effectively updated by the solver
 ///
-let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
+let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) (sFdWeights:ConstantArray<FdWeights>) (vFdWeights:ConstantArray<FdWeights>) ns nv =
     let tx = threadIdx.x
     let ty = threadIdx.y
     let bx = blockDim.x
@@ -274,8 +310,9 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             // Dirichlet boundary at v = max, so we do not need to process nv
             if i <= iMax && j <= jMax then
 
-                let vi = v.[i]       
-                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+                let vi = v.[i]    
+                let a2fd = vFdWeights.[i]   
+                let a2op = a2Operator i nv heston a2fd vi (vi - v.[i-1]) (v.[i+1] - vi)
 
                 // relative addressing in the shared memory tile
                 let ir = i - i0  
@@ -298,7 +335,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
                 let b1 = b1Value j jMax heston sj vi ds
                 let b2 = b2Value i iMax heston t sj vi a2op.w3 a2op.v3
                 
-                let a1op = a1Operator j ns heston sj vi ds (s.[j+1] - sj)
+                let a1fd = sFdWeights.[j]
+                let a1op = a1Operator j ns heston a1fd sj vi ds (s.[j+1] - sj)
                     
                 // a0 <> 0 only on iMin < i <= iMax && jMin < j < jMax
                 let mixed = 
@@ -323,88 +361,8 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
 
         k <- k + by * gridDim.y
 
-/// Explicit apply operator for Euler scheme with all data loaded directly from global device memory.
-let [<ReflectedDefinition>] applyFDevMemory (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv =
-    let tx = threadIdx.x
-    let ty = threadIdx.y
-    let bx = blockDim.x
-    let by = blockDim.y
-    let gx = gridDim.x
-    let gy = gridDim.y
-     
-    // for coalesicing access we need to map x to columns and y to rows of the matrix because threads are aligned that way
-    // i, k / y -> row -> v
-    // j, l / x -> col -> s
-
-    let jMin = 1
-    let jMax = ns - 1 
-    let iMin = 1
-    let iMax = nv - 1
-
-    let nRows = nv + 1
-    let nCols = ns + 1
-
-    let mutable k = blockIdx.y * by + ty 
-                                                
-    while k <= gy*by do
-
-        let mutable l = blockIdx.x * bx + tx
-
-        while l <= gx*bx do 
-
-            // we added a ghost points at j = 0, so we can start at j = 1 and read from u the same way for each thread
-            let i = k + 1
-            let j = l + 1
-
-            // Dirichlet boundary at s = 0, so we do not need to process 0, we start 1
-            // Dirichlet boundary at v = max, so we do not need to process nv
-            if i <= iMax && j <= jMax then
-
-                let vi = v.[i]       
-                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
-
-                // we add a ghost points of zero value around u to have no memory access issues
-                let umm = get u (i-1) (j-1)
-                let u0m = get u  i    (j-1)
-                let upm = get u (i+1) (j-1)
-                let um0 = get u (i-1)  j 
-                let u00 = get u  i     j
-                let up0 = get u (i+1)  j
-                let ump = get u (i-1) (j+1)
-                let u0p = get u  i    (j+1)
-                let upp = get u (i+1) (j+1)
-
-                let sj = s.[j]
-                let ds = sj - s.[j-1]
-
-                let b1 = b1Value j jMax heston sj vi ds
-                let b2 = b2Value i iMax heston t sj vi a2op.w3 a2op.v3
-                
-                let a1op = a1Operator j ns heston sj vi ds (s.[j+1] - sj)
-                    
-                // a0 <> 0 only on iMin < i <= iMax && jMin < j < jMax
-                let mixed = 
-                    // we do not need to test for i > iMin because at iMin vi = 0 hend a0 becomes zero there too
-                    if j < jMax then                     
-                        a1op.v1*a2op.v1*umm + a1op.v1*a2op.v2*u0m + a1op.v1*a2op.v3*upm +
-                        a1op.v2*a2op.v1*um0 + a1op.v2*a2op.v2*u00 + a1op.v2*a2op.v3*up0 + 
-                        a1op.v3*a2op.v1*ump + a1op.v3*a2op.v2*u0p + a1op.v3*a2op.v3*upp
-                    else
-                        0.0   
-            
-                let a0 = heston.rho*heston.sigma*sj*vi*mixed                    
-                let a1 = A.apply a1op u0m u00 u0p                    
-                let a2 = A.apply a2op um0 u00 up0         
-            
-                // set u for i = 1,...,iMax, j = 1,...,jMax
-                set u i j (u00 + dt*(a0+a1+a2+b1+b2))
-               
-            l <- l + bx * gridDim.x   
-
-        k <- k + by * gridDim.y
-
 /// Explicit part for Douglas and other schemes which require intermediate results.
-let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (y0:RMatrixRowMajor ref) (y1corr:RMatrixRowMajor ref) =
+let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor ref) (s:DevicePtr<float>) (v:DevicePtr<float>) (sFdWeights:ConstantArray<FdWeights>) (vFdWeights:ConstantArray<FdWeights>) ns nv (y0:RMatrixRowMajor ref) (y1corr:RMatrixRowMajor ref) =
     let tx = threadIdx.x
     let ty = threadIdx.y
     let bx = blockDim.x
@@ -470,7 +428,8 @@ let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float
             if i <= iMax && j <= jMax then
 
                 let vi = v.[i]       
-                let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+                let a2fd = vFdWeights.[i]
+                let a2op = a2Operator i nv heston a2fd vi (vi - v.[i-1]) (v.[i+1] - vi)
 
                 // relative addressing in the shared memory tile
                 let ir = i - i0  
@@ -494,7 +453,8 @@ let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float
                 let b2 = b2Value i iMax heston t sj vi a2op.w3 a2op.v3
                 let b2next = b2Value i iMax heston tnext sj vi a2op.w3 a2op.v3
                 
-                let a1op = a1Operator j ns heston sj vi ds (s.[j+1] - sj)
+                let a1fd = sFdWeights.[j]
+                let a1op = a1Operator j ns heston a1fd sj vi ds (s.[j+1] - sj)
                     
                 // a0 <> 0 only on iMin < i <= iMax && jMin < j < jMax
                 let mixed = 
@@ -523,7 +483,7 @@ let [<ReflectedDefinition>] applyFDouglas (heston:HestonModel) t tnext (dt:float
 /// Sweep over the volatility grid and solve for each volatility value a system of ns-1 variables for the inner spot points.
 /// The kernel requires 4*(ns-1)*sizeof<float> shared memory. 
 [<ReflectedDefinition>]
-let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
+let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) (sFdWeights:ConstantArray<FdWeights>) ns nv (result:RMatrixRowMajor ref) =
     let rdt = heston.rd 
     let rft = heston.rf 
 
@@ -542,7 +502,8 @@ let solveF1 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> fl
         while j < ns do
        
             let sj = s.[j]
-            let a1op = a1Operator j ns heston sj vi (sj - s.[j-1]) (s.[j+1] - sj)
+            let sfd = sFdWeights.[j]
+            let a1op = a1Operator j ns heston sfd sj vi (sj - s.[j-1]) (s.[j+1] - sj)
 
             l.[j-1] <- -thetaDt*a1op.al
             d.[j-1] <- 1.0 - thetaDt*a1op.ad
@@ -571,7 +532,7 @@ let rhsSolveF1 (y0:RMatrixRowMajor ref) i j =
 /// Sweep over the spot grid and solve for each spot value a system of nv-1 variables for the inner volatility points.
 /// The kernel requires 4*(nv-1)*sizeof<float> shared memory. 
 [<ReflectedDefinition>]
-let solveF2 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor ref) =
+let solveF2 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> float) (s:DevicePtr<float>) (v:DevicePtr<float>) (vFdWeights:ConstantArray<FdWeights>) ns nv (result:RMatrixRowMajor ref) =
     let rdt = heston.rd 
     let rft = heston.rf 
     let sigmat = heston.sigma 
@@ -593,7 +554,8 @@ let solveF2 (heston:HestonModel) (t:float) (thetaDt:float) (rhs:int -> int -> fl
         while i < nv do
 
             let vi = v.[i]
-            let a2op = a2Operator i nv heston vi (vi - v.[i-1]) (v.[i+1] - vi)
+            let vfd = vFdWeights.[i]
+            let a2op = a2Operator i nv heston vfd vi (vi - v.[i-1]) (v.[i+1] - vi)
 
             l.[i-1] <- -thetaDt*a2op.al
             d.[i-1] <- 1.0 - thetaDt*a2op.ad
@@ -688,7 +650,10 @@ type HestonEulerSolverParam =
 /// Solve Hesten with explicit Euler scheme.
 /// Because the time stepping has to be selected according to the state discretization
 /// we may need to have small time steps to maintain stability.
-let eulerSolver = cuda {
+let eulerSolver ns nv = cuda {
+
+    let! sFdWeights = defineConstantArray<FdWeights>(ns)
+    let! vFdWeights = defineConstantArray<FdWeights>(nv)
 
     // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
@@ -701,7 +666,7 @@ let eulerSolver = cuda {
    
     let! applyFKernel =
         <@ fun (heston:HestonModel) t (dt:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
-            applyF heston t dt (ref u) s v ns nv @> |> defineKernelFuncWithName "applyF"
+            applyF heston t dt (ref u) s v sFdWeights vFdWeights ns nv @> |> defineKernelFuncWithName "applyF"
     
     let! copyValuesKernel = 
         <@ fun ns nv (u0:RMatrixRowMajor) (u1:RMatrixRowMajor) ->
@@ -710,6 +675,8 @@ let eulerSolver = cuda {
     let! copyGridsKernel = 
         <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
             copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
+
+    let! fdWeights = fdWeights
                          
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -718,6 +685,9 @@ let eulerSolver = cuda {
         let applyFKernel = applyFKernel.Apply m
         let copyValuesKernel = copyValuesKernel.Apply m
         let copyGridsKernel = copyGridsKernel.Apply m
+        let fdWeights = fdWeights.Apply m
+        let sFdWeights = sFdWeights.Apply m
+        let vFdWeights = vFdWeights.Apply m
 
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonEulerSolverParam) ->
 
@@ -751,7 +721,12 @@ let eulerSolver = cuda {
                 let! sred = DArray.createInBlob<float> worker param.ns
                 let! vred = DArray.createInBlob<float> worker param.nv
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
-                
+
+                // precalculate the finite difference weights
+                let! sfdw, vfdw = fdWeights s v param.ns param.nv
+                sFdWeights.Scatter(sfdw.Ptr, sfdw.Length)
+                vFdWeights.Scatter(vfdw.Ptr, vfdw.Length)
+                  
                 do! PCalc.action (fun hint ->
                     let sharedSize = 10 * 10 * sizeof<float>
                     let lpms = LaunchParam(dim3(divup ns1 8, divup nv1 8), dim3(8, 8), sharedSize) |> hint.ModifyLaunchParam
@@ -794,7 +769,10 @@ type HestonDouglasSolverParam =
         {theta = theta; sMin = sMin; sMax = sMax; vMax = vMax; ns = ns; nv = nv; nt = nt; sC = sC; vC = vC}
   
 /// Solve Hesten with Douglas scheme.
-let douglasSolver = cuda {
+let douglasSolver ns nv = cuda {
+
+    let! sFdWeights = defineConstantArray<FdWeights>(ns)
+    let! vFdWeights = defineConstantArray<FdWeights>(nv)
 
     // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
@@ -807,15 +785,15 @@ let douglasSolver = cuda {
    
     let! applyFKernel =
         <@ fun (heston:HestonModel) t tnext (dt:float) (theta:float) (u:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (y0:RMatrixRowMajor) (y1corr:RMatrixRowMajor) ->
-            applyFDouglas heston t tnext dt theta (ref u) s v ns nv (ref y0) (ref y1corr) @> |> defineKernelFuncWithName "applyF"
+            applyFDouglas heston t tnext dt theta (ref u) s v sFdWeights vFdWeights ns nv (ref y0) (ref y1corr) @> |> defineKernelFuncWithName "applyF"
 
     let! solveF1Kernel =
         <@ fun (heston:HestonModel) (t:float) (thetaDt:float) (y0:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor) ->
-            solveF1 heston t thetaDt (rhsSolveF1 (ref y0)) s v ns nv (ref result) @> |> defineKernelFuncWithName "solveF1"
+            solveF1 heston t thetaDt (rhsSolveF1 (ref y0)) s v sFdWeights ns nv (ref result) @> |> defineKernelFuncWithName "solveF1"
 
     let! solveF2Kernel =
         <@ fun (heston:HestonModel) (t:float) (thetaDt:float) (y1:RMatrixRowMajor) (y1corr:RMatrixRowMajor) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv (result:RMatrixRowMajor) ->
-            solveF2 heston t thetaDt (rhsSolveF2 (ref y1) (ref y1corr)) s v ns nv (ref result) @> |> defineKernelFuncWithName "solveF2"
+            solveF2 heston t thetaDt (rhsSolveF2 (ref y1) (ref y1corr)) s v vFdWeights ns nv (ref result) @> |> defineKernelFuncWithName "solveF2"
 
     let! zerosKernel = 
         <@ fun ns nv (u:RMatrixRowMajor) ->
@@ -828,7 +806,9 @@ let douglasSolver = cuda {
     let! copyGridsKernel = 
         <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
             copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
-                         
+      
+    let! fdWeights = fdWeights
+                       
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
@@ -839,6 +819,9 @@ let douglasSolver = cuda {
         let copyGridsKernel = copyGridsKernel.Apply m
         let solveF1Kernel = solveF1Kernel.Apply m
         let solveF2Kernel = solveF2Kernel.Apply m
+        let fdWeights = fdWeights.Apply m
+        let sFdWeights = sFdWeights.Apply m
+        let vFdWeights = vFdWeights.Apply m
 
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonDouglasSolverParam) ->
 
@@ -873,6 +856,11 @@ let douglasSolver = cuda {
                 let! vred = DArray.createInBlob<float> worker param.nv
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
                 
+                // precalculate the finite difference weights
+                let! sfdw, vfdw = fdWeights s v param.ns param.nv
+                sFdWeights.Scatter(sfdw.Ptr, sfdw.Length)
+                vFdWeights.Scatter(vfdw.Ptr, vfdw.Length)
+
                 do! PCalc.action (fun hint ->
                     let blockSize = 16
                     let sharedSize = (blockSize + 2) * (blockSize + 2) * sizeof<float>
@@ -899,8 +887,6 @@ let douglasSolver = cuda {
                         let t0 = t.[ti]
                         let t1 = t.[ti + 1]
                         let dt = t1 - t0
-
-                        //let dt = 3.3984e-4
 
                         let thetaDt = param.theta*dt
 

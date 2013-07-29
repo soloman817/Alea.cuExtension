@@ -1,4 +1,4 @@
-﻿module Alea.CUDA.Extension.Finance.Heston
+﻿module Alea.CUDA.Extension.Finance.HestonPreCalc
 
 open Microsoft.FSharp.Quotations
 open Alea.Interop.CUDA
@@ -45,6 +45,53 @@ type HestonModel =
     [<ReflectedDefinition>]
     new (rho:float, sigma:float, rd:float, rf:float, kappa:float, eta:float) =
         { rho = rho; sigma = sigma; rd = rd; rf = rf; kappa = kappa; eta = eta } 
+
+[<Struct>]
+type RFdWeights =
+    val n : int
+    [<PointerField(MemorySpace.Global)>] val mutable v1 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable v2 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable v3 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable w1 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable w2 : int64
+    [<PointerField(MemorySpace.Global)>] val mutable w3 : int64
+
+    [<PointerProperty("v1")>] member this.V1 with get () = DevicePtr<float>(this.v1) and set (ptr:DevicePtr<float>) = this.v1 <- ptr.Handle64
+    [<PointerProperty("v2")>] member this.V2 with get () = DevicePtr<float>(this.v2) and set (ptr:DevicePtr<float>) = this.v2 <- ptr.Handle64
+    [<PointerProperty("v3")>] member this.V3 with get () = DevicePtr<float>(this.v3) and set (ptr:DevicePtr<float>) = this.v3 <- ptr.Handle64
+    [<PointerProperty("w1")>] member this.W1 with get () = DevicePtr<float>(this.w1) and set (ptr:DevicePtr<float>) = this.w1 <- ptr.Handle64
+    [<PointerProperty("w2")>] member this.W2 with get () = DevicePtr<float>(this.w2) and set (ptr:DevicePtr<float>) = this.w2 <- ptr.Handle64
+    [<PointerProperty("w3")>] member this.W3 with get () = DevicePtr<float>(this.w3) and set (ptr:DevicePtr<float>) = this.w3 <- ptr.Handle64
+
+    [<ReflectedDefinition>]
+    new (n:int, v1:DevicePtr<float>, v2:DevicePtr<float>, v3:DevicePtr<float>, w1:DevicePtr<float>, w2:DevicePtr<float>, w3:DevicePtr<float>) =
+        { n = n; v1 = v1.Handle64; v2 = v2.Handle64; v3 = v3.Handle64; w1 = w1.Handle64; w2 = w2.Handle64; w3 = w3.Handle64 }
+
+type HFdWeights = { V1 : float[]; V2 : float[]; V3 : float[]; W1 : float[]; W2 : float[]; W3 : float[] }
+
+type DFdWeights = 
+    val V1 : DArray<float>
+    val V2 : DArray<float>
+    val V3 : DArray<float>
+    val W1 : DArray<float>
+    val W2 : DArray<float>
+    val W3 : DArray<float>
+    
+    new(v1:DArray<float>, v2:DArray<float>, v3:DArray<float>, w1:DArray<float>, w2:DArray<float>, w3:DArray<float>) = 
+       { V1 = v1; V2 = v2; V3 = v3; W1 = w1; W2 = w2; W3 = w3 }
+       
+    member this.Raw() = RFdWeights(this.V1.Length, this.V1.Ptr, this.V2.Ptr, this.V3.Ptr, this.W1.Ptr, this.W2.Ptr, this.W3.Ptr)
+
+    member this.Gather() = pcalc {
+            let! v1 = this.V1.Gather()
+            let! v2 = this.V2.Gather()
+            let! v3 = this.V3.Gather()
+            let! w1 = this.W1.Gather()
+            let! w2 = this.W2.Gather()
+            let! w3 = this.W3.Gather()
+            let diff : HFdWeights = { V1 = v1; V2 = v2; V3 = v3; W1 = w1; W2 = w2; W3 = w3 }
+            return diff
+        }
 
 [<Struct>]
 type FdWeights =
@@ -112,6 +159,75 @@ type A =
 
     [<ReflectedDefinition>]
     static member apply (a:A) um u0 up = a.al*um + a.ad*u0 + a.au*up
+
+/// Calculate finite difference weights in s and v direction
+/// The s and v grid are extended with ghost points
+let fdWeights = cuda {
+
+    let! fdWeightsKernel = 
+        <@  fun (vFdWeights:RFdWeights) (sFdWeights:RFdWeights) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
+            let n = max ns nv
+            let mutable i = threadIdx.x + 1
+            while i < n do
+
+                if i < nv then
+                    let vi = v.[i]
+                    let dv = vi - v.[i-1]
+                    let dvp = v.[i+1] - vi
+
+                    let fd = if i = 1 then forwardWeightsSimple dvp else centralWeights dv dvp
+    
+                    vFdWeights.V1.[i] <- fd.v1
+                    vFdWeights.V2.[i] <- fd.v2
+                    vFdWeights.V3.[i] <- fd.v3
+                    vFdWeights.W1.[i] <- fd.w1
+                    vFdWeights.W2.[i] <- fd.w2
+                    vFdWeights.W3.[i] <- fd.w3
+
+                if i < ns then
+                    let si = s.[i]
+                    let ds = si - s.[i-1]
+                    let dsp = s.[i+1] - si
+
+                    let fd = centralWeights ds dsp 
+
+                    sFdWeights.V1.[i] <- fd.v1
+                    sFdWeights.V2.[i] <- fd.v2
+                    sFdWeights.V3.[i] <- fd.v3
+                    sFdWeights.W1.[i] <- fd.w1
+                    sFdWeights.W2.[i] <- fd.w2
+                    sFdWeights.W3.[i] <- fd.w3
+
+                i <- i + blockDim.x @> |> defineKernelFunc
+
+    return PFunc(fun (m:Module) (s:DArray<float>) (v:DArray<float>) ns nv->
+        let worker = m.Worker
+        pcalc {
+            
+            let! sv1 = DArray.createInBlob<float> worker ns
+            let! sv2 = DArray.createInBlob<float> worker ns
+            let! sv3 = DArray.createInBlob<float> worker ns
+            let! sw1 = DArray.createInBlob<float> worker ns
+            let! sw2 = DArray.createInBlob<float> worker ns
+            let! sw3 = DArray.createInBlob<float> worker ns
+            let sFdWeights = DFdWeights(sv1, sv2, sv3, sw1, sw2, sw3)
+
+            let! vv1 = DArray.createInBlob<float> worker nv
+            let! vv2 = DArray.createInBlob<float> worker nv
+            let! vv3 = DArray.createInBlob<float> worker nv
+            let! vw1 = DArray.createInBlob<float> worker nv
+            let! vw2 = DArray.createInBlob<float> worker nv
+            let! vw3 = DArray.createInBlob<float> worker nv
+            let vFdWeights = DFdWeights(vv1, vv2, vv3, vw1, vw2, vw3)
+
+            do! PCalc.action (fun hint ->
+                let blockSize = 256
+                let n = max ns nv
+                let gridSize = Util.divup n blockSize           
+                let lp = LaunchParam(gridSize, blockSize) |> hint.ModifyLaunchParam
+                fdWeightsKernel.Launch m lp (sFdWeights.Raw()) (vFdWeights.Raw()) s.Ptr v.Ptr ns nv)
+
+            return sFdWeights, vFdWeights } ) }
 
 /// Operator A1 i-th row  
 let [<ReflectedDefinition>] a1Operator (j:int) (ns:int) (heston:HestonModel) sj vi ds dsp =   
@@ -690,6 +806,8 @@ type HestonEulerSolverParam =
 /// we may need to have small time steps to maintain stability.
 let eulerSolver = cuda {
 
+    //let! param = defineConstantArray<'P>(1)
+
     // we add artifical zeros to avoid access violation in the kernel
     let! initCondKernel =     
         <@ fun ns nv (s:DevicePtr<float>) (u:RMatrixRowMajor) optionType strike ->
@@ -710,6 +828,8 @@ let eulerSolver = cuda {
     let! copyGridsKernel = 
         <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
             copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
+
+    let! fdWeights = fdWeights
                          
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -718,6 +838,7 @@ let eulerSolver = cuda {
         let applyFKernel = applyFKernel.Apply m
         let copyValuesKernel = copyValuesKernel.Apply m
         let copyGridsKernel = copyGridsKernel.Apply m
+        let fdWeights = fdWeights.Apply m
 
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonEulerSolverParam) ->
 
@@ -751,6 +872,11 @@ let eulerSolver = cuda {
                 let! sred = DArray.createInBlob<float> worker param.ns
                 let! vred = DArray.createInBlob<float> worker param.nv
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
+
+                // precalculate the finite difference weights
+                let! sfdw, vfdw = fdWeights s v param.ns param.nv
+                let sfdw = sfdw.Raw()
+                let vfdw = vfdw.Raw()
                 
                 do! PCalc.action (fun hint ->
                     let sharedSize = 10 * 10 * sizeof<float>
@@ -828,7 +954,9 @@ let douglasSolver = cuda {
     let! copyGridsKernel = 
         <@ fun ns nv (s0:DevicePtr<float>) (v0:DevicePtr<float>) (s1:DevicePtr<float>) (v1:DevicePtr<float>) ->
             copyGrids ns nv s0 v0 s1 v1 @> |> defineKernelFuncWithName "copyGrids"    
-                         
+      
+    let! fdWeights = fdWeights
+                       
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let initCondKernel = initCondKernel.Apply m
@@ -839,6 +967,7 @@ let douglasSolver = cuda {
         let copyGridsKernel = copyGridsKernel.Apply m
         let solveF1Kernel = solveF1Kernel.Apply m
         let solveF2Kernel = solveF2Kernel.Apply m
+        let fdWeights = fdWeights.Apply m
 
         fun (heston:HestonModel) (optionType:OptionType) strike timeToMaturity (param:HestonDouglasSolverParam) ->
 
@@ -873,6 +1002,11 @@ let douglasSolver = cuda {
                 let! vred = DArray.createInBlob<float> worker param.nv
                 let! ured = DMatrix.createInBlob<float> worker RowMajorOrder param.nv param.ns 
                 
+                // precalculate the finite difference weights
+                let! sfdw, vfdw = fdWeights s v param.ns param.nv
+                let sfdw = sfdw.Raw()
+                let vfdw = vfdw.Raw()
+
                 do! PCalc.action (fun hint ->
                     let blockSize = 16
                     let sharedSize = (blockSize + 2) * (blockSize + 2) * sizeof<float>
@@ -899,8 +1033,6 @@ let douglasSolver = cuda {
                         let t0 = t.[ti]
                         let t1 = t.[ti + 1]
                         let dt = t1 - t0
-
-                        //let dt = 3.3984e-4
 
                         let thetaDt = param.theta*dt
 

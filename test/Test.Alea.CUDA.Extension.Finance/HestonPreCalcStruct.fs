@@ -1,4 +1,4 @@
-﻿module Test.Alea.CUDA.Extension.Finance.Heston
+﻿module Test.Alea.CUDA.Extension.Finance.HestonPreCalcStruct
 
 open System
 open Microsoft.FSharp.Quotations
@@ -6,15 +6,18 @@ open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.Finance.Heston
+open Alea.CUDA.Extension.Finance.HestonPreCalcStruct
 open Alea.CUDA.Extension.Finance.Grid
 open Test.Alea.CUDA.Extension
 
 [<Test>]
-let ``Euler scheme`` () =
+let ``Finite difference weights precalc`` () =
+
+    let ns = 48
+    let nv = 32
 
     let worker = getDefaultWorker()
-    let eulerSolver = worker.LoadPModule(eulerSolver).Invoke
+    let eulerSolver = worker.LoadPModule(eulerSolver ns nv).Invoke
 
     // Heston model params
     let rho = -0.6133
@@ -34,8 +37,71 @@ let ``Euler scheme`` () =
     let theta = 0.5
     let sMax = 220.0
     let vMax = 4.0
+    let cS = strike/5.0
+    let cV = vMax/5.0
+    let param = HestonEulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
+
+    let fdWeights = worker.LoadPModule(fdWeights).Invoke
+
+    let fdCalculator = pcalc {
+            // we add one more point to the state grids because the value surface has a ghost aerea as well
+            let s, ds = concentratedGridBetween param.sMin param.sMax strike param.ns param.sC
+            let v, dv = concentratedGridBetween 0.0 param.vMax 0.0 param.nv param.vC
+
+            // extend grids for ghost points
+            let sGhost = 2.0*s.[s.Length - 1] - s.[s.Length - 2]
+            let s = Array.append s [|sGhost|]
+            let vLowerGhost = 2.0*v.[0] - v.[1]
+            let v = Array.append [|vLowerGhost|] v
+
+            let! s = DArray.scatterInBlob worker s
+            let! v = DArray.scatterInBlob worker v
+
+            // add zero value ghost points to the value surface to allow simpler access in the kernel
+            // one ghost point at s = smax and v = 0
+            // no ghost point needed at v = vmax and s = 0 because there we have Dirichlet boundary 
+            let ns1 = param.ns+1
+            let nv1 = param.nv+1
+                
+            let! sfdw, vfdw = fdWeights s v param.ns param.nv
+            
+            let! sfdw = sfdw.Gather()  
+            let! vfdw = vfdw.Gather()
+            return sfdw, vfdw }
+
+    let result = fdCalculator |> PCalc.runWithKernelTiming(10)
+//    let result, loggers = pricer |> PCalc.runWithTimingLogger
+//    loggers.["default"].DumpLogs()
+    printfn "%A" result
+
+[<Test>]
+let ``Euler scheme`` () =
+
     let ns = 48
     let nv = 32
+
+    let worker = getDefaultWorker()
+    let eulerSolver = worker.LoadPModule(eulerSolver ns nv).Invoke
+
+    // Heston model params
+    let rho = -0.6133
+    let sigma = 0.3920
+    let kappa = 1.1954
+    let eta = 0.0677
+    let rd = 0.02
+    let rf = 0.01
+    let heston = HestonModel(rho, sigma, rd, rf, kappa, eta)
+
+    // contract params
+    let timeToMaturity = 1.0
+    let strike = 55.0
+    let optionType = Call
+
+    // PDE solver params
+    let theta = 0.5
+    let sMax = 220.0
+    let vMax = 4.0
+
     let cS = strike/5.0
     let cV = vMax/5.0
     let param = HestonEulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
@@ -57,10 +123,12 @@ let ``Euler scheme plotting`` () =
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
-            // in real app, we will first compile template into irm, and load here
+            let ns = 48
+            let nv = 32
+                        // in real app, we will first compile template into irm, and load here
             // this worker from context, which is capable interop with graphics
             printf "Compiling..."
-            let eulerSolver = context.Worker.LoadPModule(eulerSolver).Invoke
+            let eulerSolver = context.Worker.LoadPModule(eulerSolver ns nv).Invoke
             printfn "[OK]"
 
             // Heston model params
@@ -81,8 +149,7 @@ let ``Euler scheme plotting`` () =
             let theta = 0.5
             let sMax = 220.0
             let vMax = 4.0
-            let ns = 48
-            let nv = 32
+
             let cS = strike/5.0
             let cV = vMax/5.0
             let param = HestonEulerSolverParam(theta, 0.0, sMax, vMax, ns, nv, cS, cV)
@@ -118,8 +185,11 @@ let ``Euler scheme plotting`` () =
 [<Test>]
 let ``Douglas scheme`` () =
 
+    let ns = 48
+    let nv = 32
+
     let worker = getDefaultWorker()
-    let douglasSolver = worker.LoadPModule(douglasSolver).Invoke
+    let douglasSolver = worker.LoadPModule(douglasSolver ns nv).Invoke
 
     // Heston model params
     let rho = -0.6133
@@ -139,8 +209,6 @@ let ``Douglas scheme`` () =
     let theta = 0.5
     let sMax = 220.0
     let vMax = 4.0
-    let ns = 48
-    let nv = 32
     let nt = 100
     let cS = strike/5.0
     let cV = vMax/5.0
@@ -164,8 +232,11 @@ let ``Douglas scheme plotting`` () =
         pcalc {
             // in real app, we will first compile template into irm, and load here
             // this worker from context, which is capable interop with graphics
+            let ns = 126
+            let nv = 62
+            
             printf "Compiling..."
-            let douglasSolver = context.Worker.LoadPModule(douglasSolver).Invoke
+            let douglasSolver = context.Worker.LoadPModule(douglasSolver ns nv).Invoke
             printfn "[OK]"
 
             // Heston model params
@@ -186,8 +257,7 @@ let ``Douglas scheme plotting`` () =
             let theta = 0.5
             let sMax = 220.0
             let vMax = 4.0
-            let ns = 126
-            let nv = 62
+
             let nt = 100
             let cS = strike/5.0
             let cV = vMax/5.0
