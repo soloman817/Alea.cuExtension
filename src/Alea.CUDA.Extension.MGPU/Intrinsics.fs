@@ -5,7 +5,9 @@
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
+open Alea.CUDA.Extension.MGPU.Static
 open Alea.CUDA.Extension.MGPU.DeviceUtil
+
 
 // actrually, the DeviceFunction.__brev(x) doesn't provide host code,
 // if you call it from host, you will get exception. we can extend this
@@ -13,6 +15,21 @@ open Alea.CUDA.Extension.MGPU.DeviceUtil
 // is only called from kernel.
 let [<ReflectedDefinition>] brev x = DeviceFunction.__brev(x)
 
+let [<ReflectedDefinition>] clz x =
+    let mutable i = 31
+    let mutable r = 32
+    while i >= 0 do
+        if ((1 <<< i) &&& x) = 1 then
+            r <- 31 - i
+        i <- i - 1
+    r
+
+
+let [<ReflectedDefinition>] findLog2 x roundUp = 
+    let mutable a = 31 - clz x
+    if roundUp then
+        a <- a + (if sIsPow2 x then 0 else 1)
+    a
 
 let ulonglong_as_uint2 = 
     <@ fun (x:uint64) ->

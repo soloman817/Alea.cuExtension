@@ -122,8 +122,10 @@ let inline swap (ident:'T) =
         member this.Device =
             <@ fun (a:RWPtr<'T>) (b:RWPtr<'T>) ->
                 let c = a
-                a.[0] <- b.[0]
-                b.[0] <- c.[0] @> }
+                let mutable a = a
+                let mutable b = b
+                a <- b
+                b <- c @> }
 
 type MgpuSearchType =
     | MgpuSearchTypeNone
