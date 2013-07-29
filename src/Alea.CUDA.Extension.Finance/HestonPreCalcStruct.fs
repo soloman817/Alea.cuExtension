@@ -118,7 +118,7 @@ type A =
 let fdWeights = cuda {
 
     let! fdWeightsKernel = 
-        <@  fun (vFdWeights:DevicePtr<FdWeights>) (sFdWeights:DevicePtr<FdWeights>) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
+        <@  fun (sFdWeights:DevicePtr<FdWeights>) (vFdWeights:DevicePtr<FdWeights>) (s:DevicePtr<float>) (v:DevicePtr<float>) ns nv ->
             let n = max ns nv
             let mutable i = threadIdx.x + 1
             while i < n do
@@ -354,6 +354,7 @@ let [<ReflectedDefinition>] applyF (heston:HestonModel) t (dt:float) (u:RMatrixR
             
                 // set u for i = 1,...,iMax, j = 1,...,jMax
                 set u i j (u00 + dt*(a0+a1+a2+b1+b2))
+                //set u i j a2fd.w1
 
                 __syncthreads()
                
@@ -739,6 +740,7 @@ let eulerSolver ns nv = cuda {
                     initCondKernel.Launch lpm param.ns param.nv s.Ptr u optionType.sign strike
 
                     for ti = 0 to nt-2 do
+                    //for ti = 0 to 0 do
 
                         let t0 = t.[ti]
                         let t1 = t.[ti + 1]

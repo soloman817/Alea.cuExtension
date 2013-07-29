@@ -69,10 +69,19 @@ let ``Finite difference weights precalc`` () =
             let! vfdw = vfdw.Gather()
             return sfdw, vfdw }
 
-    let result = fdCalculator |> PCalc.runWithKernelTiming(10)
-//    let result, loggers = pricer |> PCalc.runWithTimingLogger
+    let (sfdw, vfdw), tc = fdCalculator |> PCalc.runWithKernelTiming(10)
+//    let result, loggers = fdCalculator |> PCalc.runWithTimingLogger
 //    loggers.["default"].DumpLogs()
-    printfn "%A" result
+    
+    printf "s v1 (%d) : " sfdw.Length
+    for i = 0 to sfdw.Length-1 do
+        printf "%f, " sfdw.[i].w1
+    printf "\n"    
+
+    printf "v v1 (%d) : " vfdw.Length
+    for i = 0 to vfdw.Length-1 do
+        printf "%f, " vfdw.[i].w1
+    printf "\n"    
 
 [<Test>]
 let ``Euler scheme`` () =
@@ -115,6 +124,14 @@ let ``Euler scheme`` () =
 //    let result, loggers = pricer |> PCalc.runWithTimingLogger
 //    loggers.["default"].DumpLogs()
     printfn "%A" result
+
+    let (u, _, _, _), _ = result
+
+    for i = 0 to nv-1 do
+        printf "[%d] : " i
+        for j = 0 to ns-1 do
+            printf "%f, " u.[i*ns + j]
+        printf "\n"
 
 [<Test>]
 let ``Euler scheme plotting`` () =
