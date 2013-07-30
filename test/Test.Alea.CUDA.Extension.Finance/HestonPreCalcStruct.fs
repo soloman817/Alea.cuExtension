@@ -240,17 +240,28 @@ let ``Douglas scheme`` () =
 //    let result, loggers = pricer |> PCalc.runWithTimingLogger
 //    loggers.["default"].DumpLogs()
     printfn "%A" result
+
+    let (u, _, _, _), _ = result
+
+    for i = 0 to nv-1 do
+        printf "[%d] : " i
+        for j = 0 to ns-1 do
+            printf "%f, " u.[i*ns + j]
+        printf "\n"
+
 [<Test>]
 let ``Douglas scheme plotting`` () =
     
-    let verbose = false
+    let verbose = true
 
     let loop (context:Graphics.Direct3D9.Application.Context) =
         pcalc {
             // in real app, we will first compile template into irm, and load here
-            // this worker from context, which is capable interop with graphics
-            let ns = 126
-            let nv = 62
+//            // this worker from context, which is capable interop with graphics
+//            let ns = 126
+//            let nv = 62
+            let ns = 48
+            let nv = 32
             
             printf "Compiling..."
             let douglasSolver = context.Worker.LoadPModule(douglasSolver ns nv).Invoke
