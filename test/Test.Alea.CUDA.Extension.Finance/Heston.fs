@@ -50,6 +50,14 @@ let ``Euler scheme`` () =
 //    loggers.["default"].DumpLogs()
     printfn "%A" result
 
+    let (u, _, _, _), _ = result
+
+    for i = 0 to nv-1 do
+        printf "[%d] : " i
+        for j = 0 to ns-1 do
+            printf "%f, " u.[i*ns + j]
+        printf "\n"
+
 [<Test>]
 let ``Euler scheme plotting`` () =
     
