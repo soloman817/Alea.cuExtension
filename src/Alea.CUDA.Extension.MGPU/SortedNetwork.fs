@@ -13,132 +13,80 @@ open Alea.CUDA.Extension.MGPU.LoadStore
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
+
+//////////////////////////////////////////////////////////////////////////////////
+//// Odd-even transposition sorting network. Sorts keys and values in-place in
+//// register.
+//// http://en.wikipedia.org/wiki/Odd%E2%80%93even_sort
 type IOddEvenTransposeSortT<'T> =
     abstract member Sort : Expr<RWPtr<'T> -> RWPtr<'T> -> int -> unit>
 
+//let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'T>) =
+//    { new IOddEvenTransposeSortT<'T> with
+//        member this.Sort = 
+//            let swap = (swap compOp.Identity).Device
+//            let comp = compOp.Device            
+//            <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
+//                let swap = %swap
+//                let comp = %comp
+//                            
+//                let mutable i = 1 &&& I
+//                while i < VT - 1 do
+//                    if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+//                        swap keys.[i] keys.[i + 1]
+//                        swap values.[i] values.[i + 1]
+//                    i <- i + 2                
+//                 @> }
 
-//[<Struct; StructLayout(LayoutKind.Sequential, Pack = 4)>]
-//type OddEvenTransposeSortT =
-//    val I : int
-//    val VT : int
-//    
-//    new (i, vt) = { I = i; VT = vt }
-//        
-//    member this.Sort (ident:'T) (comp:IComp<'T>) =
-//        let swap = (swap ident).Device
-//        let comp = comp.Device
-//        <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
-//            let swap = %swap
-//            let comp = %comp
-//            
-//            let mutable i = 1 &&& this.I
-//            while i < this.VT - 2 do
-//                if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i]) = 1) ) then
-//                    swap keys.[i] keys.[i + 1]
-//                    swap values.[i] values.[i + 1]
-//                i <- i + 2
-//            () @>
-let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'T>) =
-    { new IOddEvenTransposeSortT<'T> with
-        member this.Sort = 
-            let swap = (swap compOp.Identity).Device
-            //let sort = oddEvenTransposeSortT(I + 1, VT).Sort ident comp
-            let comp = compOp.Device            
-            <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
-                let swap = %swap
-                let comp = %comp
-                //let sort = %sort
-            
-                let mutable i = 1 &&& I
-                while i < VT - 2 do
-                    if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i])) ) then
-                        swap keys.[i] keys.[i + 1]
-                        swap values.[i] values.[i + 1]
-                    i <- i + 2
-                (*sort keys values flags*)
-                 @> }
 
-let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TV>) =
-    let swap = (swap compOp.Identity).Device
-    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
-    let comp = compOp.Device
-    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
-        let swap = %swap
+let oddEvenTransposeSortT (VT:int) (compOp:IComp<'T>) =
+    let comp = compOp.Device        
+    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int) ->        
         let comp = %comp
-        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+        let mutable level = 0
+        while level < VT do
+            let mutable i = 1 &&& level
+            while i < VT - 1 do
+                //if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+                if ( comp keys.[i + 1] keys.[i] ) then
+                    swap keys.[i] keys.[i + 1]
+                    swap values.[i] values.[i + 1]
+                i <- i + 2  
+            level <- level + 1 
+    @>
 
-        let mutable i = 1 &&& I
-        while i < VT - 2 do
-            if ( ((2 <<< i) &&& flags) = 0 ) && ( ((comp keys.[i + 1] keys.[i])) ) then
-                swap keys.[i] keys.[i + 1]
-                swap values.[i] values.[i + 1]
-            i <- i + 2
-        oddEvenTransposeSortT keys values flags
-            @>
+
+
+
+//let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TV>) =
+//    let swap = (swap compOp.Identity).Device
+//    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
+//    let comp = compOp.Device
+//    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+//        let swap = %swap
+//        let comp = %comp
+//        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+//
+//        let mutable i = 1 &&& I
+//        while i < VT - 2 do
+//            if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+//                swap keys.[i] keys.[i + 1]
+//                swap values.[i] values.[i + 1]
+//            i <- i + 2
+//        oddEvenTransposeSortT keys values flags
+//            @>
 
 
 let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
-    let oddEvenTransposeSortT = OddEvenTransposeSortT 0 VT compOp
+    let oddEvenTransposeSortT = oddEvenTransposeSortT VT compOp
     <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) ->
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
         oddEvenTransposeSortT keys values 0
     @>
 
 
-//////////////////////////////////////////////////////////////////////////////////
-//// Odd-even transposition sorting network. Sorts keys and values in-place in
-//// register.
-//// http://en.wikipedia.org/wiki/Odd%E2%80%93even_sort
-//	
-//// CUDA Compiler does not currently unroll these loops correctly. Write using
-//// template loop unrolling.
-///*
-//template<int VT, typename T, typename V, typename Comp>
-//MGPU_DEVICE void OddEvenTransposeSort(T* keys, V* values, Comp comp) {
-//	#pragma unroll
-//	for(int level = 0; level < VT; ++level) {
-//
-//		#pragma unroll
-//		for(int i = 1 & level; i < VT - 1; i += 2) {
-//			if(comp(keys[i + 1], keys[i])) {
-//				mgpu::swap(keys[i], keys[i + 1]);
-//				mgpu::swap(values[i], values[i + 1]);
-//			}
-//		}
-//	}
-//}*/
-//
-//template<int I, int VT>
-//struct OddEvenTransposeSortT {
-//	// Sort segments marked by head flags. If the head flag between i and i + 1
-//	// is set (so that (2<< i) & flags is true), the values belong to different 
-//	// segments and are not swapped.
-//	template<typename K, typename V, typename Comp>
-//	static MGPU_DEVICE void Sort(K* keys, V* values, int flags, Comp comp) {
-//		#pragma unroll
-//		for(int i = 1 & I; i < VT - 1; i += 2)
-//			if((0 == ((2<< i) & flags)) && comp(keys[i + 1], keys[i])) {
-//				mgpu::swap(keys[i], keys[i + 1]);
-//				mgpu::swap(values[i], values[i + 1]);
-//			}
-//		OddEvenTransposeSortT<I + 1, VT>::Sort(keys, values, flags, comp);
-//	}
-//};
-//template<int I> struct OddEvenTransposeSortT<I, I> {
-//	template<typename K, typename V, typename Comp>
-//	static MGPU_DEVICE void Sort(K* keys, V* values, int flags, Comp comp) { }
-//};
-//
-//template<int VT, typename K, typename V, typename Comp>
-//MGPU_DEVICE void OddEvenTransposeSort(K* keys, V* values, Comp comp) {
-//	OddEvenTransposeSortT<0, VT>::Sort(keys, values, 0, comp);
-//}
-//template<int VT, typename K, typename V, typename Comp>
-//MGPU_DEVICE void OddEvenTransposeSortFlags(K* keys, V* values, int flags, 
-//	Comp comp) {
-//	OddEvenTransposeSortT<0, VT>::Sort(keys, values, flags, comp);
-//}
-//
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// Batcher Odd-Even Mergesort network
 //// Unstable but executes much faster than the transposition sort.

@@ -23,18 +23,6 @@ let deviceSharedToReg (NT:int) (VT:int) =
                 if index < count then reg.[i] <- data.[index]
         if sync then __syncthreads() @>
 
-//let deviceGlobalToReg (NT:int) (VT:int) = deviceSharedToReg NT VT
-let deviceGlobalToReg (NT:int) (VT:int) =
-    <@ fun (count:int) (data:DevicePtr<'T>) (tid:int) (reg:RWPtr<'T>) (sync:bool) ->
-            if count >= NT * VT then
-                for i = 0 to VT - 1 do
-                    reg.[i] <- data.[NT * i + tid]
-            else
-                for i = 0 to VT - 1 do
-                    let index = NT * i + tid
-                    if index < count then reg.[i] <- data.[index]
-            if sync then __syncthreads() @>
-
 // Cooperative store functions
 let deviceRegToShared (NT:int) (VT:int) =
     <@ fun (count:int) (reg:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
@@ -55,6 +43,22 @@ let deviceRegToGlobal (NT:int) (VT:int) =
             if index < count then
                 dest.[index] <- reg.[i]
         if sync then __syncthreads() @>
+
+//let deviceGlobalToReg (NT:int) (VT:int) = deviceSharedToReg NT VT
+let deviceGlobalToReg (NT:int) (VT:int) =
+    <@ fun (count:int) (data:DevicePtr<'T>) (tid:int) (reg:RWPtr<'T>) (sync:bool) ->
+            if count >= NT * VT then
+                for i = 0 to VT - 1 do
+                    reg.[i] <- data.[NT * i + tid]
+            else
+                for i = 0 to VT - 1 do
+                    let index = NT * i + tid
+                    if index < count then reg.[i] <- data.[index]
+            if sync then __syncthreads() @>
+
+
+
+
 
 
 // DeviceMemToMemLoop
@@ -189,6 +193,7 @@ let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
 
         deviceRegToShared (NT * VT1) reg tid shared sync @>
 
+
 let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
     let deviceRegToShared = deviceRegToShared NT VT1
     <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (tid:int) (shared:RWPtr<'T>) (sync:bool) ->
@@ -261,10 +266,7 @@ let deviceTransferMergeValuesA (NT:int) (VT:int) =
                 let index = NT * i + tid
                 let gather = indices_shared.[index]
                 if index < count then
-                    if gather < bStart then 
-                        values.[i] <- a_global.[gather] 
-                    else 
-                        values.[i] <- b_global.[gather]
+                    values.[i] <- if gather < bStart then a_global.[gather] else b_global.[gather]
 
         if sync then __syncthreads()
 

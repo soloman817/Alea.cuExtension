@@ -174,6 +174,56 @@ let mergePairs (compOp:IComp<'TV>) = cuda {
                 return merger } ) }
 
 
+let mergesortKeys (compOp:IComp<'TV>) = cuda {
+    let! api = Mergesort.mergesortKeys compOp
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (count:int) ->
+            let api = api count
+            pcalc {                
+                let merger (source:DArray<'TV>) = 
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint source.Ptr) }
+                return merger } ) }
+
+//let mergesortKeys2() = cuda {
+//    let compOp = (comp CompTypeLess 0)
+//    let! kblocksort = Mergesort.mergesortKeys2 compOp
+//    let! mpp = Search.mergePathPartitions CTASearch.MgpuBoundsLower compOp
+//    let! kmerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
+//    
+//    return PFunc(fun (m:Module) ->
+//        let worker = m.Worker
+//        let kblocksort = kblocksort.Apply m
+//        let mpp = mpp.Apply m
+//        let kmerge = kmerge.Apply m
+//        let swap a b =
+//            let c = a
+//            let mutable a = a
+//            let mutable b = b
+//            a <- b
+//            b <- c
+//        fun (count:int) ->
+//            let nv = 256 * 7
+//            let kblocksort = kblocksort count
+//            pcalc {
+//                let! partition = DArray.createInBlob<int> worker kblocksort.NumPartitions
+//                let merger (source:DArray<int>) (dest:DArray<int>) =
+//                    pcalc {
+//                        do! PCalc.action (fun hint -> kblocksort.Action hint source.Ptr dest.Ptr)
+//                        if (1 &&& kblocksort.NumPasses) <> 0 then swap source.Ptr dest.Ptr
+//                        for pass = 0 to kblocksort.NumPasses - 1 do
+//                            let coop = 2 <<< pass
+//                            let mpp = mpp count 0 nv coop                            
+//                            let kmerge = kmerge count coop
+//                            do! PCalc.action (fun hint -> mpp.Action hint source.Ptr source.Ptr partition.Ptr)                            
+//                            do! PCalc.action (fun hint -> kmerge.Action hint source.Ptr partition.Ptr dest.Ptr)
+//                            swap dest.Ptr source.Ptr }
+//                        
+//                return merger } ) }
+
+
 let scanInPlace (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let! api = Scan.scan mgpuScanType op totalAtEnd
 

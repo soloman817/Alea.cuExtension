@@ -105,27 +105,12 @@ let comp (compType:CompType) (ident:'T) =
             | CompTypeGreater_Equal -> <@ fun a b -> a >= b @> }
 
 
-type ISwap<'TS> =
-    abstract Identity : 'TS
-    abstract Host : ('TS ref -> 'TS ref -> unit)
-    abstract Device : Expr<RWPtr<'TS> -> RWPtr<'TS> -> unit>
-
-let inline swap (ident:'T) =
-    { new ISwap<'T> with
-        member this.Identity = ident
-        member this.Host =
-            fun (a:'T ref) (b:'T ref) ->
-                let c = a
-                a := b.Value
-                b := c.Value
-
-        member this.Device =
-            <@ fun (a:RWPtr<'T>) (b:RWPtr<'T>) ->
-                let c = a
-                let mutable a = a
-                let mutable b = b
-                a <- b
-                b <- c @> }
+let [<ReflectedDefinition>] swap a b =
+    let c = a
+    let mutable a = a
+    let mutable b = b
+    a <- b
+    b <- c
 
 type MgpuSearchType =
     | MgpuSearchTypeNone
