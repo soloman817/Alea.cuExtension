@@ -5,8 +5,40 @@
 open Alea.CUDA
 open Microsoft.FSharp.Quotations
 
+
+let [<ReflectedDefinition>] MgpuBoundsLower = 0
+let [<ReflectedDefinition>] MgpuBoundsUpper = 1
+
+
+type MgpuScanType =
+    | MgpuScanTypeExc
+    | MgpuScanTypeInc
+
+
+type MgpuSearchType =
+    | MgpuSearchTypeNone
+    | MgpuSearchTypeIndex
+    | MgpuSearchTypeMatch
+    | MgpuSearchTypeIndexMatch
+
+
+type MgpuJoinKind =
+    | MgpuJoinKindInner
+    | MgpuJoinKindLeft
+    | MgpuJoinKindRight
+    | MgpuJoinKindOutput
+
+
+type MgpuSetOp =
+    | MgpuSetOpIntersection
+    | MgpuSetOpUnion
+    | MgpuSetOpDiff
+    | MgpuSetOpSymDiff
+
+
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
+
 
 [<Struct;Align(8)>]
 type Int2 =
@@ -14,8 +46,8 @@ type Int2 =
     val mutable y : int
     [<ReflectedDefinition>] // @HERE!!@
     new (x, y) = { x = x; y = y }
-
 type int2 = Int2
+
 
 [<Struct;Align(8)>]
 type UInt2 =
@@ -23,7 +55,6 @@ type UInt2 =
     val mutable y : uint32
     [<ReflectedDefinition>]
     new (x, y) = { x = x; y = y }
-
 type uint2 = UInt2
 
 
@@ -34,8 +65,8 @@ type Int3 =
     val mutable z : int
     [<ReflectedDefinition>] // @HERE!!@
     new (x, y, z) = { x = x; y = y; z = z }
-
 type int3 = Int3
+
 
 [<Struct;Align(8)>]
 type Int4 =
@@ -44,8 +75,7 @@ type Int4 =
     val mutable z : int
     val mutable w : int
     [<ReflectedDefinition>] // @HERE!!@
-    new (x, y, z, w) = { x = x; y = y; z = z; w = w }
-    
+    new (x, y, z, w) = { x = x; y = y; z = z; w = w }    
 type int4 = Int4
 
 
@@ -79,7 +109,6 @@ type IComp<'TC> =
     abstract Identity : 'TC
     abstract Host : ('TC -> 'TC -> bool)
     abstract Device : Expr<'TC -> 'TC -> bool>
-    
 
 type CompType =
     | CompTypeLess
@@ -111,9 +140,3 @@ let [<ReflectedDefinition>] swap a b =
     let mutable b = b
     a <- b
     b <- c
-
-type MgpuSearchType =
-    | MgpuSearchTypeNone
-    | MgpuSearchTypeIndex
-    | MgpuSearchTypeMatch
-    | MgpuSearchTypeIndexMatch

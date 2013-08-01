@@ -59,7 +59,7 @@ let serialMerge (VT:int) (rangeCheck:bool) (comp:IComp<'TV>) =
         __syncthreads() @>
 
 let ctaBlocksortPass (NT:int) (VT:int) (compOp:IComp<'TV>) =
-    let mergePath = (mergeSearch MgpuBoundsLower compOp).DMergePath
+    let mergePath = (mergePath MgpuBoundsLower compOp).DMergePath
     let serialMerge = serialMerge VT true compOp
     let comp = compOp.Device
     <@ fun  (keys_shared    :RWPtr<'TV>) 

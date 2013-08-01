@@ -96,8 +96,12 @@ let findMergesortInterval =
                     a1 <- min count (frame.x + frame.z)
                     b1 <- min count (frame.y + frame.z)
                 int4(a0,a1,b0,b1)
-            
 
+        // The end partition of the last block for each merge operation is computed
+        // and stored as the begin partition for the subsequent merge. i.e. it is
+        // the same partition but in the wrong coordinate system, so its 0 when it
+        // should be listSize. Correct that by checking if this is the last block
+        // in this merge operation.
         member fmi.Device =
             <@ fun (frame:int3) (coop:int) (block:int) (nv:int) (count:int) (mp0:int) (mp1:int) ->
                 let diag = nv * block - frame.x
@@ -111,6 +115,7 @@ let findMergesortInterval =
                 int4(a0,a1,b0,b1) @> }
 
 
+////////////////////////////////////////////////////////////////////////////////
 // ComputeMergeRange
 let computeMergeRange =
     { new IComputeMergeRange with
@@ -138,10 +143,12 @@ let computeMergeRange =
                 let findMergesortFrame = %findMergesortFrame
                 let findMergesortInterval = %findMergesortInterval
 
+                // Load the merge paths computed by the partitioning kernel.
                 let mp0 = mp_global.[block]
                 let mp1 = mp_global.[block + 1]
                 let gid = nv * block
 
+                // Compute the ranges of the sources in global memory.
                 let mutable range = int4(0,0,0,0)
                 if coop <> 0 then
                     let frame = findMergesortFrame coop block nv
@@ -158,7 +165,7 @@ let computeMergeRange =
 
 //// CTA mergesort support
 let ctaBlocksortPass (NT:int) (VT:int) (compOp:IComp<'TV>) =
-    let mergePath = (mergeSearch MgpuBoundsLower compOp).DMergePath
+    let mergePath = (mergePath MgpuBoundsLower compOp).DMergePath
     let serialMerge = serialMerge VT true compOp
     let comp = compOp.Device
     <@ fun  (keys_shared    :RWPtr<'TV>) 
@@ -260,7 +267,7 @@ let ctaMergesort (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
 
 let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:IComp<'TV>) =
     let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT VT
-    let mergePath = (mergeSearch MgpuBoundsLower compOp).DMergePath
+    let mergePath = (mergePath MgpuBoundsLower compOp).DMergePath
     let serialMerge = serialMerge VT true compOp
 
     <@ fun  (a_global   :DevicePtr<'TV>) 

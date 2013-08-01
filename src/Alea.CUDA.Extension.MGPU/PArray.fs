@@ -31,22 +31,6 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                 return result} ) }
 
 
-let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
-    let! api = Scan.scan mgpuScanType op totalAtEnd
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let api = api.Apply m
-        fun (data:DArray<'TI>) ->
-            pcalc {
-                let count = data.Length
-                let api = api count
-                let! scanned = DArray.createInBlob worker count
-                let! total = DArray.createInBlob worker 1
-                let scanner =
-                    fun () ->
-                        pcalc {do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr )}
-                    |> Lazy.Create
-                return scanner, scanned} ) }
 
 
 
@@ -187,56 +171,86 @@ let mergesortKeys (compOp:IComp<'TV>) = cuda {
                     pcalc { do! PCalc.action (fun hint -> api.Action hint source.Ptr) }
                 return merger } ) }
 
-//let mergesortKeys2() = cuda {
-//    let compOp = (comp CompTypeLess 0)
-//    let! kblocksort = Mergesort.mergesortKeys2 compOp
-//    let! mpp = Search.mergePathPartitions CTASearch.MgpuBoundsLower compOp
-//    let! kmerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
-//    
-//    return PFunc(fun (m:Module) ->
-//        let worker = m.Worker
-//        let kblocksort = kblocksort.Apply m
-//        let mpp = mpp.Apply m
-//        let kmerge = kmerge.Apply m
-//        let swap a b =
-//            let c = a
-//            let mutable a = a
-//            let mutable b = b
-//            a <- b
-//            b <- c
-//        fun (count:int) ->
-//            let nv = 256 * 7
-//            let kblocksort = kblocksort count
-//            pcalc {
-//                let! partition = DArray.createInBlob<int> worker kblocksort.NumPartitions
-//                let merger (source:DArray<int>) (dest:DArray<int>) =
-//                    pcalc {
-//                        do! PCalc.action (fun hint -> kblocksort.Action hint source.Ptr dest.Ptr)
-//                        if (1 &&& kblocksort.NumPasses) <> 0 then swap source.Ptr dest.Ptr
-//                        for pass = 0 to kblocksort.NumPasses - 1 do
-//                            let coop = 2 <<< pass
-//                            let mpp = mpp count 0 nv coop                            
-//                            let kmerge = kmerge count coop
-//                            do! PCalc.action (fun hint -> mpp.Action hint source.Ptr source.Ptr partition.Ptr)                            
-//                            do! PCalc.action (fun hint -> kmerge.Action hint source.Ptr partition.Ptr dest.Ptr)
-//                            swap dest.Ptr source.Ptr }
-//                        
-//                return merger } ) }
 
 
-let scanInPlace (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
-    let! api = Scan.scan mgpuScanType op totalAtEnd
+type PLoadBalanceSearch() =
+    member plbs.Search() = cuda {
+        let! api = LoadBalance.loadBalanceSearch()
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (total:int) (counts:DArray<int>) ->
+                let aCount = total
+                let bCount = counts.Length
+                let api = api aCount bCount
+                let sequence = Array.init aCount (fun i -> i)
+                pcalc {
+                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    let! indices = DArray.createInBlob<int> worker aCount
+                    let! counter = DArray.scatterInBlob worker sequence
+                    let! mpCounter = DArray.scatterInBlob worker sequence                    
+                    do! PCalc.action (fun hint -> api.Action hint counts.Ptr partition.Ptr indices.Ptr counter.Ptr mpCounter.Ptr)                     
+                    return indices } ) }
+    
+    member plbs.SearchInPlace() = cuda {
+        let! api = LoadBalance.loadBalanceSearch()
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (aCount:int) (bCount:int) ->
+                let api = api aCount bCount
+                let sequence = Array.init aCount (fun i -> i)
+                pcalc {
+                    let! counter = DArray.scatterInBlob worker sequence
+                    let! mpCounter = DArray.scatterInBlob worker sequence                    
+                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    let search (data:DArray<int>) (indices:DArray<int>) =
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr partition.Ptr indices.Ptr counter.Ptr mpCounter.Ptr) }
+                    return search } ) }
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let api = api.Apply m
-        fun (numElements:int) ->
-            let api = api numElements
-            pcalc {
-                let! total = DArray.createInBlob worker 1
-                let scanner (data:DArray<'TI>) (scanned:DArray<'TR>) =
-                    pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr) }
-                return scanner } ) }
+
+type PScan() =
+    member ps.Scan(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>, totalAtEnd:int) = cuda {
+        let! api = Scan.scan mgpuScanType op totalAtEnd
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (data:DArray<'TI>) ->
+                let count = data.Length
+                let api = api count
+                pcalc {
+                    let! scanned = DArray.createInBlob worker count
+                    let! total = DArray.createInBlob worker 1
+                    do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)
+                    return total, scanned } ) }
+
+    member ps.Scan(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>) = cuda {
+        let! api = Scan.scan mgpuScanType op 0
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (data:DArray<'TI>) ->
+                let count = data.Length
+                let api = api count
+                pcalc {
+                    let! scanned = DArray.createInBlob worker count
+                    let! total = DArray.createInBlob worker 1
+                    do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)
+                    return total, scanned } ) }
+
+    member ps.Scan(op:IScanOp<'TI,'TV,'TR>) = ps.Scan(ExclusiveScan, op)       
+
+    member ps.ScanInPlace(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>, totalAtEnd:int) = cuda {
+        let! api = Scan.scan mgpuScanType op totalAtEnd
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (numElements:int) ->
+                let api = api numElements
+                pcalc {
+                    let scanner (data:DArray<'TI>) (scanned:DArray<'TR>) (total:DArray<'TV>) =
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr) }
+                    return scanner } ) }    
 
 
 // @COMMENTS@ : for benchmark test, we need wrap it with in-place pattern, so it is just different
@@ -285,3 +299,39 @@ let bulkInsertInPlace() = cuda {
                 return insert } ) }
 
 
+
+//let mergesortKeys2() = cuda {
+//    let compOp = (comp CompTypeLess 0)
+//    let! kblocksort = Mergesort.mergesortKeys2 compOp
+//    let! mpp = Search.mergePathPartitions CTASearch.intLower compOp
+//    let! kmerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
+//    
+//    return PFunc(fun (m:Module) ->
+//        let worker = m.Worker
+//        let kblocksort = kblocksort.Apply m
+//        let mpp = mpp.Apply m
+//        let kmerge = kmerge.Apply m
+//        let swap a b =
+//            let c = a
+//            let mutable a = a
+//            let mutable b = b
+//            a <- b
+//            b <- c
+//        fun (count:int) ->
+//            let nv = 256 * 7
+//            let kblocksort = kblocksort count
+//            pcalc {
+//                let! partition = DArray.createInBlob<int> worker kblocksort.NumPartitions
+//                let merger (source:DArray<int>) (dest:DArray<int>) =
+//                    pcalc {
+//                        do! PCalc.action (fun hint -> kblocksort.Action hint source.Ptr dest.Ptr)
+//                        if (1 &&& kblocksort.NumPasses) <> 0 then swap source.Ptr dest.Ptr
+//                        for pass = 0 to kblocksort.NumPasses - 1 do
+//                            let coop = 2 <<< pass
+//                            let mpp = mpp count 0 nv coop                            
+//                            let kmerge = kmerge count coop
+//                            do! PCalc.action (fun hint -> mpp.Action hint source.Ptr source.Ptr partition.Ptr)                            
+//                            do! PCalc.action (fun hint -> kmerge.Action hint source.Ptr partition.Ptr dest.Ptr)
+//                            swap dest.Ptr source.Ptr }
+//                        
+//                return merger } ) }

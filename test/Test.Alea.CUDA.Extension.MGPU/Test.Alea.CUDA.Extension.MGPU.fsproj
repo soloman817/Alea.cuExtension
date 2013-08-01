@@ -80,6 +80,7 @@
     <Compile Include="CTAMerge.fs" />
     <Compile Include="CTASearch.fs" />
     <Compile Include="CTASortedSearch.fs" />
+    <Compile Include="CTALoadBalance.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="Search.fs" />
@@ -88,6 +89,7 @@
     <Compile Include="SortedSearch.fs" />
     <Compile Include="Merge.fs" />
     <Compile Include="Mergesort.fs" />
+    <Compile Include="LoadBalance.fs" />
     <Compile Include="Debug.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />

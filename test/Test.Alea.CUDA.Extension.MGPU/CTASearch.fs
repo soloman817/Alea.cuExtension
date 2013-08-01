@@ -11,7 +11,7 @@ open NUnit.Framework
 [<Test>]
 let ``cta search : binary search`` () =
     let pfunct = cuda {
-        let binarySearch = (binarySearchFun MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
+        let binarySearch = (binarySearch MgpuBoundsLower (comp CompTypeLess 0)).DBinarySearch
         let! kernel =
             <@ fun (data:DevicePtr<int>) (count:int) (key:int) (output:DevicePtr<int>) -> 
                 let bs = %binarySearch
@@ -35,7 +35,7 @@ let ``cta search : binary search`` () =
 [<Test>]
 let ``cta search : merge search`` () =
     let pfunct = cuda {
-        let mergePath = (mergeSearch MgpuBoundsLower (comp CompTypeLess 0)).DMergePath
+        let mergePath = (mergePath MgpuBoundsLower (comp CompTypeLess 0)).DMergePath
         let! kernel =
             <@ fun (dataA:DevicePtr<int>) (aCount:int) (dataB:DevicePtr<int>) (bCount:int) (diag:int) (output:DevicePtr<int>) ->
                 let mergePath = %mergePath

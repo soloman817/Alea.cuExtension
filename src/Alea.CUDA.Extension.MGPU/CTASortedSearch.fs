@@ -109,14 +109,10 @@ let deviceSerialSearch (VT:int) (bounds:int) (rangeCheck:bool) (indexA:bool) (ma
 
 
 let ctaSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'TK>) =
-    
     let NV = NT * VT
-    
-    let mergePath = (mergeSearch bounds compOp).DMergePath
+    let mergePath = (mergePath bounds compOp).DMergePath
     let deviceSerialSearch1 = deviceSerialSearch VT bounds false indexA matchA indexB matchB compOp
     let deviceSerialSearch2 = deviceSerialSearch VT bounds true indexA matchA indexB matchB compOp
-
-    
 
     <@ fun (keys_shared:RWPtr<'TK>) (aStart:int) (aCount:int) (aEnd:int) (a0:int) (bStart:int) (bCount:int) (bEnd:int) (b0:int) (extended:bool) (tid:int) (indices_shared:RWPtr<int>) ->
         let mergePath = %mergePath

@@ -23,7 +23,6 @@ type Plan =
     }
 
 let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
-    
     let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT (VT + 1) 
     let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
 

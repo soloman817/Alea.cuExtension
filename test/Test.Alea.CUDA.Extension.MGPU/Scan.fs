@@ -10,6 +10,7 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.MGPU.PArray
 open Alea.CUDA.Extension.Output.CSV
 open Alea.CUDA.Extension.Output.Excel
 open NUnit.Framework
@@ -19,6 +20,8 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
+
+let pScanner = new PScan()
 
 let totalAtEnd = 1
 let totalNotAtEnd = 0
@@ -73,14 +76,12 @@ let hostScan (mgpuScanType:int) (n:int) =
 
 let testScan () =
     let test verify eps (data:float[]) = pcalc {
-        let scan = worker.LoadPModule(MGPU.PArray.scan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalAtEnd).Invoke
+        let scan = worker.LoadPModule(pScanner.Scan(ExclusiveScan, (scanOp ScanOpTypeAdd 0.0), totalAtEnd)).Invoke
         let n = data.Length
         printfn "Testing size %d..." n
 
         let! dSource = DArray.scatterInBlob worker data
-        let! dResults = DArray.scatterInBlob worker data
-        let! scanner, scanned = scan dSource
-        do! scanner.Value
+        let! total, scanned = scan dSource
         let! results = scanned.Gather()
 
 
@@ -117,21 +118,22 @@ let testScan () =
 
 
 let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:'TI[]) (testIdx:int) =
-    let scanner = worker.LoadPModule(MGPU.PArray.scanInPlace mgpuScanType op totalAtEnd).Invoke
+    let scanner = worker.LoadPModule(pScanner.ScanInPlace(mgpuScanType, op, totalAtEnd)).Invoke
     let count = data.Length
     
     
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data
         let! dScanned = DArray.createInBlob worker count
+        let! dTotal = DArray.createInBlob worker 1
         let! scan = scanner count
 
         // warm up
-        do! scan dSource dScanned
+        do! scan dSource dScanned dTotal
 
         let! dStopwatch = DStopwatch.startNew worker
         for i = 1 to numIt do
-            do! scan dSource dScanned
+            do! scan dSource dScanned dTotal
         do! dStopwatch.Stop()
         
         let! results = dScanned.Gather()
@@ -176,12 +178,12 @@ let ``compare totalAtEnd & totalNotAtEnd`` () =
     printfn "Host Scan Result ==> Count: (%d),  %A" hResult.Length hResult
     let op = scanOp ScanOpTypeAdd 0
     let calc (tAE:int) = pcalc {
-                                        let scan = worker.LoadPModule(MGPU.PArray.scan 0 op tAE).Invoke
+                                        let scan = worker.LoadPModule(pScanner.Scan(0, op, tAE)).Invoke
                                         let n = hValues.Length
                                         let! dValues = DArray.scatterInBlob worker hValues
                                         let! dResults = DArray.createInBlob<int> worker n
-                                        let! scanner, scanned = scan dValues
-                                        do! scanner.Value
+                                        let! dTotal = DArray.createInBlob<int> worker 1
+                                        let! total, scanned = scan dValues
                                         return! scanned.Gather()}
                                 
     let dResult = (calc totalAtEnd) |> PCalc.run
@@ -204,12 +206,12 @@ let ``exact mgpu website example`` () =
         
     let op = scanOp ScanOpTypeAdd 0
     let calc (tAe:int) (stype:int) = pcalc {  
-                                let scan = worker.LoadPModule(MGPU.PArray.scan stype op tAe).Invoke
+                                let scan = worker.LoadPModule(pScanner.Scan(stype, op, tAe)).Invoke
                                 let n = hValues.Length
                                 let! dValues = DArray.scatterInBlob worker hValues
                                 let! dResults = DArray.createInBlob<int> worker n
-                                let! scanner, scanned = scan dValues
-                                do! scanner.Value
+                                let! dTotal = DArray.createInBlob<int> worker 1
+                                let! total, scanned = scan dValues
                                 return! scanned.Gather()}
     let dExcResult, dIncResult = 
         (calc totalNotAtEnd ExclusiveScan) |> PCalc.run,
