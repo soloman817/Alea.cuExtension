@@ -13,11 +13,6 @@ open Alea.CUDA.Extension.MGPU.CTASearch
 open Alea.CUDA.Extension.MGPU.CTAMerge
 
 
-type Plan =
-    {
-        NT : int
-        VT : int
-    }
 
 let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'TV>) =
     let NT = plan.NT
@@ -37,7 +32,8 @@ let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'TV>) 
             (bCount:int) 
             (mp_global:DevicePtr<int>) 
             (coop:int) 
-            (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) ->
+            (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) 
+            ->
 
         let comp = %comp
         let computeMergeRange = %computeMergeRange

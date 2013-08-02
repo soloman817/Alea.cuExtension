@@ -9,9 +9,10 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 open NUnit.Framework
 
 let worker = getDefaultWorker()
+let pfuncts = new PReduce()
 
 let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
-    let reduce = worker.LoadPModule(PArray.reduce op).Invoke
+    let reduce = worker.LoadPModule(pfuncts.Reduce(op)).Invoke
 
     fun (gold:'TI[] -> 'TV) (verify:'TV -> 'TV -> unit) (data:'TI[]) ->
         let calc = pcalc {

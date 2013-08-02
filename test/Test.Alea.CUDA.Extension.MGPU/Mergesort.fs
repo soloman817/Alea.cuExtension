@@ -8,11 +8,12 @@ open Alea.CUDA.Extension.MGPU.DeviceUtil
 open NUnit.Framework
 
 let worker = Engine.workers.DefaultWorker
+let pfuncts = new PMergesort()
 
 [<Test>]
 let `` simple MergeSort Keys test`` () =
     let compOp = (comp CompTypeLess 0)
-    let pfunct = worker.LoadPModule(MGPU.PArray.mergesortKeys compOp).Invoke
+    let pfunct = worker.LoadPModule(pfuncts.MergesortKeys()).Invoke
 // Input:
     let hSource = [|   81;   13;   90;   83;   12;   96;   91;   22;   63;   30;
                         9;   54;   27;   18;   54;   99;   95;   99;   96;   96;
@@ -41,14 +42,9 @@ let `` simple MergeSort Keys test`` () =
 
     let dResult = pcalc {
         let! dSource = DArray.scatterInBlob worker hSource
-        //let! dDest = DArray.createInBlob worker count
-        let! mergesort = pfunct count
-        do! mergesort dSource // dDest
-//        let! results = pcalc { let! d = dDest.Gather()
-//                               let! s = dSource.Gather() 
-//                               return d, s}
-        let! results = dSource.Gather()
-        return results } |> PCalc.run //InWorker worker
+        let! mergesort = pfunct dSource        
+        let! results = mergesort.Gather()
+        return results } |> PCalc.runInWorker worker
 
 //    let dest, source = dResult
 //    printfn "dest %A" dest

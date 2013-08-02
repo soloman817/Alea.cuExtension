@@ -85,8 +85,15 @@ let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
     @>
 
 
+let oddEvenTransposeSortFlags (VT:int) (compOp:IComp<'TV>) =
+    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+        ()
+    @>
 
-
+let oddEvenMergesortFlags (VT:int) (compOp:IComp<'TV>) =
+    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+        ()
+    @>
 //////////////////////////////////////////////////////////////////////////////////
 //// Batcher Odd-Even Mergesort network
 //// Unstable but executes much faster than the transposition sort.

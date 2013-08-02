@@ -50,6 +50,24 @@ let [<ReflectedDefinition>] popc (x:uint32) =
         i <- i - 1
     r
 
+let [<ReflectedDefinition>] prmt (a:uint32) (b:uint32) (index:uint32) =
+    let mutable result = 0u
+    for i = 0 to 3 do        
+        let sel : uint32 = 0xfu &&& (index >>> (4 * i))
+        let mutable x : uint32 = if (7u &&& sel) > 3u then b else a
+        x <- 0xffu &&& (x >>> (8 * (3 &&& int sel)))
+        if (8 &&& int sel) <> 0 then x <- if (128u &&& x) <> 0u then 0xffu else 0u
+        result <- result ||| (x <<< (8 * i))
+    result
+
+let [<ReflectedDefinition>] ffs (x:int) =
+    let mutable i = 0
+    let mutable r = 0
+    while i < 32 do
+        if ((1 <<< i) &&& x) <> 0 then r <- r + 1
+        i <- i + 1
+    r
+
 
 
 //MGPU_HOST_DEVICE uint bfi(uint x, uint y, uint bit, uint numBits) {

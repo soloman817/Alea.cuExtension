@@ -234,7 +234,7 @@ let mergesortKeys (compOp:IComp<'TV>) = cuda {
             { Action = action } ) }
 
 let pMergesortKeys (compOp:IComp<'TV>) = cuda {
-    let! api = Mergesort.mergesortKeys compOp
+    let! api = mergesortKeys compOp
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
@@ -250,7 +250,7 @@ let pMergesortKeys (compOp:IComp<'TV>) = cuda {
 [<Test>]
 let `` simple MergeSort Keys test`` () =
     let compOp = (comp CompTypeLess 0)
-    let pfunct = worker.LoadPModule(MGPU.PArray.mergesortKeys compOp).Invoke
+    let pfunct = worker.LoadPModule(pMergesortKeys compOp).Invoke
 // Input:
     let hSource = [|   81;   13;   90;   83;   12;   96;   91;   22;   63;   30;
                         9;   54;   27;   18;   54;   99;   95;   99;   96;   96;
@@ -279,8 +279,8 @@ let `` simple MergeSort Keys test`` () =
 
     let dResult = pcalc {
         let! dSource = DArray.scatterInBlob worker hSource
-        let! mergesort = pfunct count
-        do! mergesort dSource 
+        let! merge = pfunct count
+        do! merge dSource 
         let! results = dSource.Gather()
         return results } |> PCalc.run
 

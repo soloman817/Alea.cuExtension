@@ -11,7 +11,7 @@ open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAMerge
-open Alea.CUDA.Extension.MGPU.Merge
+open Alea.CUDA.Extension.MGPU.PArray
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 open Alea.CUDA.Extension.Output.Util
@@ -28,6 +28,7 @@ open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
 
 
 let worker = Engine.workers.DefaultWorker
+let pfuncts = new PMerge()
 
 let sourceCounts = BenchmarkStats.sourceCounts
 let nIterations = BenchmarkStats.mergeIterations
@@ -114,7 +115,7 @@ let rec mergeSort = function
 
 let testMergeKeys() =
     let test verify eps (aData:'T[]) (bData:'T[]) (compOp:IComp<'T>)= pcalc {
-        let merge = worker.LoadPModule(MGPU.PArray.mergeKeys compOp).Invoke
+        let merge = worker.LoadPModule(pfuncts.MergeKeys(compOp)).Invoke
         
         let aData = aData |> Array.sort
         let bData = bData |> Array.sort
@@ -224,7 +225,7 @@ let ``merge keys moderngpu website example`` () =
                    90;   90;   91;   91;   91;   91;   91;   92;   92;   94;
                    94;   95;   95;   96;   97;   97;   98;   98;   98;   99 |]
     
-    let pfunct = MGPU.PArray.mergeKeys (comp CompTypeLess 0)
+    let pfunct = pfuncts.MergeKeys((comp CompTypeLess 0))
     let mergeKeys = worker.LoadPModule(pfunct).Invoke
     let aCount = aData.Length
     let bCount = bData.Length
@@ -319,7 +320,7 @@ let ``MergePairs vs mgpu demo output`` () =
                           192;  193;   88;   89;   90;   91;  194;  195;  196;   92;
                            93;   94;  197;   95;   96;  198;  199;   97;   98;   99 |]
 
-    let pfunct = MGPU.PArray.mergePairs (comp CompTypeLess 0)
+    let pfunct = pfuncts.MergePairs((comp CompTypeLess 0))
     let mergePairs = worker.LoadPModule(pfunct).Invoke
 
     let N = 100
@@ -357,7 +358,7 @@ let ``MergePairs vs mgpu demo output`` () =
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 let benchmarkMergeKeys (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
-    let merge = worker.LoadPModule(MGPU.PArray.mergeKeys compOp).Invoke
+    let merge = worker.LoadPModule(pfuncts.MergeKeys(compOp)).Invoke
     let aData = aData |> Array.sort
     let bData = bData |> Array.sort
 
@@ -453,7 +454,7 @@ let ``MergeKeys moderngpu benchmark : 2 type`` () =
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 let benchmarkMergePairs (count:int) (aKeys:'T[]) (aVals:'T[]) (aCount:int) (bKeys:'T[]) (bVals:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
-    let merge = worker.LoadPModule(MGPU.PArray.mergePairs compOp).Invoke
+    let merge = worker.LoadPModule(pfuncts.MergePairs(compOp)).Invoke
     let aKeys = aKeys |> Array.sort
     let bKeys = bKeys |> Array.sort
 

@@ -36,7 +36,7 @@ type IMergePath<'TC> =
 
 type ISegmentedMergePath<'TC> =
     abstract HSegmentedMergePath : ('TC[] -> int -> int -> int -> int -> int -> int -> int -> int)
-    abstract DSegmentedMergePath : Expr<DevicePtr<'TC> -> int -> int -> int -> int -> int -> int -> int -> int>
+    abstract DSegmentedMergePath : Expr<RWPtr<'TC> -> int -> int -> int -> int -> int -> int -> int -> int>
 
 type IBalancedPathSearch<'TC> =
     abstract HBalancedPath : ('TC[] -> int -> 'TC[] -> int -> int -> int -> int2)
@@ -331,7 +331,7 @@ let balancedPathSearch (duplicates:bool) (intType:'TInt) (compOp:IComp<'TC>) =
 //      Segmented Merge Path Search                                                                     //
 //                                                                                                      //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
-let segmentedMergePath (bounds:int) (compOp:IComp<'TC>) =        
+let segmentedMergePath (compOp:IComp<'TC>) =        
         { new ISegmentedMergePath<'TC> with
             member this.HSegmentedMergePath =
                 let comp a b = compOp.Host a b
@@ -360,7 +360,7 @@ let segmentedMergePath (bounds:int) (compOp:IComp<'TC>) =
 
             member this.DSegmentedMergePath =
                 let comp = compOp.Device
-                <@ fun (keys:DevicePtr<'TC>) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
+                <@ fun (keys:RWPtr<'TC>) (aOffset:int) (aCount:int) (bOffset:int) (bCount:int) (leftEnd:int) (rightStart:int) (diag:int) ->
                     let comp = %comp
                     let mutable result = 0
                     let test = 

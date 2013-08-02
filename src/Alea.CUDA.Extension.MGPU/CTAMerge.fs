@@ -68,7 +68,7 @@ let serialMerge (VT:int) (rangeCheck:bool) (comp:IComp<'TV>) =
 // merge pass levels) locate lists within the single source array.
 
 // Returns (offset of a, offset of b, length of list).
-let findMergesortFrame =
+let findMergesortFrame = // works
     { new IFindMergesortFrame with    
         member fmf.Host =
             fun (coop:int) (block:int) (nv:int) ->
@@ -117,7 +117,7 @@ let findMergesortInterval =
 
 ////////////////////////////////////////////////////////////////////////////////
 // ComputeMergeRange
-let computeMergeRange =
+let computeMergeRange = //works
     { new IComputeMergeRange with
         member cmr.Host =
             fun (aCount:int) (bCount:int) (block:int) (coop:int) (nv:int) (mp_global:int[]) ->
@@ -153,8 +153,7 @@ let computeMergeRange =
                 if coop <> 0 then
                     let frame = findMergesortFrame coop block nv
                     range <- findMergesortInterval frame coop block nv aCount mp0 mp1
-                else
-                    
+                else                    
                     range.x <- mp0
                     range.y <- mp1
                     range.z <- gid - range.x
@@ -176,7 +175,6 @@ let ctaBlocksortPass (NT:int) (VT:int) (compOp:IComp<'TV>) =
             (indices        :RWPtr<int>) 
             ->
 
-        let comp = %comp
         let mergePath = %mergePath
         let serialMerge = %serialMerge
 
@@ -208,19 +206,19 @@ let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
         let deviceThreadToShared = %deviceThreadToShared
         let deviceGather = %deviceGather
 
-        let mutable coop = 2
-        while coop <= NT do
+        let coop = ref 2
+        while !coop <= NT do
             
             let indices = __local__<int>(VT).Ptr(0)
             let keys = __local__<'TV>(VT).Ptr(0)
-            ctaBlocksortPass keys_shared tid count coop keys indices
+            ctaBlocksortPass keys_shared tid count !coop keys indices
             
             if hasValues then
                 deviceThreadToShared threadValues tid values_shared true
                 deviceGather (NT * VT) values_shared indices tid threadValues true
 
             deviceThreadToShared keys tid keys_shared true
-            coop <- coop * 2
+            coop := !coop * 2
     @>
 
 
@@ -246,25 +244,23 @@ let ctaMergesort (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
         let deviceThreadToShared = %deviceThreadToShared
         let ctaBlocksortLoop = %ctaBlocksortLoop
         let oddEvenTransposeSort = %oddEvenTransposeSort
-
         if VT * tid < count then
-            //oddEvenTransposeSort threadKeys threadValues
-            let mutable level = 0
-            while level < VT do
-                let mutable i = 1 &&& level
-                while i < VT - 1 do                    
-                    if ( comp threadKeys.[i + 1] threadKeys.[i] ) then
-                        swap threadKeys.[i] threadKeys.[i + 1]
-                        swap threadValues.[i] threadValues.[i + 1]
-                    i <- i + 2  
-                level <- level + 1 
+            //oddEvenTransposeSort threadKeys threadValues            
+            let level = ref 0
+            while !level < VT do
+                let i = ref (1 &&& !level)
+                while !i < VT - 1 do                    
+                    if ( comp threadKeys.[!i + 1] threadKeys.[!i] ) then
+                        swap threadKeys.[!i] threadKeys.[!i + 1]
+                        swap threadValues.[!i] threadValues.[!i + 1]
+                    i := !i + 2  
+                level := !level + 1 
             
         deviceThreadToShared threadKeys tid keys_shared true
-
         ctaBlocksortLoop threadValues keys_shared values_shared tid count 
         @>
 
-
+// works
 let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:IComp<'TV>) =
     let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT VT
     let mergePath = (mergePath MgpuBoundsLower compOp).DMergePath
@@ -303,7 +299,7 @@ let deviceMergeKeysIndices (NT:int) (VT:int) (compOp:IComp<'TV>) =
         serialMerge keys_shared a0tid a1tid b0tid b1tid results indices
         @>
 
-
+// works
 let deviceMerge (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
     let deviceMergeKeysIndices = deviceMergeKeysIndices NT VT compOp
     let deviceThreadToSharedG = deviceThreadToShared VT

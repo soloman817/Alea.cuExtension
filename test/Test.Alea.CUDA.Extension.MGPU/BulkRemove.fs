@@ -9,7 +9,7 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.MGPU.BulkRemove
+open Alea.CUDA.Extension.MGPU.PArray
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 open Alea.CUDA.Extension.Output.Util
@@ -25,6 +25,7 @@ open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 /////////////////////////////
 
 let worker = Engine.workers.DefaultWorker
+let pfuncts = new PBulkRemove()
 
 let rng = System.Random()
 
@@ -92,7 +93,7 @@ let hostBulkRemove (data:'T[]) (indices:int[]) =
 // @COMMENTS@: index we assume always be int type
 let testBulkRemove() =
     let test verify eps (data:'T[]) (indices:int[]) = pcalc {
-        let bulkrem = worker.LoadPModule(MGPU.PArray.bulkRemove()).Invoke
+        let bulkrem = worker.LoadPModule(pfuncts.BulkRemove()).Invoke
     
         let n = data.Length
         printfn "Testing size %d..." n
@@ -150,7 +151,7 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
 
 
 let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
-    let remover = worker.LoadPModule(PArray.bulkRemoveInPlace()).Invoke
+    let remover = worker.LoadPModule(pfuncts.BulkRemoveInPlace()).Invoke
 
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data
@@ -217,7 +218,7 @@ let ``bulkRemove moderngpu web example : float`` () =
     let hResult = hostBulkRemove hValues hIndices
     (hResult, answer) ||> Array.iter2 (fun h a -> Assert.AreEqual(h, a))
 
-    let pfunct = MGPU.PArray.bulkRemove()
+    let pfunct = pfuncts.BulkRemove()
     let br = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {
@@ -246,7 +247,7 @@ let ``bulkRemove moderngpu web example : int`` () =
     let hResult = hostBulkRemove hValues hIndices
     (hResult, answer) ||> Array.iter2 (fun h a -> Assert.AreEqual(h, a))
 
-    let pfunct = MGPU.PArray.bulkRemove()
+    let pfunct = pfuncts.BulkRemove()
     let br = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {
@@ -276,7 +277,7 @@ let ``bulkRemove moderngpu web example : float32`` () =
     let hResult = hostBulkRemove hValues hIndices
     (hResult, answer) ||> Array.iter2 (fun h a -> Assert.AreEqual(h, a))
 
-    let pfunct = MGPU.PArray.bulkRemove()
+    let pfunct = pfuncts.BulkRemove()
     let br = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {

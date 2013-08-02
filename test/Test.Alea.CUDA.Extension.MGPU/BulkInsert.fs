@@ -9,7 +9,7 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.MGPU.BulkInsert
+open Alea.CUDA.Extension.MGPU.PArray
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 open Alea.CUDA.Extension.Output.Util
@@ -27,6 +27,8 @@ open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 
 
 let worker = Engine.workers.DefaultWorker
+let pfuncts = new PBulkInsert()
+
 let rng = System.Random()
 
 let sourceCounts = BenchmarkStats.sourceCounts
@@ -99,7 +101,7 @@ let hostBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) =
 
 let testBulkInsert() =
     let test verify eps (dataA:'T[]) (indices:int[]) (dataB:'T[]) = pcalc {
-        let bulkin = worker.LoadPModule(MGPU.PArray.bulkInsert()).Invoke
+        let bulkin = worker.LoadPModule(pfuncts.BulkInsert()).Invoke
     
         let aCount = dataA.Length
         let bCount = dataB.Length
@@ -154,7 +156,7 @@ let testBulkInsert() =
         
 
 let benchmarkBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) (numIt:int) (testIdx:int) =
-    let inserter = worker.LoadPModule(PArray.bulkInsertInPlace()).Invoke
+    let inserter = worker.LoadPModule(pfuncts.BulkInsertInPlace()).Invoke
 
     let calc = pcalc {
         let! dA = DArray.scatterInBlob worker dataA
@@ -207,7 +209,7 @@ let ``bulkInsert simple example`` () =
     let hI = [| 3; 7; 11; 14; 19 |]         // indices of insertions
     let hA = [| 93; 97; 911; 914; 919 |]    // data to insert into hB
 
-    let pfunct = MGPU.PArray.bulkInsert()
+    let pfunct = pfuncts.BulkInsert()
     let bulkin = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {
@@ -245,7 +247,7 @@ let ``bulkInsert moderngpu website example`` () =
     let hResult = hostBulkInsert hA hI hB
     (hResult, answer) ||> Array.iter2 (fun h a -> Assert.AreEqual(h, a))
 
-    let pfunct = MGPU.PArray.bulkInsert()
+    let pfunct = pfuncts.BulkInsert()
     let bulkin = worker.LoadPModule(pfunct).Invoke
 
     let dResult = pcalc {

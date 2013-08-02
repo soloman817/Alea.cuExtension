@@ -38,6 +38,7 @@
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   <ItemGroup>
+    <Compile Include="Tuning.fs" />
     <Compile Include="QuotationUtil.fs" />
     <Compile Include="Static.fs" />
     <Compile Include="DeviceUtil.fs" />
@@ -48,7 +49,7 @@
     <Compile Include="CTASearch.fs" />
     <Compile Include="CTAMerge.fs" />
     <Compile Include="CTALoadBalance.fs" />
-    <Compile Include="CTASegSort.fs" />
+    <Compile Include="CTASegsort.fs" />
     <Compile Include="CTASortedSearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />

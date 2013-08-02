@@ -16,12 +16,7 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 open Alea.CUDA.Extension.MGPU.Search
 
 
-// this is plan
-type Plan = 
-    {
-        NT : int
-        VT : int
-    }
+
 
 let kernelBulkRemove (plan:Plan) =
     let NT = plan.NT
@@ -64,11 +59,6 @@ let kernelBulkRemove (plan:Plan) =
 
     let capacity, scan2 = ctaScan2 NT (scanOp ScanOpTypeAdd 0)
     let sharedSize = max NV capacity
-    //let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
-    //let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TR>, sizeof<'TR>
-    //let sharedAlign = max alignOfTI alignOfTV
-    //let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-    //let createSharedExpr = createSharedExpr sharedAlign sharedSize
     
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceSharedToReg = deviceSharedToReg NT VT
@@ -92,9 +82,6 @@ let kernelBulkRemove (plan:Plan) =
         let shared = __shared__<int>(sharedSize).Ptr(0)
         let sharedScan = shared
         let sharedIndices = shared
-        //let shared = %(createSharedExpr)
-        //let sharedScan = shared.Reinterpret<int>()
-        //let sharedIndices = shared.Reinterpret<int>()
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -169,8 +156,8 @@ type IBulkRemove<'T> =
 // to convert 'TI to 'TR, so, here we simply use 'T for both
 // and when create bsp, we just create comp CompTypeLess 0, and that gives the comp of int
 // just used for int cacluation. so again, you don't even need use inline, cause no need.
-let bulkRemove() = cuda {
-    let plan = { NT = 128; VT = 11 }
+let bulkRemove(plan:Plan) = cuda {
+    //let plan = { NT = 128; VT = 11 }
     let NV = plan.NT * plan.VT
     
     let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFuncWithName "br"

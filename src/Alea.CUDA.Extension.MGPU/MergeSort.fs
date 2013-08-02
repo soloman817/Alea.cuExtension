@@ -17,11 +17,6 @@ open Alea.CUDA.Extension.MGPU.Merge
 
 
 
-type Plan =
-    {
-        NT : int
-        VT : int
-    }
 
 let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
     let NT = plan.NT
@@ -30,7 +25,7 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
 
     let hasValues = if hasValues = 1 then true else false
 
-    let sharedSize = max NV (NT * (VT + 1))
+    let sharedSize = (NT * (VT + 1))
     let comp = compOp.Device
     
     let deviceGlobalToShared = deviceGlobalToShared NT VT
@@ -39,9 +34,11 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
     let deviceThreadToShared = deviceThreadToShared VT
     let ctaMergesort = ctaMergesort NT VT hasValues compOp
                                                     
-    <@ fun  (keysSource_global:DevicePtr<'TV>) (valsSource_global:DevicePtr<'TV>) 
-            (count:int) 
-            (keysDest_global:DevicePtr<'TV>) (valsDest_global:DevicePtr<'TV>) ->
+    <@ fun  (keysSource_global  :DevicePtr<'TV>) 
+            (valsSource_global  :DevicePtr<'TV>) 
+            (count              :int) 
+            (keysDest_global    :DevicePtr<'TV>) 
+            (valsDest_global    :DevicePtr<'TV>) ->
 
         let comp = %comp
         let deviceGlobalToShared = %deviceGlobalToShared
@@ -69,9 +66,8 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
         deviceSharedToThread sharedKeys tid threadKeys true
 
         let first = VT * tid
-        let mutable maxKey = threadKeys.[0]
         if ((first + VT) > count2) && (first < count2) then
-            
+            let mutable maxKey = threadKeys.[0]    
             for i = 1 to VT - 1 do
                 if (first + i) < count2 then
                     maxKey <- if comp maxKey threadKeys.[i] then threadKeys.[i] else maxKey
@@ -86,201 +82,151 @@ let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
             deviceSharedToGlobal count2 sharedValues tid (valsDest_global + gid) true
         @>
 
+
 type IBlocksort<'TV> =
     {
-        Action : ActionHint -> DevicePtr<'TV> -> unit //DevicePtr<'TV> -> unit
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
         NumPartitions : int
-        //NumPasses : int
     }
 
 
 let mergesortKeys (compOp:IComp<'TV>) = cuda {
-    let plan = { NT = 257; VT = 7 }
+    let plan = { NT = 256; VT = 7 }
     let NT = plan.NT
     let VT = plan.VT
     let NV = NT * VT
     
-    let! kernelBlocksort = kernelBlocksort plan 0 compOp |> defineKernelFunc //WithName "kbs"
-    //let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp    
-    //let! kernelMerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
-    //let swap = (swap (DevicePtr<'TV>(0n))).Host
-    //let swap = (swap compOp.Identity).Host
+    let! kernelBlocksort = kernelBlocksort plan 0 compOp |> defineKernelFuncWithName "kbs"
+    let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp    
+    let! kernelMerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
+    
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker
         let kernelBlocksort = kernelBlocksort.Apply m
-        //let mpp = mpp.Apply m
-        //let kernelMerge = kernelMerge.Apply m
+        let mpp = mpp.Apply m
+        let kernelMerge = kernelMerge.Apply m
 
         fun (count:int) ->
             let numBlocks = divup count NV
             let numPasses = findLog2 numBlocks true
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (source:DevicePtr<'TV>) = //(dest:DevicePtr<'TV>) =
+            let action (hint:ActionHint) (source:DevicePtr<'TV>) (dest:DevicePtr<'TV>) (parts:DevicePtr<int>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
-//                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count (if (1 &&& numPasses) <> 0 then dest else source) (DevicePtr<'TV>(0n))
-                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count source (DevicePtr<'TV>(0n))
-
-//                    if (1 &&& numPasses) <> 0 then
-//                        swap source dest
-//                    for pass = 0 to numPasses - 1 do
-//                        let coop = 2 <<< pass
-//                        let mpp = mpp count 0 NV coop
-//                        let partitions = mpp.Action hint source source parts
-//                        let kernelMerge = kernelMerge count coop                        
-//                        let merged = kernelMerge.Action hint source parts dest
-//                        //swap dest source
-//                        printfn "pass %d" pass
-//                        swap dest source
+                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count (if (1 &&& numPasses) <> 0 then dest else source) (DevicePtr<'TV>(0n))
+                    
+                    if (1 &&& numPasses) <> 0 then
+                        swap source dest
+                    for pass = 0 to numPasses - 1 do
+                        let coop = 2 <<< pass
+                        let mpp = mpp count 0 NV coop
+                        let partitions = mpp.Action hint source source parts
+                        let kernelMerge = kernelMerge count coop                        
+                        let merged = kernelMerge.Action hint source parts dest
+                        swap dest source
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 (*;  NumPasses = numPasses*) } ) }
-
-
-//type IBlocksort2<'TV> =
-//    {
-//        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> unit
-//        NumPartitions : int
-//        NumPasses : int
-//    }
-//
-//let mergesortKeys2 (compOp:IComp<'TV>) = cuda {
-//    let plan = { NT = 256; VT = 7 }
-//    let NT = plan.NT
-//    let VT = plan.VT
-//    let NV = NT * VT
-//    
-//    let! kernelBlocksort = kernelBlocksort plan 0 compOp |> defineKernelFunc //WithName "kbs"
-//    //let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp    
-//    //let! kernelMerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
-//    //let swap = (swap (DevicePtr<'TV>(0n))).Host
-//    //let swap = (swap compOp.Identity).Host
-//
-//    return PFunc(fun (m:Module) ->
-//        let worker = m.Worker
-//        let kernelBlocksort = kernelBlocksort.Apply m
-//        //let mpp = mpp.Apply m
-//        //let kernelMerge = kernelMerge.Apply m
-//
-//        fun (count:int) ->
-//            let numBlocks = divup count NV
-//            printfn "numBlocks: %d" numBlocks
-//            let numPasses = findLog2 numBlocks true
-//            printfn "numPasses: %d" numPasses
-//            let lp = LaunchParam(numBlocks, NT)
-//
-//            let action (hint:ActionHint) (source:DevicePtr<'TV>) (dest:DevicePtr<'TV>) =
-//                fun () ->
-//                    let lp = lp |> hint.ModifyLaunchParam
-//                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count (if (1 &&& numPasses) <> 0 then dest else source) (DevicePtr<'TV>(0n))
-//                |> worker.Eval
-//            { Action = action; NumPartitions = numBlocks + 1;  NumPasses = numPasses } ) }
-//
+            { Action = action; NumPartitions = numBlocks + 1 } ) }
 
 
 
-
-
+type IMergesortPairs<'TV> =
+    {
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+        NumPartitions : int
+    }
 
 //////////////////////////////////////////////////////////////////////////////////
 //// MergesortPairs
 //
-//template<typename KeyType, typename ValType, typename Comp>
-//MGPU_HOST void MergesortPairs(KeyType* keys_global, ValType* values_global,
-//	int count, Comp comp, CudaContext& context) {
+let mergesortPairs (compOp:IComp<'TV>) = cuda {
+    let plan = { NT = 256; VT = 11 }
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let! kernelBlocksort = kernelBlocksort plan 1 compOp |> defineKernelFuncWithName "kbs"
+    let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp
+    let! kernelMerge = kernelMerge plan 1 1 compOp |> defineKernelFuncWithName "km"
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let kernelBlocksort = kernelBlocksort.Apply m
+        let mpp = mpp.Apply m
+        let kernelMerge = kernelMerge.Apply m
+
+        fun (count:int) ->
+            let numBlocks = divup count NV
+            let numPasses = findLog2 numBlocks true
+            let lp = LaunchParam(numBlocks, NT)
+            let action (hint:ActionHint) (keysSource:DevicePtr<'TV>) (valsSource:DevicePtr<'TV>) (keysDest:DevicePtr<'TV>) (valsDest:DevicePtr<'TV>) (parts:DevicePtr<int>) =
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    kernelBlocksort.Launch lp keysSource valsSource count (if (1 &&& numPasses) <> 0 then keysDest else keysSource) (if (1 &&& numPasses) <> 0 then valsDest else valsSource)
+
+                    if (1 &&& numPasses) <> 0 then
+                        swap keysSource keysDest
+                        swap valsSource valsDest
+
+                    for pass = 0 to numPasses - 1 do
+                        let coop = 2 <<< pass
+                        let mpp = mpp count 0 NV coop
+                        let partitions = mpp.Action hint keysSource keysSource parts
+                        kernelMerge.Launch lp keysSource valsSource count keysSource valsSource 0 parts coop keysDest valsDest
+                        swap keysDest keysSource
+                        swap valsDest valsSource
+
+                |> worker.Eval
+            { Action = action; NumPartitions = numBlocks + 1 } ) }
+
+
+
+type IMergesortIndices<'TV> =
+    {
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+        NumPartitions : int
+    }
+
+//////////////////////////////////////////////////////////////////////////////////
+//// MergesortIndices
 //
-//	const int NT = 256;
-//	const int VT = 11;
-//	typedef LaunchBoxVT<NT, VT> Tuning;
-//	int2 launch = Tuning::GetLaunchParams(context);
-//
-//	const int NV = launch.x * launch.y;
-//	int numBlocks = MGPU_DIV_UP(count, NV);
-//	int numPasses = FindLog2(numBlocks, true);
-//
-//	MGPU_MEM(KeyType) keysDestDevice = context.Malloc<KeyType>(count);
-//	MGPU_MEM(ValType) valsDestDevice = context.Malloc<ValType>(count);
-//	KeyType* keysSource = keys_global;
-//	KeyType* keysDest = keysDestDevice->get();
-//	ValType* valsSource = values_global;
-//	ValType* valsDest = valsDestDevice->get();
-//
-//	KernelBlocksort<Tuning, true><<<numBlocks, launch.x, 0, context.Stream()>>>(
-//		keysSource, valsSource, count, (1 & numPasses) ? keysDest : keysSource, 
-//		(1 & numPasses) ? valsDest : valsSource, comp);
-//	if(1 & numPasses) {
-//		std::swap(keysSource, keysDest);
-//		std::swap(valsSource, valsDest);
-//	}
-//
-//	for(int pass = 0; pass < numPasses; ++pass) {
-//		int coop = 2<< pass;
-//		MGPU_MEM(int) partitionsDevice = MergePathPartitions<MgpuBoundsLower>(
-//			keysSource, count, keysSource, 0, NV, coop, comp, context);
-//
-//		KernelMerge<Tuning, true, true>
-//			<<<numBlocks, launch.x, 0, context.Stream()>>>(keysSource, 
-//			valsSource, count, keysSource, valsSource, 0, 
-//			partitionsDevice->get(), coop, keysDest, valsDest, comp);
-//		std::swap(keysDest, keysSource);
-//		std::swap(valsDest, valsSource);
-//	}
-//}
-//template<typename KeyType, typename ValType>
-//MGPU_HOST void MergesortPairs(KeyType* keys_global, ValType* values_global,
-//	int count, CudaContext& context) {
-//	MergesortPairs(keys_global, values_global, count, mgpu::less<KeyType>(),
-//		context);
-//}
-//
-//template<typename KeyType, typename Comp>
-//MGPU_HOST void MergesortIndices(KeyType* keys_global, int* values_global,
-//	int count, Comp comp, CudaContext& context) {
-//
-//	const int NT = 256;
-//	const int VT = 11;
-//	typedef LaunchBoxVT<NT, VT> Tuning;
-//	int2 launch = Tuning::GetLaunchParams(context);
-//
-//	const int NV = launch.x * launch.y;
-//	int numBlocks = MGPU_DIV_UP(count, NV);
-//	int numPasses = FindLog2(numBlocks, true);
-//
-//	MGPU_MEM(KeyType) keysDestDevice = context.Malloc<KeyType>(count);
-//	MGPU_MEM(int) valsDestDevice = context.Malloc<int>(count);
-//	KeyType* keysSource = keys_global;
-//	KeyType* keysDest = keysDestDevice->get();
-//	int* valsSource = values_global;
-//	int* valsDest = valsDestDevice->get();
-//
-//	KernelBlocksort<Tuning, true><<<numBlocks, launch.x, 0, context.Stream()>>>(
-//		keysSource, mgpu::counting_iterator<int>(0), count, 
-//		(1 & numPasses) ? keysDest : keysSource, 
-//		(1 & numPasses) ? valsDest : valsSource, comp);
-//	if(1 & numPasses) {
-//		std::swap(keysSource, keysDest);
-//		std::swap(valsSource, valsDest);
-//	}
-//
-//	for(int pass = 0; pass < numPasses; ++pass) {
-//		int coop = 2<< pass;
-//		MGPU_MEM(int) partitionsDevice = MergePathPartitions<MgpuBoundsLower>(
-//			keysSource, count, keysSource, 0, NV, coop, comp, context);
-//
-//		KernelMerge<Tuning, true, true>
-//			<<<numBlocks, launch.x, 0, context.Stream()>>>(keysSource, 
-//			valsSource, count, keysSource, valsSource, 0, 
-//			partitionsDevice->get(), coop, keysDest, valsDest, comp);
-//		std::swap(keysDest, keysSource);
-//		std::swap(valsDest, valsSource);
-//	}
-//}
-//template<typename KeyType>
-//MGPU_HOST void MergesortIndices(KeyType* keys_global, int* values_global,
-//	int count, CudaContext& context) {
-//	MergesortIndices(keys_global, values_global, count, mgpu::less<KeyType>(),
-//		context);
-//}
-//
-//} // namespace mgpu
+let mergesortIndices (compOp:IComp<int>) = cuda {
+    let plan = { NT = 256; VT = 11 }
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let! kernelBlocksort = kernelBlocksort plan 1 compOp |> defineKernelFuncWithName "kbs"
+    let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp
+    let! kernelMerge = kernelMerge plan 1 1 compOp |> defineKernelFuncWithName "km"
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let kernelBlocksort = kernelBlocksort.Apply m
+        let mpp = mpp.Apply m
+        let kernelMerge = kernelMerge.Apply m
+
+        fun (count:int) ->
+            let numBlocks = divup count NV
+            let numPasses = findLog2 numBlocks true
+            let lp = LaunchParam(numBlocks, NT)
+            let action (hint:ActionHint) (keysSource:DevicePtr<int>) (countingItr:DevicePtr<int>) (valsSource:DevicePtr<int>) (keysDest:DevicePtr<int>) (valsDest:DevicePtr<int>) (parts:DevicePtr<int>) =
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    kernelBlocksort.Launch lp keysSource countingItr count (if (1 &&& numPasses) <> 0 then keysDest else keysSource) (if (1 &&& numPasses) <> 0 then valsDest else valsSource)
+
+                    if (1 &&& numPasses) <> 0 then
+                        swap keysSource keysDest
+                        swap valsSource valsDest
+
+                    for pass = 0 to numPasses - 1 do
+                        let coop = 2 <<< pass
+                        let mpp = mpp count 0 NV coop
+                        let partitions = mpp.Action hint keysSource keysSource parts
+                        kernelMerge.Launch lp keysSource valsSource count keysSource valsSource 0 parts coop keysDest valsDest
+                        swap keysDest keysSource
+                        swap valsDest valsSource
+
+                |> worker.Eval
+            { Action = action; NumPartitions = numBlocks + 1 } ) }

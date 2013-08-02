@@ -9,133 +9,173 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
-open Alea.CUDA.Extension.MGPU.CTAScan
+open Alea.CUDA.Extension.MGPU.CTASegsort
 
 
 
-
+type Plan =
+    {
+        NT : int
+        VT : int
+    }
 
 
 
 //////////////////////////////////////////////////////////////////////////////////
 //// KernelSegBlocksortIndices
 //
-//template<typename Tuning, bool Stable, bool HasValues, typename InputIt1,
-//	typename InputIt2, typename OutputIt1, typename OutputIt2, typename Comp>
-//MGPU_LAUNCH_BOUNDS void KernelSegBlocksortIndices(InputIt1 keys_global,
-//	InputIt2 values_global, int count, const int* indices_global, 
-//	const int* partitions_global, OutputIt1 keysDest_global,
-//	OutputIt2 valsDest_global, int* ranges_global, Comp comp) {
-//
-//	typedef typename std::iterator_traits<InputIt1>::value_type KeyType;
-//	typedef typename std::iterator_traits<InputIt2>::value_type ValType;
-//	typedef MGPU_LAUNCH_PARAMS Params;
-//	const int NT = Params::NT;
-//	const int VT = Params::VT;
-//	const int NV = NT * VT;
-//	
-//	const int FlagWordsPerThread = MGPU_DIV_UP(VT, 4);
-//	struct Shared {
-//		union {
-//			byte flags[NV];
-//			int words[NT * FlagWordsPerThread];
-//			KeyType keys[NV];
-//			ValType values[NV];
-//		};
-//		int ranges[NT];
-//	};
-//	__shared__ Shared shared;
-//
-//	int tid = threadIdx.x;
-//	int block = blockIdx.x;
-//	int gid = NV * block;
-//	int count2 = min(NV, count - gid);
-//
-//	int headFlags = DeviceIndicesToHeadFlags<NT, VT>(indices_global,
-//		partitions_global, tid, block, count2, shared.words, shared.flags);
-//	
-//	DeviceSegBlocksort<NT, VT, Stable, HasValues>(keys_global, values_global,
-//		count2, shared.keys, shared.values, shared.ranges, headFlags, tid, 
-//		block, keysDest_global, valsDest_global, ranges_global, comp);
-//}
-//
+let kernelSegBlocksortIndices (plan:Plan) (stable:int) (hasValues:int) (compOp:IComp<'TV>) =
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let stable = if stable <> 0 then true else false
+    let hasValues = if hasValues <> 0 then true else false
+
+    let flagWordsPerThread = divup VT 4
+    let sharedSize = max NV (NT * flagWordsPerThread)
+
+    let deviceIndicesToHeadFlags = deviceIndicesToHeadFlags NT VT
+    let deviceSegBlocksort = deviceSegBlocksort NT VT stable hasValues compOp
+
+    <@ fun  (keys_global:DevicePtr<'TV>)
+            (values_global:DevicePtr<'TV>)
+            (count:int)
+            (indices_global:DevicePtr<int>)
+            (partitions_global:DevicePtr<int>)
+            (keysDest_global:DevicePtr<'TV>)
+            (valsDest_global:DevicePtr<'TV>)
+            (ranges_global:DevicePtr<int>)
+            ->
+        let deviceIndicesToHeadFlags = %deviceIndicesToHeadFlags
+        let deviceSegBlocksort = %deviceSegBlocksort
+
+        let shared = __shared__<'TV>(sharedSize).Ptr(0)
+        let sharedFlags = shared.Reinterpret<byte>()
+        let sharedWords = shared.Reinterpret<int>()
+        let sharedKeys = shared
+        let sharedValues = shared
+        let sharedRanges = __shared__<int>(NT).Ptr(0)
+
+        let tid = threadIdx.x
+        let block = blockIdx.x
+        let gid = NV * block
+        let count2 = min NV (count - gid)
+
+        let headFlags = deviceIndicesToHeadFlags indices_global partitions_global tid block count2 sharedWords sharedFlags
+
+        deviceSegBlocksort 
+            keys_global values_global 
+            count2 
+            sharedKeys sharedValues sharedRanges 
+            (int headFlags) tid block 
+            keysDest_global valsDest_global ranges_global        
+    @>
+
+type ISegBlocksortIndices<'TV> =
+    {
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+        NumPartitions : int
+    }
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// KernelSegBlocksortFlags
 //
-//template<typename Tuning, bool Stable, bool HasValues, typename InputIt1,
-//	typename InputIt2, typename OutputIt1, typename OutputIt2, typename Comp>
-//MGPU_LAUNCH_BOUNDS void KernelSegBlocksortFlags(InputIt1 keys_global,
-//	InputIt2 values_global, int count, const uint* flags_global, 
-//	OutputIt1 keysDest_global, OutputIt2 valsDest_global, int* ranges_global, 
-//	Comp comp) {
-//
-//	typedef typename std::iterator_traits<InputIt1>::value_type KeyType;
-//	typedef typename std::iterator_traits<InputIt2>::value_type ValType;
-//	typedef MGPU_LAUNCH_PARAMS Params;
-//	const int NT = Params::NT;
-//	const int VT = Params::VT;
-//	const int NV = NT * VT;
-//	struct Shared {
-//		union {
-//			KeyType keys[NV];
-//			ValType values[NV];
-//		};
-//		union {
-//			int ranges[NT];
-//			uint flags[NT];
-//		};
-//	};
-//	__shared__ Shared shared;
-//
-//	int tid = threadIdx.x;
-//	int block = blockIdx.x;
-//	int gid = NV * block;
-//	int count2 = min(NV, count - gid);
-//
-//	// Load the head flags and keys.
-//	int flagsToLoad = min(32, count2 - 32 * tid);
-//	uint flags = 0xffffffff;
-//	if(flagsToLoad > 0) {
-//		flags = flags_global[(NV / 32) * block + tid];
-//		if(flagsToLoad < 32)
-//			flags |= 0xffffffff<< (31 & count2);
-//	}
-//	shared.flags[tid] = flags;
-//	__syncthreads();
-//
-//	// Each thread extracts its own head flags from the array in shared memory.
-//	flags = ExtractThreadHeadFlags(shared.flags, VT * tid, VT);
-//
-//	DeviceSegBlocksort<NT, VT, Stable, HasValues>(keys_global, values_global,
-//		count2, shared.keys, shared.values, shared.ranges, flags, tid, block,
-//		keysDest_global, valsDest_global, ranges_global, comp);
-//}
-//
-//
-//
+let kernelSegBlocksortFlags (plan:Plan) (stable:int) (hasValues:int) (compOp:IComp<'TV>) =
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let stable = if stable <> 0 then true else false
+    let hasValues = if hasValues <> 0 then true else false
+       
+    let deviceSegBlocksort = deviceSegBlocksort NT VT stable hasValues compOp
+
+    <@ fun  (keys_global:DevicePtr<'TV>)
+            (values_global:DevicePtr<'TV>)
+            (count:int)
+            (flags_global:DevicePtr<uint32>)            
+            (keysDest_global:DevicePtr<'TV>)
+            (valsDest_global:DevicePtr<'TV>)
+            (ranges_global:DevicePtr<int>)
+            ->
+        
+        let deviceSegBlocksort = %deviceSegBlocksort
+        let extractThreadHeadFlags = %extractThreadHeadFlags
+
+        let sharedKeys = __shared__<'TV>(NV).Ptr(0)
+        let sharedValues = sharedKeys
+
+        let sharedRanges = __shared__<int>(NT).Ptr(0)
+        let sharedFlags = sharedRanges.Reinterpret<uint32>()
+
+        let tid = threadIdx.x
+        let block = blockIdx.x
+        let gid = NV * block
+        let count2 = min NV (count - gid)
+
+        let flagsToLoad = min 32 (count2 - 32 * tid)
+        let mutable flags = 0xffffffffu
+        if flagsToLoad > 0 then
+            flags <- flags_global.[(NV / 32) * block + tid]
+            if flagsToLoad < 32 then
+                flags <- flags ||| 0xffffffffu <<< (31 &&& count2)
+        sharedFlags.[tid] <- flags
+        __syncthreads()
+
+        flags <- extractThreadHeadFlags sharedFlags (VT * tid) VT
+
+        deviceSegBlocksort 
+            keys_global values_global 
+            count2 
+            sharedKeys sharedValues sharedRanges 
+            (int flags) tid block 
+            keysDest_global valsDest_global ranges_global        
+    @>
+
+
+type ISegBlocksortFlags<'TV> =
+    {
+        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<uint32> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+    }
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// KernelSegSortMerge
 //
-//template<typename Tuning, bool Segments, bool HasValues, typename KeyType,
-//	typename ValueType, typename Comp>
-//MGPU_LAUNCH_BOUNDS void KernelSegSortMerge(const KeyType* keys_global, 
-//	const ValueType* values_global, SegSortSupport support, int count, 
-//	int pass, KeyType* keysDest_global, ValueType* valsDest_global, Comp comp) {
+// CANT IMPLEMENT YET  (it uses atomicAdds)
 //
-//	typedef MGPU_LAUNCH_PARAMS Params;
-//	const int NT = Params::NT;
-//	const int VT = Params::VT;
-//	const int NV = NT * VT;
-//	union Shared {
-//		KeyType keys[NT * (VT + 1)];
-//		int indices[NV];
-//		int4 range;
-//	};
-//	__shared__ Shared shared;
+//let kernelSegSortMerge (plan:Plan) (segments:int) (hasValues:int) (compOp:IComp<'TV>) =
+//    let NT = plan.NT
+//    let VT = plan.VT
+//    let NV = NT * VT
 //
-//	int tid = threadIdx.x;
-//	
-//	// Check for merge work.
+//    <@ fun  (keys_global        :DevicePtr<'TV>)
+//            (values_global      :DevicePtr<'TV>)
+//            //(support            :SegSortSupport)
+//            (count              :int)
+//            (pass               :int)
+//            (keysDest_global    :DevicePtr<'TV>)
+//            (valsDest_global    :DevicePtr<'TV>)
+//            ->
+//
+//
+//        let shared = __shared__<'TV>(NT * (VT + 1)).Ptr(0)
+//        let sharedKeys = shared
+//        let sharedIndices = shared.Reinterpret<int>()
+//        let sharedRange = __shared__<int4>(1).Ptr(0)
+//
+//        let tid = threadIdx.x
+//
+//        while true do
+//            if tid = 0 then
+//                let mutable range = int4(-1,0,0,0)
+//                //int next = atomicAdd(&support.queueCounters_global->x, -1) - 1;
+//                //if next >= 0 then range <- support.mergeList_global.[next]
+//                ()
+//        ()
+//    @>
 //	while(true) {
 //		if(!tid) {
 //			int4 range = make_int4(-1, 0, 0, 0);
@@ -186,10 +226,15 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 //			tid, listBlock, count, keysDest_global, valsDest_global);
 //	}
 //}
-//
+
+
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// DeviceSegSortCreateJob
 //// Job-queueing code that is called by both seg sort partition kernels.
+//
+// CANT IMPLEMENT YET (it uses atomicAdds)
 //
 //template<int NT>
 //MGPU_DEVICE void DeviceSegSortCreateJob(SegSortSupport support,
@@ -240,11 +285,14 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 //		support.copyList_global[shared[1] + copyScan] = block;
 //	}
 //}
-//
-//
+
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// KernelSegSortPartitionBase
 //// KernelSegSortPartitionDerived
+//
+// CANT IMPLEMENT YET (they use DeviceSegSortCreateJob which uses atomicAdds)
 //
 //template<int NT, bool Segments, typename KeyType, typename Comp>
 //__global__ void KernelSegSortPartitionBase(const KeyType* keys_global,
@@ -376,7 +424,9 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 //	// Clear the counters for the next pass.
 //	if(!partition) *support.nextCounters_global = make_int2(0, 0);
 //}
-//
+
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// AllocSegSortBuffers
 //
