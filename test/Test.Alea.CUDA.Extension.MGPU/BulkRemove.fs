@@ -23,40 +23,18 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
+open ModernGPU.BulkRemoveStats
+
 
 let worker = Engine.workers.DefaultWorker
 let pfuncts = new PBulkRemove()
 
 let rng = System.Random()
 
-let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.bulkRemoveIterations
-
 let algName = "Bulk Remove"
 let brKernelsUsed = [| "kernelBulkRemove"; "binary search partitions" |]
-let brBMS4 = new BenchmarkStats4(algName, brKernelsUsed, worker.Device.Name, "MGPU", sourceCounts, nIterations)
+let brBMS4 = getFilledBMS4Object algName brKernelsUsed worker.Device.Name "MGPU" sourceCounts nIterations fourTypeStatsList
 
-// we can probably organize this a lot better, but for now, if you just change
-// what module you open above and all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_bulkInsertStats_int |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_bulkInsertStats_int64 |> List.unzip
-let oFloat32TP, oFloat32BW = moderngpu_bulkInsertStats_float32 |> List.unzip
-let oFloat64TP, oFloat64BW = moderngpu_bulkInsertStats_float64 |> List.unzip
-
-
-for i = 0 to sourceCounts.Length - 1 do
-    // this is setting the opponent (MGPU) stats for the int type
-    brBMS4.Int32s.OpponentThroughput.[i].Value <- oIntTP.[i]
-    brBMS4.Int32s.OpponentBandwidth.[i].Value <- oIntBW.[i]
-    // set opponent stats for int64
-    brBMS4.Int64s.OpponentThroughput.[i].Value <- oInt64TP.[i]
-    brBMS4.Int64s.OpponentBandwidth.[i].Value <- oInt64BW.[i]
-    // set oppenent stats for float32
-    brBMS4.Float32s.OpponentThroughput.[i].Value <- oFloat32TP.[i]
-    brBMS4.Float32s.OpponentBandwidth.[i].Value <- oFloat32BW.[i]
-    // set oppenent stats for float64
-    brBMS4.Float64s.OpponentThroughput.[i].Value <- oFloat64TP.[i]
-    brBMS4.Float64s.OpponentBandwidth.[i].Value <- oFloat64BW.[i]
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -151,7 +129,7 @@ let inline verifyAll (h:'T[] list) (d:'T[] list) =
 
 
 let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
-    let remover = worker.LoadPModule(pfuncts.BulkRemoveInPlace()).Invoke
+    let remover = worker.LoadPModule(pfuncts.BulkRemoveFunc()).Invoke
 
     let calc = pcalc {
         let! dSource = DArray.scatterInBlob worker data

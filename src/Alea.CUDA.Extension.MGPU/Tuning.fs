@@ -10,6 +10,9 @@ type Plan =
 let bulkInsert = { NT = 128; VT = 7 }
 let bulkRemove = { NT = 128; VT = 11 }
 let intervalMove = { NT = 128; VT = 7 }
+let intervalExpand = { NT = 128; VT = 7 }
+let intervalGather = { NT = 128; VT = 7 }
+let intervalScatter = { NT = 128; VT = 7 }
 let join = { NT = 128; VT = 7 }
 let loadBalance = { NT = 128; VT = 7 }
 let localitySortKeys = { NT = 128; VT = 11 }
@@ -32,6 +35,9 @@ type KernelType =
     | BulkInsert
     | BulkRemove
     | IntervalMove
+    | IntervalExpand
+    | IntervalGather
+    | IntervalScatter
     | Join
     | LoadBalance
     | LocalitySortKeys
@@ -56,6 +62,9 @@ let defaultPlan (kt:KernelType) =
     | BulkInsert -> bulkInsert
     | BulkRemove -> bulkRemove
     | IntervalMove -> intervalMove
+    | IntervalExpand -> intervalExpand
+    | IntervalGather -> intervalGather
+    | IntervalScatter -> intervalScatter
     | Join -> join
     | LoadBalance  -> loadBalance
     | LocalitySortKeys -> localitySortKeys

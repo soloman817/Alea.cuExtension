@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.DeviceUtil
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.DeviceUtil
 
 // This file maps to the deviceutil.cuh file in mgpu, just some utilities.
 
@@ -6,8 +7,19 @@ open Alea.CUDA
 open Microsoft.FSharp.Quotations
 
 
+let [<ReflectedDefinition>] ExclusiveScan = 0
+let [<ReflectedDefinition>] InclusiveScan = 1
+
+
 let [<ReflectedDefinition>] MgpuBoundsLower = 0
 let [<ReflectedDefinition>] MgpuBoundsUpper = 1
+
+
+type ScanOpType =
+    | ScanOpTypeAdd
+    | ScanOpTypeMul
+    | ScanOpTypeMin
+    | ScanOpTypeMax
 
 
 type MgpuScanType =
@@ -34,6 +46,9 @@ type MgpuSetOp =
     | MgpuSetOpUnion
     | MgpuSetOpDiff
     | MgpuSetOpSymDiff
+
+
+
 
 
 let [<ReflectedDefinition>] WARP_SIZE = 32
@@ -140,3 +155,10 @@ let [<ReflectedDefinition>] swap a b =
     let mutable b = b
     a <- b
     b <- c
+
+
+let counting_iterator (N:int) =
+    <@ fun (countingItr:RWPtr<int>) ->
+        for i = 0 to N - 1 do
+            countingItr.[i] <- i
+    @>

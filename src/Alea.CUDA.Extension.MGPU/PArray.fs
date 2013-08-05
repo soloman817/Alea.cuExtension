@@ -8,6 +8,11 @@ open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
+type PReturnType =
+    | Result
+    | Function
+
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Bulk Insert
 /// <summary></summary>
@@ -31,7 +36,7 @@ type PBulkInsert() =
                     return inserted } ) }
 
 
-    member bi.BulkInsertInPlace() = cuda {
+    member bi.BulkInsertFunc() = cuda {
         let! api = BulkInsert.bulkInsert()    
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
@@ -80,7 +85,7 @@ type PBulkRemove(?plan) =
     // @COMMENTS@ : for benchmark test, we need wrap it with in-place pattern, so it is just different
     // memory usage, that is also why we need a raw api and then wrap them and separate memory management
     // so strictly
-    member br.BulkRemoveInPlace() = cuda {
+    member br.BulkRemoveFunc() = cuda {
         let! api = BulkRemove.bulkRemove(p)    
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
@@ -102,8 +107,76 @@ type PBulkRemove(?plan) =
 //// Interval Move
 /// <summary></summary>
 /// <remarks></remarks>
-type PIntervalMove() =
-    member x.x = ()
+type PIntervalMove(?plan) =
+    let p =
+        match plan with
+        | Some plan -> plan
+        | None -> defaultPlan IntervalMove
+
+    member im.IntervalExpand() = cuda {
+            let! api = IntervalMove.intervalExpand(p)            
+            return PFunc(fun (m:Module) ->
+                let worker = m.Worker
+                let api = api.Apply m
+                fun (counts:DArray<int>) (total:int) (input:DArray<'T>) ->
+                    let numInputs = counts.Length
+                    let api = api total numInputs
+                    let sequence = Array.init total (fun i -> i)
+                    pcalc {                    
+                        let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                        let! countingItr = DArray.scatterInBlob worker sequence
+                        let! output = DArray.createInBlob<'T> worker total
+                        do! PCalc.action (fun hint -> api.Action hint counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr)
+                        return output } ) }
+
+    member im.IntervalExpandFunc() = cuda {
+            let! api = IntervalMove.intervalExpand(p)            
+            return PFunc(fun (m:Module) ->
+                let worker = m.Worker
+                let api = api.Apply m
+                fun (total:int) (numInputs:int) ->                    
+                    let api = api total numInputs
+                    let sequence = Array.init total (fun i -> i)
+                    pcalc {                    
+                        let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                        let! countingItr = DArray.scatterInBlob worker sequence
+                        let expand (counts:DArray<int>) (input:DArray<'T>) (output:DArray<'T>) =
+                            pcalc { do! PCalc.action (fun hint -> api.Action hint counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr) }
+                        return expand } ) }
+
+    member im.IntervalGather = ()
+    member im.IntervalScatter = ()
+
+    member im.IntervalMove() = cuda {
+        let! api = IntervalMove.intervalMove(p)
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m            
+            fun (total:int) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (input:DArray<'T>) ->
+                let numInputs = counts.Length
+                let api = api total numInputs
+                let sequence = Array.init total (fun i -> i)
+                pcalc {                    
+                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    let! countingItr = DArray.scatterInBlob worker sequence
+                    let! output = DArray.createInBlob<'T> worker total
+                    do! PCalc.action (fun hint -> api.Action hint gather.Ptr scatter.Ptr counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr)
+                    return output } ) }
+
+    member im.IntervalMoveFunc() = cuda {
+        let! api = IntervalMove.intervalMove(p)
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m            
+            fun (total:int) (numInputs:int) ->                
+                let api = api total numInputs
+                let sequence = Array.init total (fun i -> i)
+                pcalc {                    
+                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
+                    let! countingItr = DArray.scatterInBlob worker sequence
+                    let move (input:DArray<'T>) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (output:DArray<'T>) = 
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint gather.Ptr scatter.Ptr counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr) }
+                    return move } ) }
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -134,11 +207,11 @@ type PLoadBalanceSearch() =
                     let! indices = DArray.createInBlob<int> worker aCount
                     let! counter = DArray.scatterInBlob worker sequence
                     let! mpCounter = DArray.scatterInBlob worker sequence                    
-                    do! PCalc.action (fun hint -> api.Action hint counts.Ptr partition.Ptr indices.Ptr counter.Ptr mpCounter.Ptr)                     
+                    do! PCalc.action (fun hint -> api.Action hint counts.Ptr partition.Ptr indices.Ptr mpCounter.Ptr)                     
                     return indices } ) }
     
 
-    member plbs.SearchInPlace() = cuda {
+    member plbs.SearchFunc() = cuda {
         let! api = LoadBalance.loadBalanceSearch()
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
@@ -151,7 +224,7 @@ type PLoadBalanceSearch() =
                     let! mpCounter = DArray.scatterInBlob worker sequence                    
                     let! partition = DArray.createInBlob<int> worker api.NumPartitions
                     let search (data:DArray<int>) (indices:DArray<int>) =
-                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr partition.Ptr indices.Ptr counter.Ptr mpCounter.Ptr) }
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr partition.Ptr indices.Ptr mpCounter.Ptr) }
                     return search } ) }
 
 
@@ -170,7 +243,6 @@ type PLocalitySort() =
 type PMerge() =
     member m.MergeKeys (compOp:IComp<'TV>) = cuda {
         let! api = Merge.mergeKeys compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -184,7 +256,6 @@ type PMerge() =
 
     member m.MergePairs (compOp:IComp<'TV>) = cuda {
         let! api = Merge.mergePairs compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -204,7 +275,6 @@ type PMerge() =
 type PMergesort() =
     member ms.MergesortKeys() = cuda {
         let! api = Mergesort.mergesortKeys (comp CompTypeLess 0)
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -218,7 +288,6 @@ type PMergesort() =
 
     member ms.MergesortKeys(compOp:IComp<'TV>) = cuda {
         let! api = Mergesort.mergesortKeys compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -230,9 +299,8 @@ type PMergesort() =
                     do! PCalc.action (fun hint -> api.Action hint source.Ptr dest.Ptr partition.Ptr)
                     return dest } ) }
 
-    member ms.MergesortKeysInPlace(compOp:IComp<'TV>) = cuda {
+    member ms.MergesortKeysFunc(compOp:IComp<'TV>) = cuda {
         let! api = Mergesort.mergesortKeys compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -246,7 +314,6 @@ type PMergesort() =
 
     member ms.MergesortPairs(keyType:'TV) = cuda {
         let! api = Mergesort.mergesortPairs (comp CompTypeLess keyType)
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -262,7 +329,6 @@ type PMergesort() =
 
     member ms.MergesortPairs(compOp:IComp<'TV>) = cuda {
         let! api = Mergesort.mergesortPairs compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -276,9 +342,8 @@ type PMergesort() =
                     do! PCalc.action (fun hint -> api.Action hint keysSource.Ptr valsSource.Ptr keysDest.Ptr valsDest.Ptr partition.Ptr)
                     return keysDest, valsDest } ) }
 
-    member ms.MergesortPairsInPlace(compOp:IComp<'TV>) = cuda {
+    member ms.MergesortPairsFunc(compOp:IComp<'TV>) = cuda {
         let! api = Mergesort.mergesortPairs compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -292,7 +357,6 @@ type PMergesort() =
 
     member ms.MergesortIndices() = cuda {
         let! api = Mergesort.mergesortIndices (comp CompTypeLess 0)
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -310,7 +374,6 @@ type PMergesort() =
 
     member ms.MergesortIndices(compOp:IComp<int>) = cuda {
         let! api = Mergesort.mergesortIndices compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -326,9 +389,8 @@ type PMergesort() =
                     do! PCalc.action (fun hint -> api.Action hint keysSource.Ptr countingItr.Ptr valsSource.Ptr keysDest.Ptr valsDest.Ptr partition.Ptr)
                     return keysDest, valsDest } ) }
 
-    member ms.MergesortIndicesInPlace(compOp:IComp<int>) = cuda {
+    member ms.MergesortIndicesFunc(compOp:IComp<int>) = cuda {
         let! api = Mergesort.mergesortIndices compOp
-
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
@@ -405,7 +467,7 @@ type PScan() =
 
     member ps.Scan(op:IScanOp<'TI,'TV,'TR>) = ps.Scan(ExclusiveScan, op)       
 
-    member ps.ScanInPlace(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>, totalAtEnd:int) = cuda {
+    member ps.ScanFunc(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>, totalAtEnd:int) = cuda {
         let! api = Scan.scan mgpuScanType op totalAtEnd
         return PFunc(fun (m:Module) ->
             let worker = m.Worker

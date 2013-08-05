@@ -25,13 +25,11 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
+open ModernGPU.MergeStats
 
 
 let worker = Engine.workers.DefaultWorker
 let pfuncts = new PMerge()
-
-let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.mergeIterations
 
 let algName1 = "Merge Keys"
 let mkkernelsUsed = [| "kernelMerge"; "kernelMergePartitions" |]
@@ -42,11 +40,11 @@ let mpBMS4 = new BenchmarkStats4(algName2, mpkernelsUsed, worker.Device.Name, "M
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above and all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_mergeKeysStats_int32 |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_mergeKeysStats_int64 |> List.unzip
+let oIntTP, oIntBW = Keys.int32_stats |> List.unzip
+let oInt64TP, oInt64BW = Keys.int64_stats |> List.unzip
 
-let oIntTP2, oIntBW2 = moderngpu_mergePairsStats_int32 |> List.unzip
-let oInt64TP2, oInt64BW2 = moderngpu_mergePairsStats_int64 |> List.unzip
+let oIntTP2, oIntBW2 = Pairs.int32_stats |> List.unzip
+let oInt64TP2, oInt64BW2 = Pairs.int64_stats |> List.unzip
 
 
 for i = 0 to sourceCounts.Length - 1 do

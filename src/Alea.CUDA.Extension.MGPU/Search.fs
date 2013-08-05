@@ -96,7 +96,7 @@ type IMergePathPartitions<'T> =
 let mergePathPartitions (bounds:int) (compOp:IComp<'T>) = cuda {
     let NT = 64
     let bounds = if bounds = MgpuBoundsLower then 0 else 1
-    let! kernelMergePartition = (kernelMergePartition NT bounds compOp) |> defineKernelFuncWithName "mpp"
+    let! kernelMergePartition = (kernelMergePartition NT bounds compOp) |> defineKernelFuncWithName "kmp"
 
     return PFunc(fun (m:Module) ->
         let worker = m.Worker

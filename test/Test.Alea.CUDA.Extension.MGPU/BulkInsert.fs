@@ -24,6 +24,7 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
+open ModernGPU.BulkInsertStats
 
 
 let worker = Engine.workers.DefaultWorker
@@ -31,8 +32,6 @@ let pfuncts = new PBulkInsert()
 
 let rng = System.Random()
 
-let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.bulkInsertIterations
 
 let aib count =
     let aCount = count / 2
@@ -55,10 +54,10 @@ let biBMS4 = new BenchmarkStats4(algName, biKernelsUsed, worker.Device.Name, "MG
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above and all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_bulkInsertStats_int |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_bulkInsertStats_int64 |> List.unzip
-let oFloat32TP, oFloat32BW = moderngpu_bulkInsertStats_float32 |> List.unzip
-let oFloat64TP, oFloat64BW = moderngpu_bulkInsertStats_float64 |> List.unzip
+let oIntTP, oIntBW = int32_stats |> List.unzip
+let oInt64TP, oInt64BW = int64_stats |> List.unzip
+let oFloat32TP, oFloat32BW = float32_stats |> List.unzip
+let oFloat64TP, oFloat64BW = float64_stats |> List.unzip
 
 
 for i = 0 to sourceCounts.Length - 1 do
@@ -156,7 +155,7 @@ let testBulkInsert() =
         
 
 let benchmarkBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) (numIt:int) (testIdx:int) =
-    let inserter = worker.LoadPModule(pfuncts.BulkInsertInPlace()).Invoke
+    let inserter = worker.LoadPModule(pfuncts.BulkInsertFunc()).Invoke
 
     let calc = pcalc {
         let! dA = DArray.scatterInBlob worker dataA

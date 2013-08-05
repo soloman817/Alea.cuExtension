@@ -20,6 +20,8 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.TeslaK20c
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
+open ModernGPU.ScanStats
+
 
 let pScanner = new PScan()
 
@@ -30,9 +32,6 @@ let defaultScanType = ExclusiveScan
 
 let sizes = [12; 128; 512; 1024; 1200; 4096; 5000; 8191; 8192; 8193; 9000; 10000; 2097152; 8388608]
 
-let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.scanIterations
-
 let worker = getDefaultWorker()
 
 let algName = "Scan"
@@ -42,8 +41,8 @@ let scanBMS4 = new BenchmarkStats4("Scan", scanKernelsUsed, worker.Device.Name, 
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_scanStats_int |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_scanStats_int64 |> List.unzip
+let oIntTP, oIntBW = int32_stats |> List.unzip
+let oInt64TP, oInt64BW = int64_stats |> List.unzip
 
 for i = 0 to sourceCounts.Length - 1 do
     // this is setting the opponent (MGPU) stats for the int type
@@ -118,7 +117,7 @@ let testScan () =
 
 
 let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:'TI[]) (testIdx:int) =
-    let scanner = worker.LoadPModule(pScanner.ScanInPlace(mgpuScanType, op, totalAtEnd)).Invoke
+    let scanner = worker.LoadPModule(pScanner.ScanFunc(mgpuScanType, op, totalAtEnd)).Invoke
     let count = data.Length
     
     

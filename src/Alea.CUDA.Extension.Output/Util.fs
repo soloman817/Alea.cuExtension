@@ -217,4 +217,27 @@ type BenchmarkStats4 =
 
 
 
+let getFilledBMS4Object 
+        (algName:string) 
+        (kernelsUsed:string[]) 
+        (deviceName:string)
+        (opponentName:string)
+        (sourceCounts: list<int>)
+        (nIterations: list<int>)
+        (fourTypeStats: list<list<float * float>>) =
+    let bms4obj = new BenchmarkStats4(algName, kernelsUsed, deviceName, opponentName, sourceCounts, nIterations)
+    let i32stats, i64stats, f32stats, f64stats = fourTypeStats.[0],fourTypeStats.[1],fourTypeStats.[2],fourTypeStats.[3]
+    i32stats |> List.iteri (fun i (tp, bw) ->
+        bms4obj.Int32s.OpponentThroughput.[i].Value <- tp
+        bms4obj.Int32s.OpponentBandwidth.[i].Value <- bw )
+    i64stats |> List.iteri (fun i (tp, bw) ->
+        bms4obj.Int64s.OpponentThroughput.[i].Value <- tp
+        bms4obj.Int64s.OpponentBandwidth.[i].Value <- bw )
+    f32stats |> List.iteri (fun i (tp, bw) ->
+        bms4obj.Float32s.OpponentThroughput.[i].Value <- tp
+        bms4obj.Float32s.OpponentBandwidth.[i].Value <- bw )
+    f64stats |> List.iteri (fun i (tp, bw) ->
+        bms4obj.Float64s.OpponentThroughput.[i].Value <- tp
+        bms4obj.Float64s.OpponentBandwidth.[i].Value <- bw )
 
+    bms4obj

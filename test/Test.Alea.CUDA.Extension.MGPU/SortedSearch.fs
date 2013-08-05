@@ -25,13 +25,12 @@ open NUnit.Framework
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats.GF560Ti
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
-
+open ModernGPU.SortedSearchStats
 
 let pSortedSearch = MGPU.PArray.PSortedSearch()
 let worker = Engine.workers.DefaultWorker
 
-let sourceCounts = BenchmarkStats.sourceCounts
-let nIterations = BenchmarkStats.sortedSearchIterations
+
 
 // This is the weight used in the mgpu benchmark, make sure the data in 
 // BenchmarkStats.fs used this same weight or the comparisons will be off
@@ -46,15 +45,15 @@ let ss2BMS4 = new BenchmarkStats4(algName2, ss1kernelsUsed, worker.Device.Name, 
 
 // we can probably organize this a lot better, but for now, if you just change
 // what module you open above and all of this should adjust accordingly
-let oIntTP, oIntBW = moderngpu_sortedSearchStats_int32 |> List.unzip
-let oInt64TP, oInt64BW = moderngpu_sortedSearchStats_int64 |> List.unzip
-let oFloat32TP, oFloat32BW = moderngpu_sortedSearchStats_float32 |> List.unzip
-let oFloat64TP, oFloat64BW = moderngpu_sortedSearchStats_float64 |> List.unzip
+let oIntTP, oIntBW = SS1.int32_stats |> List.unzip
+let oInt64TP, oInt64BW = SS1.int64_stats |> List.unzip
+let oFloat32TP, oFloat32BW = SS1.float32_stats |> List.unzip
+let oFloat64TP, oFloat64BW = SS1.float64_stats |> List.unzip
 
-let oIntTP2, oIntBW2 = moderngpu_sortedSearch2Stats_int32 |> List.unzip
-let oInt64TP2, oInt64BW2 = moderngpu_sortedSearch2Stats_int64 |> List.unzip
-let oFloat32TP2, oFloat32BW2 = moderngpu_sortedSearch2Stats_float32 |> List.unzip
-let oFloat64TP2, oFloat64BW2 = moderngpu_sortedSearch2Stats_float64 |> List.unzip
+let oIntTP2, oIntBW2 = SS2.int32_stats |> List.unzip
+let oInt64TP2, oInt64BW2 = SS2.int64_stats |> List.unzip
+let oFloat32TP2, oFloat32BW2 = SS2.float32_stats |> List.unzip
+let oFloat64TP2, oFloat64BW2 = SS2.float64_stats |> List.unzip
 
 for i = 0 to sourceCounts.Length - 1 do
     // this is setting the opponent (MGPU) stats for the int type

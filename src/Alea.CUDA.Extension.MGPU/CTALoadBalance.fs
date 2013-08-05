@@ -59,9 +59,8 @@ let ctaLoadBalance (NT:int) (VT:int) =
     let deviceMemToMemLoop = deviceMemToMemLoop NT
     let deviceSerialLoadBalanceSearchFalse = deviceSerialLoadBalanceSearch VT false
     let deviceSerialLoadBalanceSearchTrue = deviceSerialLoadBalanceSearch VT true
-
-    let ctrSize = NT * VT + 2
-
+    let itrSize = NT * VT + 2
+    let countingItr = counting_iterator itrSize
     <@ fun  (destCount      :int) 
             (b_global       :RWPtr<int>)
             (sourceCount    :int)
@@ -70,8 +69,8 @@ let ctaLoadBalance (NT:int) (VT:int) =
             (mp_global      :DevicePtr<int>)
             (indices_shared :RWPtr<int>)
             (loadPrecedingB :bool)
-            (mpCountingItr  :DevicePtr<int>)
             ->
+        let countingItr = %countingItr
         let computeMergeRange = %computeMergeRange
         let mergePath = %mergePath
         let deviceMemToMemLoop = %deviceMemToMemLoop
@@ -106,8 +105,9 @@ let ctaLoadBalance (NT:int) (VT:int) =
 
         let diag = min (VT * tid) (aCount + bCount - loadPrecedingB)
         
-
-        let mp = mergePath (mpCountingItr + a0) aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
+        let itr = __local__<int>(itrSize).Ptr(0)
+        countingItr itr
+        let mp = mergePath (itr + a0) aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
 
         let a0tid = a0 + mp
         let b0tid = diag - mp + loadPrecedingB
