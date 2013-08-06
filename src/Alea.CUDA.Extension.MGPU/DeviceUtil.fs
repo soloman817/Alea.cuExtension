@@ -158,7 +158,7 @@ let [<ReflectedDefinition>] swap a b =
 
 
 let counting_iterator (N:int) =
-    <@ fun (countingItr:RWPtr<int>) ->
+    <@ fun (countingItr_global:DevicePtr<int>) (offset:int) (sharedCountingItr:RWPtr<int>) ->
         for i = 0 to N - 1 do
-            countingItr.[i] <- i
+            sharedCountingItr.[i] <- countingItr_global.[i + offset]
     @>

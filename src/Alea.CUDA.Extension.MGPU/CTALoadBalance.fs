@@ -59,18 +59,19 @@ let ctaLoadBalance (NT:int) (VT:int) =
     let deviceMemToMemLoop = deviceMemToMemLoop NT
     let deviceSerialLoadBalanceSearchFalse = deviceSerialLoadBalanceSearch VT false
     let deviceSerialLoadBalanceSearchTrue = deviceSerialLoadBalanceSearch VT true
-    let itrSize = NT * VT + 2
-    let countingItr = counting_iterator itrSize
+    let itrSize = NT * (VT + 1)
+    let counting_iterator = counting_iterator itrSize
     <@ fun  (destCount      :int) 
-            (b_global       :RWPtr<int>)
+            (b_global       :DevicePtr<int>)
             (sourceCount    :int)
             (block          :int)
             (tid            :int)
+            (countingItr_global :DevicePtr<int>)
             (mp_global      :DevicePtr<int>)
             (indices_shared :RWPtr<int>)
             (loadPrecedingB :bool)
             ->
-        let countingItr = %countingItr
+        let counting_iterator = %counting_iterator
         let computeMergeRange = %computeMergeRange
         let mergePath = %mergePath
         let deviceMemToMemLoop = %deviceMemToMemLoop
@@ -85,8 +86,7 @@ let ctaLoadBalance (NT:int) (VT:int) =
         let a1 = range.y
         let mutable b0 = range.z
         let b1 = range.w
-
-        let mutable loadPrecedingB = loadPrecedingB
+        
         if loadPrecedingB = 1 then
             if b0 = 0 then
                 loadPrecedingB <- 0
@@ -95,19 +95,38 @@ let ctaLoadBalance (NT:int) (VT:int) =
             
         let mutable extended = if (a1 < destCount) && (b1 < sourceCount) then 1 else 0
 
-        let mutable aCount = a1 - a0
-        let mutable bCount = b1 - b0
+        let aCount = a1 - a0
+        let bCount = b1 - b0
 
-        let a_shared = indices_shared.Ptr(0)
-        let b_shared = indices_shared.Ptr(aCount)
+        let a_shared = indices_shared
+        let b_shared = indices_shared + aCount
 
         deviceMemToMemLoop (bCount + extended) (b_global + b0) tid b_shared true
 
         let diag = min (VT * tid) (aCount + bCount - loadPrecedingB)
         
-        let itr = __local__<int>(itrSize).Ptr(0)
-        countingItr itr
-        let mp = mergePath (itr + a0) aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
+        //let countingItr = mpCountingItr + a0
+        //let sharedCountingItr = __local__<int>(itrSize).Ptr(0)
+        //counting_iterator countingItr_global a0 sharedCountingItr
+        //__syncthreads()
+        //let mp = mergePath sharedCountingItr aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
+        let b = b_shared + loadPrecedingB
+        let mp = 
+            let mutable begin' = max 0 (diag - bCount)
+            let mutable end' = min diag aCount
+
+            while begin' < end' do
+                let mid = (begin' + end') >>> 1
+                let aKey = a0 + mid
+                let bKey = b.[diag - 1 - mid]
+
+                let pred = aKey < bKey
+                        
+                if pred then 
+                    begin' <- mid + 1
+                else
+                   end' <- mid
+            begin'
 
         let a0tid = a0 + mp
         let b0tid = diag - mp + loadPrecedingB

@@ -270,41 +270,42 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
             
 
             let action (hint:ActionHint) (data:DevicePtr<'TI>) (total:DevicePtr<'TV>) (dest:DevicePtr<'TR>)  =
-                if count < cutOff then
-                    //printfn "branch1, kernelParallelScan"
+                fun () ->
+                    if count < cutOff then
+                        //printfn "branch1, kernelParallelScan"
                     
-                    let plan = psPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    let task = int2(numTiles, 1)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    //let totalDevice = DevicePtr<'TV>(0n)
-                    //let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
-                    //let total = if total.Handle <> 0n then totalDevice else total
-                    let end' = if totalAtEnd = 1 then (dest + count) else DevicePtr<'TR>(0n)
-                    kernelPS.Launch lp data count total end' dest                    
-                else
-                    //printfn "branch2"
-                    let plan = rrUpsweepPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    let numBlocks = min (numSm * 25) numTiles
-                    let task : int2 = divideTaskRange numTiles numBlocks
-                    let reductionDevice = worker.Malloc<'TV>(numBlocks + 1).Ptr
-                    //let totalDevice : DevicePtr<'TV> = if total <> DevicePtr<'TV>(0n) then reductionDevice + numBlocks else DevicePtr<'TV>(0n)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    kernelRRUpsweep.Launch lp data count task reductionDevice
+                        let plan = psPlan
+                        let NV = plan.NT * plan.VT
+                        let numTiles = divup count NV
+                        let task = int2(numTiles, 1)
+                        let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
+                        //let totalDevice = DevicePtr<'TV>(0n)
+                        //let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
+                        //let total = if total.Handle <> 0n then totalDevice else total
+                        let end' = if totalAtEnd = 1 then (dest + count) else DevicePtr<'TR>(0n)
+                        kernelPS.Launch lp data count total end' dest                    
+                    else
+                        //printfn "branch2"
+                        let plan = rrUpsweepPlan
+                        let NV = plan.NT * plan.VT
+                        let numTiles = divup count NV
+                        let numBlocks = min (numSm * 25) numTiles
+                        let task : int2 = divideTaskRange numTiles numBlocks
+                        let reductionDevice = worker.Malloc<'TV>(numBlocks + 1).Ptr
+                        //let totalDevice : DevicePtr<'TV> = if total <> DevicePtr<'TV>(0n) then reductionDevice + numBlocks else DevicePtr<'TV>(0n)
+                        let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
+                        kernelRRUpsweep.Launch lp data count task reductionDevice
 
-                    let plan = plosPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    // need numBlocks for reduction, so we dont update it here
-                    let task = divideTaskRange numTiles (min (numSm * 25) numTiles)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
-                    let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
-                    kernelPLOS.Launch lp reductionDevice1 numBlocks total (DevicePtr(0n)) reductionDevice2
+                        let plan = plosPlan
+                        let NV = plan.NT * plan.VT
+                        let numTiles = divup count NV
+                        // need numBlocks for reduction, so we dont update it here
+                        let task = divideTaskRange numTiles (min (numSm * 25) numTiles)
+                        let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
+                        let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
+                        let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
+                        kernelPLOS.Launch lp reductionDevice1 numBlocks total (DevicePtr(0n)) reductionDevice2
                                         
-                    kernelRSDownsweep.Launch lp data count task reductionDevice dest totalAtEnd
-                    
+                        kernelRSDownsweep.Launch lp data count task reductionDevice dest totalAtEnd
+                |> worker.Eval                    
             { NumBlocks = numBlocks; IScan.Action = action; (*Result = result; Total = hTotal*) } ) }

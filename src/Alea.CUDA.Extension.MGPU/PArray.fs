@@ -113,20 +113,32 @@ type PIntervalMove(?plan) =
         | Some plan -> plan
         | None -> defaultPlan IntervalMove
 
+    // IntervalExpand duplicates intervalCount items in values_global.
+    // indices_global is an intervalCount-sized array filled with the scan of item
+    // expand counts. moveCount is the total number of outputs (sum of expand 
+    // counts).
+
+    // Eg:
+    //		values  =  0,  1,  2,  3,  4,  5,  6,  7,  8
+    //		counts  =  1,  2,  1,  0,  4,  2,  3,  0,  2
+    //		indices =  0,  1,  3,  4,  4,  8, 10, 13, 13 (moveCount = 15).
+    // Expand values[i] by counts[i]:
+    // output  =  0, 1, 1, 2, 4, 4, 4, 4, 5, 5, 6, 6, 6, 8, 8 
     member im.IntervalExpand() = cuda {
             let! api = IntervalMove.intervalExpand(p)            
             return PFunc(fun (m:Module) ->
                 let worker = m.Worker
                 let api = api.Apply m
-                fun (counts:DArray<int>) (total:int) (input:DArray<'T>) ->
-                    let numInputs = counts.Length
-                    let api = api total numInputs
-                    let sequence = Array.init total (fun i -> i)
+                fun (moveCount:int) (indices:DArray<int>) (values:DArray<'T>) ->
+                    let intervalCount = indices.Length
+                    let api = api moveCount intervalCount
+                    let countingItr = [|0..(moveCount + intervalCount)|]
                     pcalc {                    
                         let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                        let! countingItr = DArray.scatterInBlob worker sequence
-                        let! output = DArray.createInBlob<'T> worker total
-                        do! PCalc.action (fun hint -> api.Action hint counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr)
+                        let! mpCountingItr = DArray.scatterInBlob worker countingItr
+                        let! ctaCountingItr = DArray.scatterInBlob worker countingItr
+                        let! output = DArray.createInBlob<'T> worker moveCount
+                        do! PCalc.action (fun hint -> api.Action hint indices.Ptr values.Ptr ctaCountingItr.Ptr mpCountingItr.Ptr partition.Ptr output.Ptr)
                         return output } ) }
 
     member im.IntervalExpandFunc() = cuda {
@@ -134,14 +146,15 @@ type PIntervalMove(?plan) =
             return PFunc(fun (m:Module) ->
                 let worker = m.Worker
                 let api = api.Apply m
-                fun (total:int) (numInputs:int) ->                    
-                    let api = api total numInputs
-                    let sequence = Array.init total (fun i -> i)
-                    pcalc {                    
+                fun (moveCount:int) (intervalCount:int) ->
+                    let countingItr = [|0..(moveCount + intervalCount)|]
+                    pcalc {
+                        let api = api moveCount intervalCount
                         let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                        let! countingItr = DArray.scatterInBlob worker sequence
-                        let expand (counts:DArray<int>) (input:DArray<'T>) (output:DArray<'T>) =
-                            pcalc { do! PCalc.action (fun hint -> api.Action hint counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr) }
+                        let! mpCountingItr = DArray.scatterInBlob worker countingItr
+                        let! ctaCountingItr = DArray.scatterInBlob worker countingItr
+                        let expand (indices:DArray<int>) (values:DArray<'T>) (output:DArray<'T>) =
+                            pcalc { do! PCalc.action (fun hint -> api.Action hint indices.Ptr values.Ptr ctaCountingItr.Ptr mpCountingItr.Ptr partition.Ptr output.Ptr) }
                         return expand } ) }
 
     member im.IntervalGather = ()
@@ -197,18 +210,17 @@ type PLoadBalanceSearch() =
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
             let api = api.Apply m
-            fun (total:int) (counts:DArray<int>) ->
-                let aCount = total
-                let bCount = counts.Length
+            fun (aCount:int) (b_global:DArray<int>) ->
+                let bCount = b_global.Length
                 let api = api aCount bCount
-                let sequence = Array.init aCount (fun i -> i)
+                let itr = Array.init bCount (fun i -> i)
                 pcalc {
-                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                    let! indices = DArray.createInBlob<int> worker aCount
-                    let! counter = DArray.scatterInBlob worker sequence
-                    let! mpCounter = DArray.scatterInBlob worker sequence                    
-                    do! PCalc.action (fun hint -> api.Action hint counts.Ptr partition.Ptr indices.Ptr mpCounter.Ptr)                     
-                    return indices } ) }
+                    let! ctaCountingItr = DArray.scatterInBlob worker itr
+                    let! mpCountingItr = DArray.scatterInBlob worker itr
+                    let! mp_global = DArray.createInBlob<int> worker api.NumPartitions
+                    let! indices_global = DArray.createInBlob<int> worker aCount                    
+                    do! PCalc.action (fun hint -> api.Action hint b_global.Ptr indices_global.Ptr ctaCountingItr.Ptr mpCountingItr.Ptr mp_global.Ptr)                     
+                    return indices_global } ) }
     
 
     member plbs.SearchFunc() = cuda {
@@ -218,13 +230,13 @@ type PLoadBalanceSearch() =
             let api = api.Apply m
             fun (aCount:int) (bCount:int) ->
                 let api = api aCount bCount
-                let sequence = Array.init aCount (fun i -> i)
+                let itr = Array.init aCount (fun i -> i)
                 pcalc {
-                    let! counter = DArray.scatterInBlob worker sequence
-                    let! mpCounter = DArray.scatterInBlob worker sequence                    
-                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
-                    let search (data:DArray<int>) (indices:DArray<int>) =
-                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr partition.Ptr indices.Ptr mpCounter.Ptr) }
+                    let! mp_global = DArray.createInBlob<int> worker api.NumPartitions
+                    let! mpCountingItr = DArray.scatterInBlob worker itr
+                    let! ctaCountingItr = DArray.scatterInBlob worker itr
+                    let search (b_global:DArray<int>) (indices_global:DArray<int>) =
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint b_global.Ptr indices_global.Ptr mpCountingItr.Ptr mpCountingItr.Ptr mp_global.Ptr) }
                     return search } ) }
 
 
@@ -462,8 +474,24 @@ type PScan() =
                 pcalc {
                     let! scanned = DArray.createInBlob worker count
                     let! total = DArray.createInBlob worker 1
-                    do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)
+                    do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)                    
                     return total, scanned } ) }
+
+    member ps.Scan() = cuda {
+        let! api = Scan.scan ExclusiveScan (scanOp ScanOpTypeAdd 0) 0
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (data:DArray<int>) ->
+                let count = data.Length
+                let api = api count
+                pcalc {
+                    let! scanned = DArray.createInBlob worker count
+                    let! total = DArray.createInBlob worker 1
+                    do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)
+                    let! scanned = scanned.Gather()
+                    let! total = total.Gather()
+                    return total.[0], scanned } ) }
 
     member ps.Scan(op:IScanOp<'TI,'TV,'TR>) = ps.Scan(ExclusiveScan, op)       
 
@@ -476,9 +504,26 @@ type PScan() =
                 let api = api numElements
                 pcalc {
                     let scanner (data:DArray<'TI>) (scanned:DArray<'TR>) (total:DArray<'TV>) =
-                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr) }
-                    return scanner } ) }    
+                        pcalc { do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)}
+                    return scanner } ) }
+                    
+    member ps.ScanFunc(op:IScanOp<'TI, 'TV, 'TR>) = ps.ScanFunc(ExclusiveScan, op, 0)    
 
+    member ps.ScanFuncReturnTotal(op:IScanOp<'TI, 'TV, 'TR>) = cuda {
+        let! api = Scan.scan ExclusiveScan op 0
+        return PFunc(fun (m:Module) ->
+            let worker = m.Worker
+            let api = api.Apply m
+            fun (numElements:int) ->
+                let api = api numElements
+                pcalc {
+                    let! total = DArray.createInBlob worker 1
+                    let scanner (data:DArray<'TI>) (scanned:DArray<'TR>) =
+                        pcalc { 
+                                do! PCalc.action (fun hint -> api.Action hint data.Ptr total.Ptr scanned.Ptr)
+                                let! total = total.Gather()
+                                return total.[0] }                        
+                    return scanner } ) }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Search
@@ -556,7 +601,4 @@ type PSortedSearch() =
                     return sortedSearch } ) } 
                      
     member pss.SortedSearch(bounds:int, ident:'TI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
-
-
-
 

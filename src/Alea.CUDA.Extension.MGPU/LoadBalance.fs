@@ -23,18 +23,20 @@ let kernelLoadBalance (plan:Plan) =
 
     let ctaLoadBalance = ctaLoadBalance NT VT
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
-    <@ fun (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (mp_global:DevicePtr<int>) (indices_global:DevicePtr<int>) ->
+
+    let sharedSize = NT * (VT + 1)
+    <@ fun (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (indices_global:DevicePtr<int>) ->
         let ctaLoadBalance = %ctaLoadBalance
         let deviceSharedToGlobal = %deviceSharedToGlobal
 
-        let indices_shared = __shared__<int>(NT * (VT + 1)).Ptr(0)
+        let indices_shared = __shared__<int>(sharedSize).Ptr(0)
 
         let mutable aCount = aCount
 
         let tid = threadIdx.x
         let block = blockIdx.x
         
-        let range = ctaLoadBalance aCount b_global bCount block tid mp_global indices_shared false
+        let range = ctaLoadBalance aCount b_global bCount block tid countingItr_global mp_global indices_shared false
         aCount <- range.y - range.x
 
         deviceSharedToGlobal aCount indices_shared tid (indices_global + range.x) false
@@ -43,7 +45,7 @@ let kernelLoadBalance (plan:Plan) =
 
 type ILoadBalanceSearch =
     {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
+        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
         NumPartitions : int
     }
 
@@ -64,12 +66,12 @@ let loadBalanceSearch() = cuda {
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
 
-            let action (hint:ActionHint) (b_global:DevicePtr<int>) (parts:DevicePtr<int>) (indices_global:DevicePtr<int>) (zeroItr:DevicePtr<int>) =
+            let action (hint:ActionHint) (b_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (ctaCountingItr:DevicePtr<int>) (mpCountingItr:DevicePtr<int>) (mp_global:DevicePtr<int>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint zeroItr b_global parts
-                    kernelLoadBalance.Launch lp aCount b_global bCount parts indices_global
+                    let partitions = mpp.Action hint mpCountingItr b_global mp_global
+                    kernelLoadBalance.Launch lp aCount b_global bCount ctaCountingItr mp_global indices_global
                 |> worker.Eval
             
             { Action = action; NumPartitions = numBlocks + 1 } ) }

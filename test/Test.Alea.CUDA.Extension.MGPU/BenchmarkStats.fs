@@ -74,16 +74,6 @@ let testParameters (bt:BenchmarkType) =
 //    | Sort -> sort
     | SortedSearch -> sortedSearch
 
-//let sourceCounts = [10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
-//let scanIterations = [1000; 1000; 1000; 500; 200; 200; 200; 200; 100; 100]
-//let bulkRemoveIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
-//let bulkInsertIterations = [2000; 2000; 2000; 1000; 500; 400; 400; 400; 300; 300]
-//let sortedSearchIterations = [10000; 10000; 10000; 5000; 5000; 3000; 3000; 3000; 2000; 2000]
-//let mergeIterations = [1000; 1000; 1000; 500; 200; 200; 200; 200; 100; 100]
-//let intervalMoveIterations = [10000; 1000; 5000; 5000; 5000; 200; 200; 200; 1000; 1000]
-//let intervalMoveTerms = [5000000; 2000000; 1000000; 500000; 200000; 100000; 50000; 20000; 10000; 5000; 2000]
-
-
 
 
 //Tesla K20c :  705.500 Mhz   (Ordinal 0)

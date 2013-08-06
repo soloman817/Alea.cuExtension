@@ -24,11 +24,7 @@ open ModernGPU.IntervalMoveStats
 let worker = getDefaultWorker()
 let pScanner = new PScan()
 let pIntervalMover = new PIntervalMove()
-
 let op = (CTAScan.scanOp ScanOpTypeAdd 0)
-let scanner = pScanner.Scan(op) |> worker.LoadPModule
-let expander = pIntervalMover.IntervalExpand() |> worker.LoadPModule
-let mover = pIntervalMover.IntervalMove() |> worker.LoadPModule
 
 let iexp_A_4typeStatsList = ModernGPU.IntervalExpandStats.AvgSegLength25.fourTypeStatsList
 let iexp_B_4typeStatsList = ModernGPU.IntervalExpandStats.ConstCountChangingExpandRate.fourTypeStatsList
@@ -83,32 +79,23 @@ let genRandomIntervals (count:int) (numTerms:int) (terms:int[]) =
         swap terms.[r] terms.[i + r]
 
 let benchmarkIntervalExpand (version:char) (hSource:'T[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
-    let scan = scanner.Invoke
-    let expander = pIntervalMover.IntervalExpandFunc() |> worker.LoadPModule
-    let expand = expander.Invoke
-
+    let scan = worker.LoadPModule(pScanner.Scan()).Invoke
+    let expand = worker.LoadPModule(pIntervalMover.IntervalExpandFunc()).Invoke
+    
     let terms = Array.zeroCreate numTerms
     genRandomIntervals count numTerms terms
 
-    let dScanResults = pcalc {
-        let! dCounts = DArray.scatterInBlob worker terms
-        let! total, scanned = scan dCounts
-        let! scanned = scanned.Gather()
-        let! total = total.Gather()
-        return total, scanned } |> PCalc.run
-
-    let hTotal, hCounts_Scanned = dScanResults
-    
-    let total = hTotal.[0]
-    let hCounts = hCounts_Scanned
-
+    let total, scannedCounts =
+        pcalc { let! dCounts = DArray.scatterInBlob worker terms
+                return! scan dCounts} |> PCalc.run
+        
     let calc = pcalc {
-        let! dCounts = DArray.scatterInBlob worker hCounts
+        let! dCounts = DArray.scatterInBlob worker scannedCounts
+        
+        let! expand = expand total numTerms
         let! dData = DArray.scatterInBlob worker hSource
-        let! dDest = DArray.createInBlob<'T> worker count
-
-        let! expand = expand count numTerms
-
+        let! dDest = DArray.createInBlob worker total
+        
         // warm up
         do! expand dCounts dData dDest
 
@@ -154,9 +141,8 @@ let benchmarkIntervalExpand (version:char) (hSource:'T[]) (count:int) (numIt:int
 
 
 let benchmarkIntervalMove (version:char) (hSource:'T[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
-    let scan = scanner.Invoke
-    let mover = pIntervalMover.IntervalMoveFunc() |> worker.LoadPModule
-    let move = mover.Invoke
+    let scan = worker.LoadPModule(pScanner.Scan(op)).Invoke    
+    let move = worker.LoadPModule(pIntervalMover.IntervalMoveFunc()).Invoke
 
     let permGather, permScatter = (Array.init numTerms (fun i -> i)), 
                                   (Array.init numTerms (fun i -> i))
@@ -256,8 +242,8 @@ let benchmarkIntervalMove (version:char) (hSource:'T[]) (count:int) (numIt:int) 
 
 [<Test>]
 let ``Demo Interval Expand`` () =
-    let expand = expander.Invoke
-    let scan = scanner.Invoke
+    let expand = worker.LoadPModule(pIntervalMover.IntervalExpand()).Invoke
+    let scan = worker.LoadPModule(pScanner.Scan(op)).Invoke
 
     printfn "INTERVAL-EXPAND DEMONSTRATION:\n"
 
@@ -296,12 +282,12 @@ let ``Demo Interval Expand`` () =
     
     let total = hTotal.[0]
     let hCounts = hCounts_Scanned
-
+    printfn "total: %A" total
     let dExpandResult = 
         pcalc {
             let! dCounts = DArray.scatterInBlob worker hCounts
             let! dInputs = DArray.scatterInBlob worker hInputs
-            let! result = expand dCounts total dInputs
+            let! result = expand total dCounts dInputs
             let! result = result.Gather()
         return result } |> PCalc.run
 
@@ -311,13 +297,96 @@ let ``Demo Interval Expand`` () =
     (hAnswer, dExpandResult) ||> Array.iter2 (fun h d -> Assert.AreEqual(h, d))
     printfn "\nInterval Expand Passed\n"
 
+[<Test>]
+let ``Demo Interval Expand Func`` () =
+    // using the "in place" function from pIntervalMover (the one used for benchmarking)
+    let expand = worker.LoadPModule(pIntervalMover.IntervalExpandFunc()).Invoke
+    let scan = worker.LoadPModule(pScanner.ScanFuncReturnTotal(op)).Invoke
 
+    printfn "INTERVAL-EXPAND DEMONSTRATION:\n"
+
+    let numInputs = 20
+    printfn "Expand counts (n = %d):" numInputs
+    let hCounts = [| 2;    5;    7;   16;    0;    1;    0;    0;   14;   10;
+                     3;   14;    2;    1;   11;    2;    1;    0;    5;    6 |]
+    printfn "%A\n" hCounts
+
+    printfn "Expand values (n = %d):" numInputs
+    let hInputs = [|  1;    1;    2;    3;    5;    8;   13;   21;   34;   55;
+                     89;  144;  233;  377;  610;  987; 1597; 2584; 4181; 6765 |]
+    printfn "%A\n" hInputs
+
+    printfn "Expanded data (MGPU result):"
+    let hAnswer = [|     1;    1;    1;    1;    1;    1;    1;    2;    2;    2;
+                        2;    2;    2;    2;    3;    3;    3;    3;    3;    3;
+                        3;    3;    3;    3;    3;    3;    3;    3;    3;    3;
+                        8;   34;   34;   34;   34;   34;   34;   34;   34;   34;
+                       34;   34;   34;   34;   34;   55;   55;   55;   55;   55;
+                       55;   55;   55;   55;   55;   89;   89;   89;  144;  144;
+                      144;  144;  144;  144;  144;  144;  144;  144;  144;  144;
+                      144;  144;  233;  233;  377;  610;  610;  610;  610;  610;
+                      610;  610;  610;  610;  610;  610;  987;  987; 1597; 4181;
+                     4181; 4181; 4181; 4181; 6765; 6765; 6765; 6765; 6765; 6765 |]
+    printfn "%A\n" hAnswer
+    
+    let dExpandResult = 
+        pcalc {
+            // scan
+            let! dCounts = DArray.scatterInBlob worker hCounts
+            let! dScannedCounts = DArray.createInBlob worker numInputs
+            let! scan = scan dCounts.Length
+            let! total = scan dCounts dScannedCounts
+
+            // expand
+            let! expand = expand total numInputs
+            let! dInputs = DArray.scatterInBlob worker hInputs
+            let! dDest = DArray.createInBlob worker total
+            
+            do! expand dScannedCounts dInputs dDest            
+            let! result = dDest.Gather()
+        return result } |> PCalc.run
+
+    printfn "Expanded data (Alea.cuBase result):"
+    printfn "%A\n" dExpandResult
+    (hAnswer, dExpandResult) ||> Array.iter2 (fun h d -> Assert.AreEqual(h, d))
+
+
+[<Test>]
+let ``Demo Interval Expand Func 2`` () =
+    let expand = worker.LoadPModule(pIntervalMover.IntervalExpandFunc()).Invoke
+    let scan = worker.LoadPModule(pScanner.ScanFuncReturnTotal(op)).Invoke
+    let numInputs = 50
+    let count = numInputs * 25
+    let terms = Array.zeroCreate numInputs
+    genRandomIntervals count numInputs terms
+    printfn "terms:\n%A" terms
+    let hInputs = Array.init numInputs (fun i -> i)     
+
+    let dExpandResult = 
+        pcalc {
+            let! dCounts = DArray.scatterInBlob worker terms
+            let! dScannedCounts = DArray.createInBlob worker numInputs
+            
+            let! scan = scan dCounts.Length
+            let! total = scan dCounts dScannedCounts
+
+            let! expand = expand total numInputs
+
+            let! dInputs = DArray.scatterInBlob worker hInputs
+            let! dDest = DArray.createInBlob worker total
+                        
+            do! expand dScannedCounts dInputs dDest            
+            let! result = dDest.Gather()
+        return result } |> PCalc.run
+
+    printfn "Expanded data (Alea.cuBase result):"
+    printfn "%A\n" dExpandResult
 
 
 [<Test>]
 let ``Demo Interval Move`` () =
-    let scan = scanner.Invoke
-    let move = mover.Invoke
+    let scan = worker.LoadPModule(pScanner.Scan(op)).Invoke
+    let move = worker.LoadPModule(pIntervalMover.IntervalMove()).Invoke
 
     printfn "INTERVAL-MOVE DEMONSTRATION:\n"
 
@@ -381,31 +450,38 @@ let ``Demo Interval Move`` () =
     printfn "\nInterval Move Passed\n"
 
 
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  BENCHMARKING                                                                                                //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 [<Test>]
 let ``IntervalExpand moderngpu benchmark (A) : 4type`` () =
     printfn "\nInterval Expand, Avg Seg Length = 25, Int32"
     (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-        let input : int[] = Array.init ns (fun i -> i)
+        let input : int[] = Array.init (ns / 25) (fun i -> i)        
         benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
     benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int32s
 
-    printfn "\nInterval Expand, Avg Seg Length = 25, Int64"
-    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-        let input : int64[] = Array.init ns (fun i -> int64 i)
-        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int64s
-
-    printfn "\nInterval Expand, Avg Seg Length = 25, Float32"
-    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-        let input : float32[] = Array.init ns (fun i -> float32 i)
-        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float32s
-
-    printfn "\nInterval Expand, Avg Seg Length = 25, Float64"
-    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-        let input : float[] = Array.init ns (fun i -> float i)
-        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float64s
+//    printfn "\nInterval Expand, Avg Seg Length = 25, Int64"
+//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+//        let input : int64[] = Array.init ns (fun i -> int64 i)
+//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int64s
+//
+//    printfn "\nInterval Expand, Avg Seg Length = 25, Float32"
+//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+//        let input : float32[] = Array.init ns (fun i -> float32 i)
+//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float32s
+//
+//    printfn "\nInterval Expand, Avg Seg Length = 25, Float64"
+//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+//        let input : float[] = Array.init ns (fun i -> float i)
+//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float64s
 
 
 [<Test>]
@@ -488,3 +564,4 @@ let ``IntervalMove moderngpu benchmark (B) : 4type`` () =
         let input : float[] = Array.init ns (fun i -> float i)
         benchmarkIntervalMove 'B' input ns ni (ns / 25) i)
     benchmarkOutput outputType workingPathMovB imv_B_BMS4.Float64s
+

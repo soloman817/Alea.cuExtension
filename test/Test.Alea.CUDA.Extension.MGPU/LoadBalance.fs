@@ -64,49 +64,65 @@ let workingPathA = (getWorkingOutputPaths deviceFolderName algNameA).CSV
 let workingPathB = (getWorkingOutputPaths deviceFolderName algNameB).CSV                                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+let cpuLoadBalanceSearch (aCount:int) (b:int[]) (bCount:int) (indices:int[]) =
+    let mutable ai, bi = 0,0
+    while (ai < aCount) || (bi < bCount) do
+        let mutable p = false
+        if bi >= bCount then 
+            p <- true
+        elif ai >= aCount then
+            p <- false
+        else
+            p <- ai < b.[bi]
 
+        if p then
+            indices.[ai] <- bi - 1
+            ai <- ai + 1
+        else
+            bi <- bi + 1
+            
 let benchmarkLoadBalance (version:char) (total:int) (numIt:int) (percentTerms:float) (testIdx:int) =
     let loadBalanceSearch = worker.LoadPModule(pLBS.SearchFunc()).Invoke
-    let scan = scanner.Invoke
+    let scan = worker.LoadPModule(pScanner.Scan()).Invoke
 
-    let count = int(1.0 - percentTerms) * total
+    let count = int((1.0 - percentTerms) * (float total))
     let numTerms = total - count
     let dquot, drem = (count / numTerms), (count % numTerms)
-    let mutable terms = Array.zeroCreate numTerms
+    let terms = Array.zeroCreate numTerms
     for i = 0 to numTerms - 1 do
         Array.set terms i (dquot + (if i < drem then 1 else 0))
 
     for i = 0 to numTerms - 2 do
-        let r = rng.Next(numTerms - i - 1)
+        let r = rng.Next(0, numTerms - i - 1)
         let x = min terms.[r] terms.[i + r]
-        let r2 = rng.Next(-x,x)
+        let r2 = rng.Next(x) * (if rng.Next(1) = 1 then 1 else -1)
         terms.[r] <- terms.[r] - r2
         terms.[i + r] <- terms.[i + r] + r2
         swap terms.[r] terms.[i + r]
 
-    let terms = terms
-
-    let dScanResult = pcalc {
-        let! dCounts = DArray.scatterInBlob worker terms
-        let! total, scanned = scan dCounts
-        let! scanned = scanned.Gather()
-        let! total = total.Gather()        
-        return total, scanned } |> PCalc.run
-
-    let dTotal, dScannedCounts = dScanResult
-    let scanTotal = dTotal.[0]
-
+    let total, scannedCounts =
+        pcalc { let! dCounts = DArray.scatterInBlob worker terms
+                return! scan dCounts } |> PCalc.run
+    
+    Assert.AreEqual(count, total)
+//    let index2 = [|0..count|]
+//    cpuLoadBalanceSearch count scannedCounts numTerms index2
+//
+//    printfn "cpu:\n%A" index2
+    //let ctItr = [|0..total|]
     let calc = pcalc {
-        let! dCounts = DArray.scatterInBlob worker dScannedCounts
-        let! dIndex = DArray.createInBlob worker count
+        let! dCounts = DArray.scatterInBlob worker scannedCounts
+        let! dIndex = DArray.createInBlob worker total
+        //let! ctaCountingItr = DArray.scatterInBlob worker ctItr
+        //let! mpCountingItr = DArray.scatterInBlob worker ctItr
         
-        let! loadBalanceSearch = loadBalanceSearch count numTerms
+        let! lbSearch = loadBalanceSearch total numTerms
         // warm up
-        do! loadBalanceSearch dCounts dIndex
+        do! lbSearch dCounts dIndex //ctaCountingItr mpCountingItr
 
         let! dStopwatch = DStopwatch.startNew worker
         for i = 1 to numIt do
-            do! loadBalanceSearch dCounts dIndex
+            do! lbSearch dCounts dIndex //ctaCountingItr mpCountingItr
         do! dStopwatch.Stop()
 
         let! results = dIndex.Gather()
@@ -215,9 +231,8 @@ let ``Load Balance Search simple`` () =
 [<Test>]
 let ``LoadBalance moderngpu benchmark (A) : int32`` () =
     let percentTerms = 0.25
-    
-    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-        printfn "ns = (%d); ni = (%d); i = (%d)" ns ni i
+    //let sourceCounts = [10;20;30;40;50;60;70;80;90;100;110]
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->        
         benchmarkLoadBalance 'A' ns ni percentTerms i )
     benchmarkOutput outputType workingPathA lbBMS_A
 

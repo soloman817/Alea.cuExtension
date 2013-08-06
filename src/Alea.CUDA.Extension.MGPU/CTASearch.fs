@@ -203,8 +203,8 @@ let mergePath (bounds:int) (compOp:IComp<'TC>) =
                         let aKey = a.[mid]
                         let bKey = b.[diag - 1 - mid]
 
-                        //let pred = if bounds = MgpuBoundsUpper then comp aKey bKey else not (comp bKey aKey)
-                        let pred = (comp aKey bKey)
+                        let pred = if bounds = MgpuBoundsUpper then comp aKey bKey else not (comp bKey aKey)
+                        
                         if pred then 
                             begin' <- mid + 1
                         else
