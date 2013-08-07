@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTALoadBalance
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTALoadBalance
 
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections

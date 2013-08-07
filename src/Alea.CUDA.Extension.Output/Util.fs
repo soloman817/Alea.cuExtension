@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.Output.Util
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.Output.Util
 
 open System.IO
 open Alea.CUDA.Extension.Util

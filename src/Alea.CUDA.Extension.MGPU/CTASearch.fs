@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTASearch
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTASearch
 
 // this file maps to ctasearch.cuh
 

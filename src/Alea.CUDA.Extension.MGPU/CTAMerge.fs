@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTAMerge
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTAMerge
 
 open Microsoft.FSharp.Quotations
 open Alea.CUDA

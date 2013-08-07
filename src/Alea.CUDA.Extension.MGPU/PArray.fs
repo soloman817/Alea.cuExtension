@@ -8,21 +8,15 @@ open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.CTAScan
 
 
-type PReturnType =
-    | Result
-    | Function
-
-
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Bulk Insert
 /// <summary></summary>
-/// <remarks></remarks>
-type PBulkInsert() =
+type PBulkInsert() =    
     member bi.BulkInsert() = cuda {
         let! api = BulkInsert.bulkInsert() 
         return PFunc(fun (m:Module) ->
             let worker = m.Worker
-            let api = api.Apply m
+            let api = api.Apply m            
             fun (data_A:DArray<'TI>) (indices:DArray<int>) (data_B:DArray<'TI>) ->
                 let aCount = data_A.Length
                 let bCount = data_B.Length
@@ -56,7 +50,6 @@ type PBulkInsert() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Bulk Remove
 /// <summary></summary>
-/// <remarks></remarks>
 type PBulkRemove(?plan) =
     let p =
         match plan with
@@ -106,7 +99,6 @@ type PBulkRemove(?plan) =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Interval Move
 /// <summary></summary>
-/// <remarks></remarks>
 type PIntervalMove(?plan) =
     let p =
         match plan with
@@ -193,7 +185,6 @@ type PIntervalMove(?plan) =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Join
 /// <summary></summary>
-/// <remarks></remarks>
 type PJoin() =
     member x.x = ()
 
@@ -201,7 +192,6 @@ type PJoin() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Load Balance Search
 /// <summary></summary>
-/// <remarks></remarks>
 type PLoadBalanceSearch() =
     member plbs.Search() = cuda {
         let! api = LoadBalance.loadBalanceSearch()
@@ -243,7 +233,6 @@ type PLoadBalanceSearch() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Locality Sort
 /// <summary></summary>
-/// <remarks></remarks>
 type PLocalitySort() =
     member x.x = ()
 
@@ -251,7 +240,6 @@ type PLocalitySort() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Merge
 /// <summary></summary>
-/// <remarks></remarks>
 type PMerge() =
     member m.MergeKeys (compOp:IComp<'TV>) = cuda {
         let! api = Merge.mergeKeys compOp
@@ -283,7 +271,6 @@ type PMerge() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Mergesort
 /// <summary></summary>
-/// <remarks></remarks>
 type PMergesort() =
     member ms.MergesortKeys() = cuda {
         let! api = Mergesort.mergesortKeys (comp CompTypeLess 0)
@@ -337,7 +324,9 @@ type PMergesort() =
                     let! keysDest = DArray.createInBlob<'TV> worker count
                     let! valsDest = DArray.createInBlob<'TV> worker count
                     do! PCalc.action (fun hint -> api.Action hint keysSource.Ptr valsSource.Ptr keysDest.Ptr valsDest.Ptr partition.Ptr)
-                    return keysDest, valsDest } ) }
+                    let! sortedKeys = keysDest.Gather()
+                    let! sortedVals = valsDest.Gather()
+                    return sortedKeys, sortedVals } ) }
 
     member ms.MergesortPairs(compOp:IComp<'TV>) = cuda {
         let! api = Mergesort.mergesortPairs compOp
@@ -420,7 +409,6 @@ type PMergesort() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Reduce
 /// <summary></summary>
-/// <remarks></remarks>
 type PReduce() =
     member r.Reduce(op:IScanOp<'TI, 'TV, 'TR>) = cuda {
         let! api = Reduce.reduce op
@@ -447,7 +435,6 @@ type PReduce() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Scan
 /// <summary></summary>
-/// <remarks></remarks>
 type PScan() =
     member ps.Scan(mgpuScanType:int, op:IScanOp<'TI, 'TV, 'TR>, totalAtEnd:int) = cuda {
         let! api = Scan.scan mgpuScanType op totalAtEnd
@@ -530,27 +517,10 @@ type PScan() =
                                 return total.[0] }                        
                     return scanner } ) }
 
-//    member ps.Scan2() = cuda {
-//        let! api = Scan.scan2 ExclusiveScan (scanOp ScanOpTypeAdd 0) 0
-//        return PFunc(fun (m:Module) ->
-//            let worker = m.Worker
-//            let api = api.Apply m
-//            fun (data:DArray<int>) ->
-//                let count = data.Length
-//                let api = api count
-//                pcalc {
-//                    let! scanned = DArray.createInBlob worker count
-//                    let! reductionDevice = DArray.createInBlob worker api.NumBlocksPlus1
-//                    let! total = DArray.createInBlob worker 1
-//                    do! PCalc.action (fun hint -> api.Action hint data.Ptr reductionDevice.Ptr total.Ptr scanned.Ptr)
-//                    let! scanned = scanned.Gather()
-//                    let! total = total.Gather()
-//                    return total.[0], scanned } ) }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Search
 /// <summary></summary>
-/// <remarks></remarks>
 type PSearch() =
     member s.BinarySearchPartitions(bounds:int, compOp:IComp<int>) = cuda {
         let! api = Search.binarySearchPartitions bounds compOp
@@ -578,7 +548,6 @@ type PSearch() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Segmented Sort
 /// <summary></summary>
-/// <remarks></remarks>
 type PSegmentedSort() =
     member x.x = ()
 
@@ -586,7 +555,6 @@ type PSegmentedSort() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Sets
 /// <summary></summary>
-/// <remarks></remarks>
 type PSets() =
     member x.x = ()
 
@@ -594,7 +562,6 @@ type PSets() =
 //////////////////////////////////////////////////////////////////////////////////////////////
 //// Sorted Search
 /// <summary></summary>
-/// <remarks></remarks>
 type PSortedSearch() =
     member pss.SortedSearch(bounds:int, typeA:MgpuSearchType, typeB:MgpuSearchType, compOp:IComp<'TI>) = cuda {
         let! api = SortedSearch.sortedSearch bounds typeA typeB compOp

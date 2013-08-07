@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTAScan
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTAScan
 
 // this maps to ctascan.cuh. 
 

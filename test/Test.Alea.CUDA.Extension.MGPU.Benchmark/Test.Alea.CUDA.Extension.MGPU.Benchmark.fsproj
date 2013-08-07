@@ -5,12 +5,12 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{43734f54-f8b9-4dd5-8b7b-e0654d11960e}</ProjectGuid>
-    <OutputType>Exe</OutputType>
-    <RootNamespace>Test.Alea.CUDA.Extension.MGPU</RootNamespace>
-    <AssemblyName>Test.Alea.CUDA.Extension.MGPU</AssemblyName>
+    <ProjectGuid>{3564b717-79fe-4fb7-9613-ce5bd0e9f06a}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Test.Alea.CUDA.Extension.MGPU.Benchmark</RootNamespace>
+    <AssemblyName>Test.Alea.CUDA.Extension.MGPU.Benchmark</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
-    <Name>Test.Alea.CUDA.Extension.MGPU</Name>
+    <Name>Test.Alea.CUDA.Extension.MGPU.Benchmark</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -22,7 +22,7 @@
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Test.Alea.CUDA.Extension.MGPU.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Test.Alea.CUDA.Extension.MGPU.Benchmark.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,28 +31,7 @@
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Test.Alea.CUDA.Extension.MGPU.XML</DocumentationFile>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <Tailcalls>false</Tailcalls>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Test.Alea.CUDA.Extension.MGPU.XML</DocumentationFile>
-    <PlatformTarget>x86</PlatformTarget>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <Tailcalls>true</Tailcalls>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Test.Alea.CUDA.Extension.MGPU.XML</DocumentationFile>
-    <PlatformTarget>x86</PlatformTarget>
+    <DocumentationFile>bin\Release\Test.Alea.CUDA.Extension.MGPU.Benchmark.XML</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
@@ -74,21 +53,22 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Util.fs" />
     <Compile Include="BenchmarkStats.fs" />
-    <Compile Include="Reduce.fs" />
-    <Compile Include="Scan.fs" />
-    <Compile Include="Search.fs" />
-    <Compile Include="BulkRemove.fs" />
-    <Compile Include="BulkInsert.fs" />
-    <Compile Include="SortedSearch.fs" />
-    <Compile Include="Merge.fs" />
-    <Compile Include="Mergesort.fs" />
-    <Compile Include="LoadBalance.fs" />
+    <Compile Include="Insert.fs" />
     <Compile Include="IntervalMove.fs" />
-    <Compile Include="Debug.fs" />
+    <Compile Include="Join.fs" />
+    <Compile Include="LaunchBox.fs" />
+    <Compile Include="LoadBalance.fs" />
+    <Compile Include="LocalitySort.fs" />
+    <Compile Include="Merge.fs" />
+    <Compile Include="Scan.fs" />
+    <Compile Include="SegSort.fs" />
+    <Compile Include="Sets.fs" />
+    <Compile Include="Sort.fs" />
+    <Compile Include="SortedSearch.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
+    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.MGPU\Alea.CUDA.Extension.MGPU.fsproj">
@@ -104,6 +84,11 @@
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
       <Name>Alea.CUDA.Extension</Name>
       <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\Test.Alea.CUDA.Extension.MGPU\Test.Alea.CUDA.Extension.MGPU.fsproj">
+      <Name>Test.Alea.CUDA.Extension.MGPU</Name>
+      <Project>{43734f54-f8b9-4dd5-8b7b-e0654d11960e}</Project>
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>

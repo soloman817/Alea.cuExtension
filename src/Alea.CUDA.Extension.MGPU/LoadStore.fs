@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.LoadStore
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.LoadStore
 
 // this file maps to loadstore.cuh. which acturally did the different matrix
 // order changing. Please check http://www.moderngpu.com/scan/globalscan.html#Scan
@@ -6,8 +7,6 @@
 
 open Alea.CUDA
 
-//let [<ReflectedDefinition>] doSync = 1
-//let [<ReflectedDefinition>] dontSync = 0
 
 // @COMMENT@ sync can use bool here, bool type cannot be used in kernel arugment, but here
 // it is just a lambda function, so it is ok.
@@ -55,10 +54,6 @@ let deviceGlobalToReg (NT:int) (VT:int) =
                     let index = NT * i + tid
                     if index < count then reg.[i] <- data.[index]
             if sync then __syncthreads() @>
-
-
-
-
 
 
 // DeviceMemToMemLoop

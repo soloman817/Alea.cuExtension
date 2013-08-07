@@ -9,7 +9,6 @@ open Alea.CUDA.Extension.Output.CSV
 open Alea.CUDA.Extension.Output.Excel
 
 
-
 let eps = 1e-8
 
 let getDefaultWorker() =

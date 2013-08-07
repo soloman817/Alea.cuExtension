@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTASegsort
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTASegsort
 
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
