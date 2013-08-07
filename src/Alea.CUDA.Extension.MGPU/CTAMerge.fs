@@ -206,19 +206,19 @@ let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
         let deviceThreadToShared = %deviceThreadToShared
         let deviceGather = %deviceGather
 
-        let coop = ref 2
-        while !coop <= NT do
+        let mutable coop = 2
+        while coop <= NT do
             
             let indices = __local__<int>(VT).Ptr(0)
             let keys = __local__<'TV>(VT).Ptr(0)
-            ctaBlocksortPass keys_shared tid count !coop keys indices
+            ctaBlocksortPass keys_shared tid count coop keys indices
             
             if hasValues then
                 deviceThreadToShared threadValues tid values_shared true
                 deviceGather (NT * VT) values_shared indices tid threadValues true
 
             deviceThreadToShared keys tid keys_shared true
-            coop := !coop * 2
+            coop <- coop * 2
     @>
 
 
@@ -246,15 +246,21 @@ let ctaMergesort (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
         let oddEvenTransposeSort = %oddEvenTransposeSort
         if VT * tid < count then
             //oddEvenTransposeSort threadKeys threadValues            
-            let level = ref 0
-            while !level < VT do
-                let i = ref (1 &&& !level)
-                while !i < VT - 1 do                    
-                    if ( comp threadKeys.[!i + 1] threadKeys.[!i] ) then
-                        swap threadKeys.[!i] threadKeys.[!i + 1]
-                        swap threadValues.[!i] threadValues.[!i + 1]
-                    i := !i + 2  
-                level := !level + 1 
+            let mutable level = 0
+            while level < VT do
+                let mutable i = (1 &&& level)
+                while i < VT - 1 do                    
+                    if ( comp threadKeys.[i + 1] threadKeys.[i] ) then
+                        let a = threadKeys.[i] 
+                        let b = threadKeys.[i + 1]
+                        threadKeys.[i] <- b
+                        threadKeys.[i + 1] <- a
+                        let a = threadValues.[i]
+                        let b = threadValues.[i + 1]
+                        threadValues.[i] <- b
+                        threadValues.[i + 1] <- a
+                    i <- i + 2  
+                level <- level + 1 
             
         deviceThreadToShared threadKeys tid keys_shared true
         ctaBlocksortLoop threadValues keys_shared values_shared tid count 

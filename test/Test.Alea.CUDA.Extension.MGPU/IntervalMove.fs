@@ -57,10 +57,10 @@ let imv_B_BMS4 = getFilledBMS4Object algName_imv_B imv_B_KernelsUsed worker.Devi
 // want to see the console prInt32s.                                                                            //
 let outputType = OutputTypeNone // Choices are CSV, Excel, Both, or None. Set to None for doing kernel timing   //
 // only one path, we aren't auto-saving excel stuff yet                                                         //
-let workingPathExpA = (getWorkingOutputPaths deviceFolderName algName_iexp_A).CSV
-let workingPathExpB = (getWorkingOutputPaths deviceFolderName algName_iexp_B).CSV
-let workingPathMovA = (getWorkingOutputPaths deviceFolderName algName_imv_A).CSV
-let workingPathMovB = (getWorkingOutputPaths deviceFolderName algName_imv_B).CSV                                          //
+let workingPathExpA = (getWorkingOutputPaths deviceFolderName algName_iexp_A).CSV                               //
+let workingPathExpB = (getWorkingOutputPaths deviceFolderName algName_iexp_B).CSV                               //
+let workingPathMovA = (getWorkingOutputPaths deviceFolderName algName_imv_A).CSV                                //
+let workingPathMovB = (getWorkingOutputPaths deviceFolderName algName_imv_B).CSV                                //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -141,7 +141,7 @@ let benchmarkIntervalExpand (version:char) (hSource:'T[]) (count:int) (numIt:int
 
 
 let benchmarkIntervalMove (version:char) (hSource:'T[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
-    let scan = worker.LoadPModule(pScanner.Scan(op)).Invoke    
+    let scan = worker.LoadPModule(pScanner.Scan()).Invoke    
     let move = worker.LoadPModule(pIntervalMover.IntervalMoveFunc()).Invoke
 
     let permGather, permScatter = (Array.init numTerms (fun i -> i)), 
@@ -175,20 +175,12 @@ let benchmarkIntervalMove (version:char) (hSource:'T[]) (count:int) (numIt:int) 
         Array.set gatherHost i (gather.[permGather.[i]])
         Array.set scatterHost i (scatter.[permScatter.[i]])
 
-    let dScanResults = pcalc {
-        let! dCounts = DArray.scatterInBlob worker terms
-        let! total, scanned = scan dCounts
-        let! scanned = scanned.Gather()
-        let! total = total.Gather()
-        return total, scanned } |> PCalc.run
-
-    let hTotal, hCounts_Scanned = dScanResults
-    
-    let total = hTotal.[0]
-    let hCounts = hCounts_Scanned
+    let total, scannedCounts =
+        pcalc { let! dCounts = DArray.scatterInBlob worker terms
+                return! scan dCounts } |> PCalc.run    
 
     let calc = pcalc {
-        let! dCounts = DArray.scatterInBlob worker hCounts
+        let! dCounts = DArray.scatterInBlob worker scannedCounts
         let! dGather = DArray.scatterInBlob worker gatherHost
         let! dScatter = DArray.scatterInBlob worker scatterHost
         let! dSource = DArray.scatterInBlob worker hSource
@@ -465,23 +457,23 @@ let ``IntervalExpand moderngpu benchmark (A) : 4type`` () =
         benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
     benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int32s
 
-//    printfn "\nInterval Expand, Avg Seg Length = 25, Int64"
-//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-//        let input : int64[] = Array.init ns (fun i -> int64 i)
-//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int64s
-//
-//    printfn "\nInterval Expand, Avg Seg Length = 25, Float32"
-//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-//        let input : float32[] = Array.init ns (fun i -> float32 i)
-//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float32s
-//
-//    printfn "\nInterval Expand, Avg Seg Length = 25, Float64"
-//    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
-//        let input : float[] = Array.init ns (fun i -> float i)
-//        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
-//    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float64s
+    printfn "\nInterval Expand, Avg Seg Length = 25, Int64"
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let input : int64[] = Array.init ns (fun i -> int64 i)
+        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Int64s
+
+    printfn "\nInterval Expand, Avg Seg Length = 25, Float32"
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let input : float32[] = Array.init ns (fun i -> float32 i)
+        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float32s
+
+    printfn "\nInterval Expand, Avg Seg Length = 25, Float64"
+    (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->
+        let input : float[] = Array.init ns (fun i -> float i)
+        benchmarkIntervalExpand 'A' input ns ni (ns / 25) i)
+    benchmarkOutput outputType workingPathExpA iexp_A_BMS4.Float64s
 
 
 [<Test>]

@@ -27,7 +27,7 @@ let `` simple MergeSort Keys test`` () =
                        48;   45;   44;   48;   64;   79;   70;   92;   75;   80 |]
 
 //Sorted output:
-    let answer = [| 0;    3;    3;    3;    3;    4;    5;    9;    9;   10;
+    let hAnswer = [| 0;    3;    3;    3;    3;    4;    5;    9;    9;   10;
                    11;   12;   12;   12;   13;   14;   14;   15;   17;   17;
                    18;   18;   21;   21;   22;   27;   27;   29;   30;   30;
                    31;   31;   36;   38;   39;   39;   40;   42;   42;   43;
@@ -45,11 +45,11 @@ let `` simple MergeSort Keys test`` () =
         let! mergesort = pfunct dSource        
         let! results = mergesort.Gather()
         return results } |> PCalc.runInWorker worker
-
+    (hAnswer, dResult) ||> Array.iter2 (fun h d -> Assert.AreEqual(h,d))
 //    let dest, source = dResult
 //    printfn "dest %A" dest
-    let source = dResult
-    printfn "source %A" source
+//    let source = hResult
+//    printfn "source %A" source
 
 
 //[<Test>]

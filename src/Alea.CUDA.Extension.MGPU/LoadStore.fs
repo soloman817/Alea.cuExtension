@@ -88,10 +88,10 @@ let deviceMemToMemLoop (NT:int) =
     let deviceMemToMem4 = deviceMemToMem4 NT 4
     <@ fun (count:int) (source:RWPtr<'T>) (tid:int) (dest:RWPtr<'T>) (sync:bool) ->
         let deviceMemToMem4 = %deviceMemToMem4
-        let i = ref 0
-        while !i < count do
-            deviceMemToMem4 (count - !i) (source + !i) tid (dest + !i) false
-            i := !i + 4 * NT
+        let mutable i = 0
+        while i < count do
+            deviceMemToMem4 (count - i) (source + i) tid (dest + i) false
+            i <- i + 4 * NT
         if sync then __syncthreads() @>
 
 

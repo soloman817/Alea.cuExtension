@@ -33,6 +33,7 @@ type IBinarySearch<'TC> =
 type IMergePath<'TC> =
     abstract HMergePath : ('TC[] -> int -> 'TC[] -> int -> int -> int)
     abstract DMergePath : Expr<RWPtr<'TC> -> int -> RWPtr<'TC> -> int -> int -> int>
+    abstract DMergePathInt : Expr<RWPtr<int> -> int -> RWPtr<int> -> int -> int -> int>
 
 type ISegmentedMergePath<'TC> =
     abstract HSegmentedMergePath : ('TC[] -> int -> int -> int -> int -> int -> int -> int -> int)
@@ -204,12 +205,30 @@ let mergePath (bounds:int) (compOp:IComp<'TC>) =
                         let bKey = b.[diag - 1 - mid]
 
                         let pred = if bounds = MgpuBoundsUpper then comp aKey bKey else not (comp bKey aKey)
-                        
+                        //let pred = (comp aKey bKey)
                         if pred then 
                             begin' <- mid + 1
                         else
                             end' <- mid
-                    begin' @> }
+                    begin' @>
+                    
+            member this.DMergePathInt =                    
+                    <@ fun (a:RWPtr<int>) (aCount:int) (b:RWPtr<int>) (bCount:int) (diag:int) ->                        
+                        let mutable begin' = max 0 (diag - bCount)
+                        let mutable end' = min diag aCount
+
+                        while begin' < end' do
+                            let mid = (begin' + end') >>> 1
+                            let aKey = a.[mid]
+                            let bKey = b.[diag - 1 - mid]
+
+                            let pred = if bounds = MgpuBoundsUpper then aKey < bKey else not (bKey < aKey)
+                            
+                            if pred then 
+                                begin' <- mid + 1
+                            else
+                                end' <- mid
+                        begin' @> }
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////

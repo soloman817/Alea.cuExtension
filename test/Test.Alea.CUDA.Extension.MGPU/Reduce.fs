@@ -124,4 +124,17 @@ let ``mean float (non-iteratively)``() =
         test (let rng = Random(2) in Array.init count (fun _ -> rng.NextDouble() - 0.5)) )
 
 
+[<Test>]
+let ``big reduce test`` () =
+    let op = scanOp ScanOpTypeAdd 0
+    let reduce = worker.LoadPModule(pfuncts.Reduce(op)).Invoke
+    let N = 25000
+    let data = Array.init N (fun i -> i)
+    let answer = Array.sum data
+    let calc = pcalc {
+        let! dInput = DArray.scatterInBlob worker data
+        let! result = reduce dInput
+        return! result.Value} |> PCalc.run
+
+    printfn "calc = %d, answer = %d" calc answer
     

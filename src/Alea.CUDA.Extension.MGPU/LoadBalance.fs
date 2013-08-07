@@ -45,7 +45,7 @@ let kernelLoadBalance (plan:Plan) =
 
 type ILoadBalanceSearch =
     {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
+        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
         NumPartitions : int
     }
 
@@ -66,12 +66,12 @@ let loadBalanceSearch() = cuda {
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
 
-            let action (hint:ActionHint) (b_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (ctaCountingItr:DevicePtr<int>) (mpCountingItr:DevicePtr<int>) (mp_global:DevicePtr<int>) =
+            let action (hint:ActionHint) (b_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint mpCountingItr b_global mp_global
-                    kernelLoadBalance.Launch lp aCount b_global bCount ctaCountingItr mp_global indices_global
+                    let partitions = mpp.Action hint countingItr_global b_global mp_global
+                    kernelLoadBalance.Launch lp aCount b_global bCount countingItr_global mp_global indices_global
                 |> worker.Eval
             
             { Action = action; NumPartitions = numBlocks + 1 } ) }

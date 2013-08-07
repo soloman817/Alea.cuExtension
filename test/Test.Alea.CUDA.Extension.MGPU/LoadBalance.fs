@@ -80,7 +80,14 @@ let cpuLoadBalanceSearch (aCount:int) (b:int[]) (bCount:int) (indices:int[]) =
             ai <- ai + 1
         else
             bi <- bi + 1
-            
+
+let hostScan (mgpuScanType:int) (n:int) =
+    fun (scannedData:'TI[]) ->
+        if mgpuScanType = ExclusiveScan then
+            Array.sub scannedData 0 n
+        else
+            Array.sub scannedData 1 n
+          
 let benchmarkLoadBalance (version:char) (total:int) (numIt:int) (percentTerms:float) (testIdx:int) =
     let loadBalanceSearch = worker.LoadPModule(pLBS.SearchFunc()).Invoke
     let scan = worker.LoadPModule(pScanner.Scan()).Invoke
@@ -99,17 +106,15 @@ let benchmarkLoadBalance (version:char) (total:int) (numIt:int) (percentTerms:fl
         terms.[r] <- terms.[r] - r2
         terms.[i + r] <- terms.[i + r] + r2
         swap terms.[r] terms.[i + r]
-
+    
+    let hResult = Array.scan (+) 0 terms |> hostScan ExclusiveScan numTerms
+    
     let total, scannedCounts =
         pcalc { let! dCounts = DArray.scatterInBlob worker terms
                 return! scan dCounts } |> PCalc.run
-    
-    Assert.AreEqual(count, total)
-//    let index2 = [|0..count|]
-//    cpuLoadBalanceSearch count scannedCounts numTerms index2
-//
-//    printfn "cpu:\n%A" index2
-    //let ctItr = [|0..total|]
+    //printfn "count, numTerms, total = (%d,  %d,  %d)" count numTerms total
+    (hResult, scannedCounts) ||> Array.iter2 (fun h d -> Assert.AreEqual(h,d))
+
     let calc = pcalc {
         let! dCounts = DArray.scatterInBlob worker scannedCounts
         let! dIndex = DArray.createInBlob worker total
@@ -231,7 +236,6 @@ let ``Load Balance Search simple`` () =
 [<Test>]
 let ``LoadBalance moderngpu benchmark (A) : int32`` () =
     let percentTerms = 0.25
-    //let sourceCounts = [10;20;30;40;50;60;70;80;90;100;110]
     (sourceCounts, nIterations) ||> List.zip |> List.iteri (fun i (ns, ni) ->        
         benchmarkLoadBalance 'A' ns ni percentTerms i )
     benchmarkOutput outputType workingPathA lbBMS_A

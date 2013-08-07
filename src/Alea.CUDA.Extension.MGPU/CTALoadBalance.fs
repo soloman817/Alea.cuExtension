@@ -98,8 +98,8 @@ let ctaLoadBalance (NT:int) (VT:int) =
         let aCount = a1 - a0
         let bCount = b1 - b0
 
-        let a_shared = indices_shared
-        let b_shared = indices_shared + aCount
+        let a_shared = indices_shared.Ptr(0)
+        let b_shared = indices_shared.Ptr(aCount)
 
         deviceMemToMemLoop (bCount + extended) (b_global + b0) tid b_shared true
 
@@ -109,24 +109,27 @@ let ctaLoadBalance (NT:int) (VT:int) =
         //let sharedCountingItr = __local__<int>(itrSize).Ptr(0)
         //counting_iterator countingItr_global a0 sharedCountingItr
         //__syncthreads()
-        //let mp = mergePath sharedCountingItr aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
-        let b = b_shared + loadPrecedingB
-        let mp = 
-            let mutable begin' = max 0 (diag - bCount)
-            let mutable end' = min diag aCount
-
-            while begin' < end' do
-                let mid = (begin' + end') >>> 1
-                let aKey = a0 + mid
-                let bKey = b.[diag - 1 - mid]
-
-                let pred = aKey < bKey
-                        
-                if pred then 
-                    begin' <- mid + 1
-                else
-                   end' <- mid
-            begin'
+        let mp = mergePath (countingItr_global + a0) aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
+//        let a = __local__<int>(1).Ptr(0)
+//        a.[0] <- a0
+//        let b = b_shared + loadPrecedingB
+//        let bCount2 = bCount - loadPrecedingB
+//        let mp = 
+//            let mutable begin' = max 0 (diag - bCount2)
+//            let mutable end' = min diag aCount
+//
+//            while begin' < end' do
+//                let mid = (begin' + end') >>> 1
+//                let aKey = a.[0] + mid
+//                let bKey = b.[diag - 1 - mid]
+//
+//                let pred = aKey < bKey
+//                        
+//                if pred then 
+//                    begin' <- mid + 1
+//                else
+//                   end' <- mid
+//            begin'
 
         let a0tid = a0 + mp
         let b0tid = diag - mp + loadPrecedingB

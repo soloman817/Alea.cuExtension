@@ -304,3 +304,20 @@ let ``Scan moderngpu benchmark : 4 type`` () =
         let (source:float[]) = rngGenericArray ns
         benchmarkScan ExclusiveScan (scanOp ScanOpTypeAdd 0.0) totalNotAtEnd ni source i)
     benchmarkOutput outputType workingPath scanBMS4.Float64s
+
+
+[<Test>]
+let ``big scan test`` () =
+    let scan = worker.LoadPModule(pScanner.Scan()).Invoke
+
+    let N = 25000
+
+    let hData = Array.init N (fun i -> i)
+    let hResult = Array.scan (+) 0 hData |> hostScan ExclusiveScan N
+    let total, scanned = pcalc {
+        let! dData = DArray.scatterInBlob worker hData
+        return! scan dData } |> PCalc.run
+
+    printfn "scanned:\n%A" scanned
+    printfn "total:\n%A" total
+    printfn "h scanned:\n%A" hResult

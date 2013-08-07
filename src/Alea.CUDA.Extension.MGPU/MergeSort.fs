@@ -98,7 +98,7 @@ let mergesortKeys (compOp:IComp<'TV>) = cuda {
     
     let! kernelBlocksort = kernelBlocksort plan 0 compOp |> defineKernelFuncWithName "kbs"
     let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp    
-    let! kernelMerge = Merge.pKernelMergesort {NT = 256; VT = 7} compOp
+    let! kernelMerge = Merge.pKernelMergesort plan compOp
     
 
     return PFunc(fun (m:Module) ->
@@ -115,17 +115,18 @@ let mergesortKeys (compOp:IComp<'TV>) = cuda {
             let action (hint:ActionHint) (source:DevicePtr<'TV>) (dest:DevicePtr<'TV>) (parts:DevicePtr<int>) =
                 fun () ->
                     let lp = lp |> hint.ModifyLaunchParam
-                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count (if (1 &&& numPasses) <> 0 then dest else source) (DevicePtr<'TV>(0n))
+                    //kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count (if (1 &&& numPasses) <> 0 then dest else source) (DevicePtr<'TV>(0n))
+                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count dest (DevicePtr<'TV>(0n))
                     
-                    if (1 &&& numPasses) <> 0 then
-                        swap source dest
-                    for pass = 0 to numPasses - 1 do
-                        let coop = 2 <<< pass
-                        let mpp = mpp count 0 NV coop
-                        let partitions = mpp.Action hint source source parts
-                        let kernelMerge = kernelMerge count coop                        
-                        let merged = kernelMerge.Action hint source parts dest
-                        swap dest source
+//                    if (1 &&& numPasses) <> 0 then
+//                        swap source dest
+//                    for pass = 0 to numPasses - 1 do
+//                        let coop = 2 <<< pass
+//                        let mpp = mpp count 0 NV coop
+//                        let partitions = mpp.Action hint source source parts
+//                        let kernelMerge = kernelMerge count coop                        
+//                        let merged = kernelMerge.Action hint source parts dest
+//                        swap dest source
                 |> worker.Eval
             { Action = action; NumPartitions = numBlocks + 1 } ) }
 
