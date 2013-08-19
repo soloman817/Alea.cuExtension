@@ -36,9 +36,9 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.MGPU", 
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.CUDA.Extension.MGPU", "test\Test.Alea.CUDA.Extension.MGPU\Test.Alea.CUDA.Extension.MGPU.fsproj", "{43734F54-F8B9-4DD5-8B7B-E0654D11960E}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.IO", "src\Alea.CUDA.Extension.Output\Alea.CUDA.Extension.IO.fsproj", "{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}"
-EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.CUDA.Extension.MGPU.Benchmark", "test\Test.Alea.CUDA.Extension.MGPU.Benchmark\Test.Alea.CUDA.Extension.MGPU.Benchmark.fsproj", "{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.IO", "src\Alea.CUDA.Extension.IO\Alea.CUDA.Extension.IO.fsproj", "{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -225,21 +225,6 @@ Global
 		{43734F54-F8B9-4DD5-8B7B-E0654D11960E}.Release|x64.ActiveCfg = Release|Any CPU
 		{43734F54-F8B9-4DD5-8B7B-E0654D11960E}.Release|x86.ActiveCfg = Release|Any CPU
 		{43734F54-F8B9-4DD5-8B7B-E0654D11960E}.Release|x86.Build.0 = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Win32.ActiveCfg = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Mixed Platforms.Build.0 = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Win32.ActiveCfg = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x64.ActiveCfg = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x86.ActiveCfg = Release|Any CPU
-		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x86.Build.0 = Release|Any CPU
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
@@ -255,6 +240,20 @@ Global
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Release|x64.ActiveCfg = Release|Any CPU
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Release|x86.ActiveCfg = Release|Any CPU
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A}.Release|x86.Build.0 = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|Win32.ActiveCfg = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Win32.ActiveCfg = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x64.ActiveCfg = Release|Any CPU
+		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x86.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

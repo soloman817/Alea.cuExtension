@@ -4,7 +4,7 @@ module Test.Alea.CUDA.Extension.MGPU.Util
 open NUnit.Framework
 open Alea.CUDA
 open Alea.CUDA.Extension
-open Alea.CUDA.Extension.IO.Util.Output
+open Alea.CUDA.Extension.IO.Util
 open Alea.CUDA.Extension.IO.CSV.Output
 open Alea.CUDA.Extension.IO.Excel.Output
 
