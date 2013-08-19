@@ -5,7 +5,7 @@ open System.Collections.Generic
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.IO.Util
 open NUnit.Framework
 
 

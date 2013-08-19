@@ -1,5 +1,5 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
-open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.IO.Util
 // Sample stats from running various algorithm benchmarks.  Used for comparison
 
 type TestParams =

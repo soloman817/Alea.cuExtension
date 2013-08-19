@@ -1,7 +1,7 @@
 ﻿[<AutoOpen>]
 module Test.Alea.CUDA.Extension.MGPU.Benchmark.BenchmarkStats
 
-open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.IO.Util
 // Sample stats from running various algorithm benchmarks.  Used for comparison
 
 type TestParams =
@@ -12,8 +12,8 @@ type TestParams =
     }
 
 type BenchmarkType =
-    | BulkInsert
     | BulkRemove
+    | BulkInsert
     | IntervalMove
 //    | Join
 //    | LaunchBox
@@ -26,6 +26,7 @@ type BenchmarkType =
 //    | Sets
 //    | Sort
     | SortedSearch
+
 
 let bulkInsert =   { SourceCounts   = [  10000; 50000; 100000; 200000; 500000; 1000000; 2000000; 5000000; 10000000; 20000000]
                      Iterations     = [   2000;  2000;   2000;   1000;    500;     400;     400;     400;      300;      300]
@@ -75,6 +76,8 @@ let testParameters (bt:BenchmarkType) =
 //    | Sets
 //    | Sort -> sort
     | SortedSearch -> sortedSearch
+
+
 
 
 

@@ -14,9 +14,9 @@ open Alea.CUDA.Extension.MGPU.CTASearch
 open Alea.CUDA.Extension.MGPU.SortedSearch
 open Test.Alea.CUDA.Extension.MGPU.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
-open Alea.CUDA.Extension.Output.Util
-open Alea.CUDA.Extension.Output.CSV
-open Alea.CUDA.Extension.Output.Excel
+open Alea.CUDA.Extension.IO.Util
+open Alea.CUDA.Extension.IO.CSV
+open Alea.CUDA.Extension.IO.Excel
 
 open NUnit.Framework
 

@@ -3,7 +3,7 @@
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
-open Alea.CUDA.Extension.Output.Util
+open Alea.CUDA.Extension.IO.Util
 open Test.Alea.CUDA.Extension.MGPU.BenchmarkStats
 
 open NUnit.Framework

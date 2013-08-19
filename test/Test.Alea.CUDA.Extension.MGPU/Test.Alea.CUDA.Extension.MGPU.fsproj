@@ -96,8 +96,8 @@
       <Project>{1c3aebb6-252a-4310-98c7-4bbe659b25fe}</Project>
       <Private>True</Private>
     </ProjectReference>
-    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Output\Alea.CUDA.Extension.Output.fsproj">
-      <Name>Alea.CUDA.Extension.Output</Name>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Output\Alea.CUDA.Extension.IO.fsproj">
+      <Name>Alea.CUDA.Extension.IO</Name>
       <Project>{db94cda3-4e52-4105-bf5f-80fe2d7d161c}</Project>
       <Private>True</Private>
     </ProjectReference>
