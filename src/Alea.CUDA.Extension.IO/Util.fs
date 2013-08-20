@@ -7,6 +7,13 @@ open System.Text.RegularExpressions
 open Alea.CUDA.Extension.Util
 
 
+let splitAt n xs = (Seq.truncate n xs, if Seq.length xs < n then Seq.empty else Seq.skip n xs)
+let rec chunk n xs =
+    if Seq.isEmpty xs then Seq.empty
+    else
+        let (ys,zs) = splitAt n xs
+        Seq.append (Seq.singleton ys) (chunk n zs)
+
 
 [<AutoOpen>]
 module Input =

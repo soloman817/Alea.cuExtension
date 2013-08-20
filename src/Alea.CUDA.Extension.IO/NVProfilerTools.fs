@@ -109,7 +109,7 @@ type ProfiledKernelLaunch_gpuTrace () =
     [<DefaultValue>] [<FieldQuoted()>] val mutable Name : string
 
 
-type NVProfSummaryDataCollector(csvFile:string, nKernels, sourceCounts:int list, nIterations:int list) =
+type NVProfSummaryDataCollector(csvFile:string, nkernels, sourceCounts:int list, nIterations:int list) =
         let engine = new FileHelperEngine(typeof<ProfiledKernelLaunch_summary>)
         let res = engine.ReadFile(csvFile)
         let downcast_PKL_Array = Array.map (fun (a:obj) -> a :?> ProfiledKernelLaunch_summary)
@@ -117,7 +117,7 @@ type NVProfSummaryDataCollector(csvFile:string, nKernels, sourceCounts:int list,
         
         //do printfn "launches size: %A" launches.Length
         
-        let mutable kNames = Array.init nKernels (fun _ -> "")       
+        let mutable kNames = Array.init nkernels (fun _ -> "")       
         let kreg = @"(Kernel[\w]+)"
         
         //let mutable avgDurations = List.init kNames.Length (fun _ -> Array.zeroCreate<float> nIterations.Length)
@@ -131,11 +131,11 @@ type NVProfSummaryDataCollector(csvFile:string, nKernels, sourceCounts:int list,
             while not finished do
                 let kn = launches.[i].Name
                 knames <- knames @ [kn]
-                if knames.Length < nKernels then i <- i + 1 else finished <- true
+                if knames.Length < nkernels then i <- i + 1 else finished <- true
             knames |> List.iteri (fun i x -> Array.set kNames i x)
 
         member nvp.GetAverageKernelLaunchTimings() =
-            let result = Array.init nKernels (fun _ -> ("", Array.zeroCreate<float> nIterations.Length))
+            let result = Array.init nkernels (fun _ -> ("", Array.zeroCreate<float> nIterations.Length))
             launches |> Seq.ofArray 
             |> Seq.groupBy (fun x -> x.Name) 
             |> List.ofSeq 
@@ -145,7 +145,7 @@ type NVProfSummaryDataCollector(csvFile:string, nKernels, sourceCounts:int list,
             result
 
 
-type NVProfGPUTraceDataCollector(csvFile:string, nKernels, sourceCounts:int list, nIterations:int list) =
+type NVProfGPUTraceDataCollector(csvFile:string, nkernels, sourceCounts:int list, nIterations:int list) =
         let engine = new FileHelperEngine(typeof<ProfiledKernelLaunch_gpuTrace>)
         let res = engine.ReadFile(csvFile)
         let downcast_PKL_Array = Array.map (fun (a:obj) -> a :?> ProfiledKernelLaunch_gpuTrace)
@@ -153,11 +153,13 @@ type NVProfGPUTraceDataCollector(csvFile:string, nKernels, sourceCounts:int list
         
         //do printfn "launches size: %A" launches.Length
         
-        let mutable kNames = Array.init nKernels (fun _ -> "")       
+        let mutable kNames = Array.init nkernels (fun _ -> "")       
         let kreg = @"(Kernel[\w]+)"
         
         //let mutable avgDurations = List.init kNames.Length (fun _ -> Array.zeroCreate<float> nIterations.Length)
         
+        let getDurations() =
+            launches |> Array.map (fun x -> x.Duration)
         
 
         let getKernelNames() =
@@ -167,20 +169,24 @@ type NVProfGPUTraceDataCollector(csvFile:string, nKernels, sourceCounts:int list
             while not finished do
                 let kn = launches.[i].Name
                 knames <- knames @ [kn]
-                if knames.Length < nKernels then i <- i + 1 else finished <- true
+                if knames.Length < nkernels then i <- i + 1 else finished <- true
             knames |> List.iteri (fun i x -> Array.set kNames i x)
 
-        member nvp.GetAverageKernelLaunchTimings() =
-            let result = Array.init nKernels (fun _ -> ("", Array.zeroCreate<float> nIterations.Length))
-            let durationSums = Array.init (nKernels * nIterations.Length) (fun _ -> 0.0)
+        member nvp.GetAverageKernelLaunchTimings() =            
             let nis = List.scan (fun x e -> x + e) 0 nIterations
-            (nIterations, nis) ||> List.iteri2 (fun i ni n ->
-                let idx = if i > 0 then (i + nKernels) * n else 0
-                Array.sub launches idx (n * nKernels) |> Array.iteri (fun j y ->
-                    Array.set durationSums ((i % nKernels) + j) (durationSums.[(i % nKernels) + j] + y.Duration) ) )
-            let durationAverages = 
-                nIterations |> List.mapi (fun i x ->
-                    Array.sub durationSums (i * nKernels) nKernels
-                    |> Array.map (fun y -> y / (float x)) )
+            let durations = getDurations()
+            let stopwatch = new System.Diagnostics.Stopwatch()
+            (kNames |> List.ofArray),
+            (nIterations |> List.mapi (fun i ni ->
+                stopwatch.Start()
+                let ilaunches = durations |> Array.sub <|| (nis.[i]*nkernels, ni*nkernels)
+                let kernels = (chunk nkernels ilaunches)
+                let sums = seq { for idx in 0..(nkernels - 1) do
+                                    let kd = seq { for k in kernels do yield (Seq.head (Seq.skip idx k)) }
+                                    yield kd |> Seq.sum }
+                stopwatch.Stop()                                    
+                printfn "dt == (%A)" stopwatch.ElapsedMilliseconds
+                stopwatch.Reset()
+                sums |> Seq.map (fun x -> (x / (float ni))) ) |> List.ofSeq)
+
             
-            result

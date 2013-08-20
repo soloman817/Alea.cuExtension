@@ -67,13 +67,11 @@ let ``nvprofiler parser test: bulk remove (int32) loop`` () =
     printfn "done executing"
     let nvprofgputdc = new NVProfGPUTraceDataCollector(outfilePath, 2, sourceCounts, nIterations)
 
-    let avgklt = nvprofgputdc.GetAverageKernelLaunchTimings()
+    let knames, avgklt = nvprofgputdc.GetAverageKernelLaunchTimings()
     
-    avgklt |> Array.iter (fun x ->
-        let kn = (fst x)
-        let avgdurs = (snd x)
+    knames |> List.iteri (fun i kn ->        
         printfn "Average Kernel Launch Times for %s" kn
         printfn "num elem\tavg time (us)"
-        (sourceCounts |> Array.ofList, avgdurs) ||> Array.iter2 (fun n d ->
-            printfn "%d\t\t%f" n d)
+        (sourceCounts, (avgklt.[i] |> List.ofSeq)) 
+        ||> List.iter2 (fun n avgdur -> printfn "%d\t\t%f" n avgdur)
         printfn "\n" )
