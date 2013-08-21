@@ -44,9 +44,11 @@ let rng = System.Random()
 let nkernels = 2
 let nIterations = [ 5; 3] //; 3; 1; 1]
 let nlaunches = nIterations |> List.map (fun x -> x * nkernels) |> List.sum
-let kernel1 = [| 0.3; 0.4; 0.9; 0.9; 0.5; 0.4; 0.6; 0.7; 0.5; 0.8; 0.3; 0.5; 0.6 |] //Array.init (nlaunches / nkernels) (fun _ -> rng.NextDouble())
-let kernel2 = [| 0.23; 0.14; 0.19; 0.19; 0.25; 0.14; 0.16; 0.27; 0.25; 0.18; 0.23; 0.15; 0.16 |] //Array.init (nlaunches / nkernels) (fun _ -> rng.NextDouble() * 0.2)
+let kernel1 = [| 0.3;  0.4;  0.9;  0.9;  0.5;  0.4;  0.6;  0.7 |] //;  0.5;  0.8;  0.3;  0.5;  0.6 |] //Array.init (nlaunches / nkernels) (fun _ -> rng.NextDouble())
+let kernel2 = [| 0.23; 0.14; 0.19; 0.19; 0.25; 0.14; 0.16; 0.27 |] // 0.25; 0.18; 0.23; 0.15; 0.16 |] //Array.init (nlaunches / nkernels) (fun _ -> rng.NextDouble() * 0.2)
 let kernels = [kernel1; kernel2]
+printfn "kernel1 launch1 sum = %A" (kernel1.[0..4] |> Array.sum)
+printfn "kernel2 launch1 sum = %A" (kernel2.[0..4] |> Array.sum)
 let launches = 
     seq { let x = ref 0
           while !x < nlaunches do
@@ -87,22 +89,33 @@ let answer = [answerk1; answerk2]
 
 
 
-//let result = Array.init nkernels (fun _ -> ("", Array.zeroCreate<float> nIterations.Length))
-//let sums = Array.init (nkernels * nIterations.Length) (fun _ -> 0.0) |> Seq.ofArray
-//let nis = List.scan (fun x e -> x + e) 0 nIterations
-//printfn "NIS = %A" nis
-//let averages =
-//    nIterations |> List.mapi (fun i ni ->
-//        let ilaunches = launches |> Array.sub <|| (nis.[i]*nkernels, ni*nkernels)
-//        //printfn "ilaunches = %A" ilaunches
-//        for l in ilaunches do printfn "(%d) %A" i l
-//        let kernels = (chunk nkernels ilaunches)
-//        printfn "kernels = (%d) %A" i kernels
+let result = Array.init nkernels (fun _ -> ("", Array.zeroCreate<float> nIterations.Length))
+let sums = Array.init (nkernels * nIterations.Length) (fun _ -> 0.0) |> Seq.ofArray
+let nis = List.scan (fun x e -> x + e) 0 nIterations
+printfn "NIS = %A" nis
+let averages =
+    nIterations |> List.mapi (fun i ni ->
+        let ilaunches = launches |> Array.sub <|| (nis.[i]*nkernels, ni*nkernels)
+        //printfn "ilaunches = %A" ilaunches
+        //for l in ilaunches do printfn "(%d) %A" i l
+        //printfn "%A" [| 0..nkernels..(ilaunches.Length - 1) |]
+        let kernels = [| for a in 1..nkernels..ilaunches.Length do yield ilaunches.[(a - 1)..(a - 1)+(nkernels-1)] |]
+        printfn "kernels %A" kernels
+        [| for i in 0..(nkernels - 1) do
+            yield [| for j in 0..(kernels.Length - 1) do
+                        yield kernels.[j].[i] |] 
+            |> Array.average |]
+        
+        //(sums |> Array.map (fun x -> x / (float ni)))
+        //printfn "kernels = %A" avg
 //        let sums = seq { for idx in 0..(nkernels - 1) do
 //                            let kd = seq { for k in kernels do yield Seq.head (Seq.skip idx k) }
 //                            yield kd |> Seq.sum }
-//        //printfn "SUMS %A" sums
+//        printfn "SUMS %A" sums
 //        sums |> Seq.map (fun x -> (x / (float ni))) )
+            )
+
+printfn "averages = %A" averages
 //
 ////printfn "%A" nis
 //printfn "niter = %d, nis = %d" nIterations.Length nis.Length

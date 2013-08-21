@@ -8,6 +8,9 @@ open System.Text.RegularExpressions
 open FileHelpers
 
 
+let kNameRegex = Regex(@"(Kernel[\w]+)")
+let typeNames = ["Int32"; "Int64"; "Float32"; "Float64"]
+
 
 type CollectorType =
     | MgpuBenchmark
@@ -16,14 +19,10 @@ type NVProfDataGenerator =
     val workingDir : string
     val outfilePath : string
     new (wd, ofp) = {   workingDir = wd; 
-                        outfilePath = ofp }    
-    
-    
-    
+                        outfilePath = ofp }
+
     member nvp.Execute (nvprofArgs:string) (programName:string) (programArgs:string) =
-        let nvprof = new Process()
-//        Args <- Args + " " + programName + " " + "0"
-//        programArgs |> List.iter (fun arg -> Args <- Args + " " + arg)        
+        let nvprof = new Process()   
         let nvprofInfo = new ProcessStartInfo("nvprof", nvprofArgs + programName + programArgs)
         nvprofInfo.WorkingDirectory <- nvp.workingDir
         nvprofInfo.UseShellExecute <- false
@@ -33,31 +32,18 @@ type NVProfDataGenerator =
         nvprof.Start() |> ignore
         
         let reader = nvprof.StandardOutput
-//        let mutable allOutput = new StringBuilder()
-//        while not nvprof.HasExited do
-//            allOutput <- allOutput.Append(reader.ReadToEnd())
         let ao = reader.ReadToEnd()
         
         nvprof.WaitForExit()
         nvprof.Close()
-        //let ao = allOutput.ToString()
-        //printfn "%A" ao
+        
         File.AppendAllText(nvp.outfilePath, ao)
-//        let tokens = Regex(@"[\n\r]+").Split(ao)
-//        tokens |> Array.iter (fun x -> if x.Contains("Kernel") then
-//                                        File.AppendAllLines(nvp.outfilePath, seq { yield x }) )
-//        nvprof.WaitForInputIdle() |> ignore
-//        nvprof.StandardInput.WriteLine()
-        
-        
-        //Args <- DefaultArgs
 
 
 type KernelNameConverter() =
-    inherit ConverterBase()
-    let kReg = Regex(@"(Kernel[\w]+)")
+    inherit ConverterBase()    
     override snc.StringToField(from) =
-            let m = kReg.Match(from)
+            let m = kNameRegex.Match(from)
             let from = m.Groups.[1].Captures.[0].Value
             from :> obj
     override snc.FieldToString(fieldValue:obj) =
@@ -83,13 +69,14 @@ type ProfiledKernelLaunch_summary () =
     [<DefaultValue>] [<FieldConverter(typeof<SciNotationConverter>)>] val mutable Min : float
     [<DefaultValue>] [<FieldConverter(typeof<SciNotationConverter>)>] val mutable Max : float
     [<DefaultValue>] [<FieldQuoted()>] [<FieldConverter(typeof<KernelNameConverter>)>] val mutable Name : string
-    
+
+// TODO    
 //[< DelimitedRecord(",") >] [< IgnoreEmptyLines >]
 //type ProfiledKernelLaunch_apiTrace () =
 
-[< DelimitedRecord(",") >] [< IgnoreEmptyLines >] [<IgnoreFirst(6)>]
+[<ConditionalRecord(RecordCondition.IncludeIfMatchRegex, @"(Kernel[\w]+)")>]
+[< DelimitedRecord(",") >] [< IgnoreEmptyLines >] //[<IgnoreFirst(6)>]
 type ProfiledKernelLaunch_gpuTrace () =
-    //[<FieldConverter(typeof<SciNotationConverter>)>]
     [<DefaultValue>] [<FieldConverter(typeof<SciNotationConverter>)>] val mutable Start : float
     [<DefaultValue>] [<FieldConverter(typeof<SciNotationConverter>)>] val mutable Duration : float
     [<DefaultValue>] [<FieldNullValue(typeof<int>, "0")>] val mutable GridX : int
@@ -106,7 +93,7 @@ type ProfiledKernelLaunch_gpuTrace () =
     [<DefaultValue>] [<FieldNullValue(typeof<int>, "0")>] val mutable Device : int
     [<DefaultValue>] [<FieldNullValue(typeof<int>, "0")>] val mutable Contex : int
     [<DefaultValue>] [<FieldNullValue(typeof<int>, "0")>] val mutable Stream : int
-    [<DefaultValue>] [<FieldQuoted()>] val mutable Name : string
+    [<DefaultValue>] [<FieldQuoted()>] [<FieldConverter(typeof<KernelNameConverter>)>] val mutable Name : string
 
 
 type NVProfSummaryDataCollector(csvFile:string, nkernels, sourceCounts:int list, nIterations:int list) =
@@ -115,15 +102,8 @@ type NVProfSummaryDataCollector(csvFile:string, nkernels, sourceCounts:int list,
         let downcast_PKL_Array = Array.map (fun (a:obj) -> a :?> ProfiledKernelLaunch_summary)
         let launches = downcast_PKL_Array res
         
-        //do printfn "launches size: %A" launches.Length
-        
         let mutable kNames = Array.init nkernels (fun _ -> "")       
-        let kreg = @"(Kernel[\w]+)"
         
-        //let mutable avgDurations = List.init kNames.Length (fun _ -> Array.zeroCreate<float> nIterations.Length)
-        
-        
-
         let getKernelNames() =
             let mutable i = 0
             let mutable finished = false
@@ -145,48 +125,58 @@ type NVProfSummaryDataCollector(csvFile:string, nkernels, sourceCounts:int list,
             result
 
 
-type NVProfGPUTraceDataCollector(csvFile:string, nkernels, sourceCounts:int list, nIterations:int list) =
+type NVProfGPUTraceDataCollector(csvFile:string, sourceCounts:int list, nIterations:int list) =
         let engine = new FileHelperEngine(typeof<ProfiledKernelLaunch_gpuTrace>)
-        let res = engine.ReadFile(csvFile)
-        let downcast_PKL_Array = Array.map (fun (a:obj) -> a :?> ProfiledKernelLaunch_gpuTrace)
-        let launches = downcast_PKL_Array res
         
-        //do printfn "launches size: %A" launches.Length
-        
-        let mutable kNames = Array.init nkernels (fun _ -> "")       
-        let kreg = @"(Kernel[\w]+)"
-        
-        //let mutable avgDurations = List.init kNames.Length (fun _ -> Array.zeroCreate<float> nIterations.Length)
-        
-        let getDurations() =
-            launches |> Array.map (fun x -> x.Duration)
-        
+        let gatherData (ignoreFirstLines:int) (ignoreLastLines:int) =            
+            engine.Options.IgnoreFirstLines <- ignoreFirstLines + 6 // ignores nvprof misc output
+            engine.Options.IgnoreLastLines <- ignoreLastLines
+            let res = engine.ReadFile(csvFile)
+            let downcast_PKL_Array = Array.map (fun (a:obj) -> a :?> ProfiledKernelLaunch_gpuTrace)
+            (downcast_PKL_Array res)
+                
+        let getDurationsMicro (launches:ProfiledKernelLaunch_gpuTrace[]) =
+            launches |> Array.map (fun x -> x.Duration * 1000000.0)
+        let getDurationsMilli (launches:ProfiledKernelLaunch_gpuTrace[]) =
+            launches |> Array.map (fun x -> x.Duration * 1000.0)       
 
-        let getKernelNames() =
-            let mutable i = 0
-            let mutable finished = false
-            let mutable knames = []
-            while not finished do
-                let kn = launches.[i].Name
-                knames <- knames @ [kn]
-                if knames.Length < nkernels then i <- i + 1 else finished <- true
-            knames |> List.iteri (fun i x -> Array.set kNames i x)
+        let durations tu l = 
+            match tu with
+            | "us" -> getDurationsMicro(l)
+            | "ms" -> getDurationsMilli(l)
+            | _ -> getDurationsMicro(l)
 
-        member nvp.GetAverageKernelLaunchTimings() =            
-            let nis = List.scan (fun x e -> x + e) 0 nIterations
-            let durations = getDurations()
-            let stopwatch = new System.Diagnostics.Stopwatch()
-            (kNames |> List.ofArray),
-            (nIterations |> List.mapi (fun i ni ->
-                stopwatch.Start()
-                let ilaunches = durations |> Array.sub <|| (nis.[i]*nkernels, ni*nkernels)
-                let kernels = (chunk nkernels ilaunches)
-                let sums = seq { for idx in 0..(nkernels - 1) do
-                                    let kd = seq { for k in kernels do yield (Seq.head (Seq.skip idx k)) }
-                                    yield kd |> Seq.sum }
-                stopwatch.Stop()                                    
-                printfn "dt == (%A)" stopwatch.ElapsedMilliseconds
-                stopwatch.Reset()
-                sums |> Seq.map (fun x -> (x / (float ni))) ) |> List.ofSeq)
+        member nvp.GetAverageKernelLaunchTimings (numberAlgs:int) (kernelsPerAlg:int) (typesPerAlg:int) (timeUnit:string) =            
+            let launchesPerAlg = (nIterations |> List.sum) * kernelsPerAlg
+            let na, nk, nt, nl = numberAlgs, kernelsPerAlg, typesPerAlg, launchesPerAlg
+            let N = na * nk * nt * nl
+            let allLaunches = gatherData 0 0
+            //let allDurations = durations timeUnit allLaunches
+            
+            
+            ([| for a in 0..(na - 1) do
+                let algResult = ([| for t in 1..nt do
+                                        let launches = Array.sub allLaunches (a*nl*t) ((na - a) * nl * t)
+                                        let typeName = typeNames.[t - 1]
+                                        let knames = [|for i in 0..(nk - 1) do yield (launches.[i].Name + "<" + typeName + ">")|]
+                                        let durations = durations timeUnit launches
+                                        let nis = List.scan (fun x e -> x + e) 0 nIterations                   
+                    
+                                        let averages = 
+                                            (nIterations |> List.mapi (fun i ni ->
+                                                let ilaunches = durations |> Array.sub <|| (nis.[i]*nk, ni*nk)
+                                                let kernels = [| for a in 1..nk..ilaunches.Length do yield ilaunches.[(a - 1)..(a - 1)+(nk-1)] |]
+                    
+                                                [| for i in 0..(nk - 1) do
+                                                    yield [| for j in 0..(kernels.Length - 1) do
+                                                                yield kernels.[j].[i] |] 
+                                                    |> Array.average |]) )
 
+                                        let result = [| for i in 0..(nk - 1) do
+                                                            yield [| for j in 0..(nIterations.Length - 1) do
+                                                                        yield averages.[j].[i] |] 
+                                                        |]
+                                        yield (knames, result) |])
+                yield algResult
+                |])
             

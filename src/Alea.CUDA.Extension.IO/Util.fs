@@ -14,6 +14,10 @@ let rec chunk n xs =
         let (ys,zs) = splitAt n xs
         Seq.append (Seq.singleton ys) (chunk n zs)
 
+let swatchStopPrintReset (stopwatch:System.Diagnostics.Stopwatch) (nameOfThingBeingTimed:string) =
+    stopwatch.Stop()
+    printfn "Elapsed Time for (%s)  ==>  %8.2f (s)" nameOfThingBeingTimed ((float stopwatch.ElapsedMilliseconds) / 1000.0)
+    stopwatch.Reset()
 
 [<AutoOpen>]
 module Input =

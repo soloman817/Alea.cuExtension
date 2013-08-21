@@ -65,13 +65,18 @@ let ``nvprofiler parser test: bulk remove (int32) loop`` () =
     let programName = "benchmarkinsert.exe "
     nvpdg.Execute nvprofArgs programName ""
     printfn "done executing"
-    let nvprofgputdc = new NVProfGPUTraceDataCollector(outfilePath, 2, sourceCounts, nIterations)
-
-    let knames, avgklt = nvprofgputdc.GetAverageKernelLaunchTimings()
-    
-    knames |> List.iteri (fun i kn ->        
-        printfn "Average Kernel Launch Times for %s" kn
-        printfn "num elem\tavg time (us)"
-        (sourceCounts, (avgklt.[i] |> List.ofSeq)) 
-        ||> List.iter2 (fun n avgdur -> printfn "%d\t\t%f" n avgdur)
-        printfn "\n" )
+    let nvprofgputdc = new NVProfGPUTraceDataCollector(outfilePath, sourceCounts, nIterations)
+    let stopwatch = new System.Diagnostics.Stopwatch()
+    stopwatch.Start()
+    let klt = nvprofgputdc.GetAverageKernelLaunchTimings 2 2 4 "us"
+    stopwatch.Stop()
+    printfn "get avg took %d ms" stopwatch.ElapsedMilliseconds
+    klt |> Array.iter (fun x ->
+        x |> Array.iter (fun y ->
+            let knames, results = y
+            knames |> Array.iteri (fun i kn ->        
+            printfn "Average Kernel Launch Times for %s" kn
+            let avgs = results.[i] |> List.ofArray
+            (sourceCounts, avgs) ||> List.iter2 (fun n avgdur -> printfn "%d\t\t%f" n avgdur)
+            printfn "\n" ))
+            )
