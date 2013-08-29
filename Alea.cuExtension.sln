@@ -42,7 +42,7 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.IO", "s
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{622CE618-1F87-4C90-9ADD-3F8B72FD992A}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.Docs", "docs\Alea.CUDA.Docs\Alea.CUDA.Extension.Docs.fsproj", "{8E1DFA1E-6E6C-49F2-A660-37F708826BED}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.Docs", "docs\Alea.CUDA.Extension.Docs\Alea.CUDA.Extension.Docs.fsproj", "{8E1DFA1E-6E6C-49F2-A660-37F708826BED}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
