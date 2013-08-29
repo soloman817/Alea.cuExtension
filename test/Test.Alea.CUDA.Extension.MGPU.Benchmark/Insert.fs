@@ -8,7 +8,7 @@ open Test.Alea.CUDA.Extension.MGPU
 open NUnit.Framework
 ////////////////////////////
 // set this to your device or add your device's C++ output to BenchmarkStats.fs
-open TeslaK20c
+open BenchmarkStats.GF560Ti
 // in the future maybe we try to get the C++ to interop somehow
 /////////////////////////////
 

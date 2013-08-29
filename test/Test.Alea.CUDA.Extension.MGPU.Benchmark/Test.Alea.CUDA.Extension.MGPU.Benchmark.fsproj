@@ -42,6 +42,18 @@
       <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="FSharp.CodeFormat">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CodeFormat.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CompilerBinding">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CompilerBinding.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.Markdown">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.Markdown.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
     <Reference Include="nunit.framework">
@@ -66,10 +78,9 @@
     <Compile Include="Sets.fs" />
     <Compile Include="Sort.fs" />
     <Compile Include="SortedSearch.fs" />
-    <None Include="Script.fsx" />
-    <None Include="packages.config" />
-    <Compile Include="Program.fs" />
     <Compile Include="NVProfIO.fs" />
+    <Compile Include="Program.fs" />
+    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.IO\Alea.CUDA.Extension.IO.fsproj">
