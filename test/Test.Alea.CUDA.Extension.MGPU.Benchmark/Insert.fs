@@ -1,5 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.Benchmark.Insert
 
+open System
+open System.IO
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
@@ -316,3 +318,33 @@ module BulkRemove =
             let (source:float[]), indices = rngGenericArrayI ns nr
             benchmarkBulkRemove source indices ni i   )
         benchmarkOutput outputType workingPath brBMS4.Float64s
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  MGPU C++ Profiling                                                                                          //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+module Profiling =
+    open Extension.IO.NVProfilerTools
+    let sourceCounts = BenchmarkStats.bulkInsert.SourceCounts
+    let nIterations = BenchmarkStats.bulkInsert.Iterations
+    let workingDir = @"X:\dev\GitHub\moderngpu\Release\"
+    let numberAlgs = 2 // bulkRemove & bulkInsert
+    let kernelsPerAlg = 2 // bulkRemove has binary search & bulkRemove, bulkInsert has merge path partitions & bulkInsert
+    let typesPerAlg = 4 // int32, int64, float32, float64
+    let timeUnit = "us" // microseconds
+
+    [<Test>]
+    let ``nvprofiler full 4type test: BulkRemove & BulkInsert`` () =
+        let outfileName = "benchmarkinsert_nvprof_output.txt"
+        let outfilePath = workingDir + outfileName
+        if File.Exists(outfilePath) then
+            File.Delete(outfilePath)
+        let nvpdg = new NVProfDataGenerator(workingDir, outfilePath)
+        let nvprofArgs = "--csv --normalized-time-unit " + timeUnit + " --print-gpu-trace "
+        let programName = "benchmarkinsert.exe "
+        nvpdg.Execute nvprofArgs programName ""
+        printfn "done executing"
+        let nvprofgputdc = new NVProfGPUTraceDataCollector(outfilePath, sourceCounts, nIterations)
+        nvprofgputdc.DisplayAverageKernelLaunchTimings numberAlgs kernelsPerAlg typesPerAlg timeUnit

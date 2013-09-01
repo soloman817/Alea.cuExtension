@@ -40,10 +40,6 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.CUDA.Extension.MG
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.IO", "src\Alea.CUDA.Extension.IO\Alea.CUDA.Extension.IO.fsproj", "{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{622CE618-1F87-4C90-9ADD-3F8B72FD992A}"
-EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Extension.Docs", "docs\Alea.CUDA.Extension.Docs\Alea.CUDA.Extension.Docs.fsproj", "{8E1DFA1E-6E6C-49F2-A660-37F708826BED}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -258,20 +254,6 @@ Global
 		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|Win32.ActiveCfg = Release|Any CPU
 		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x64.ActiveCfg = Release|Any CPU
 		{DB94CDA3-4E52-4105-BF5F-80FE2D7D161C}.Release|x86.ActiveCfg = Release|Any CPU
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|Any CPU.ActiveCfg = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|Mixed Platforms.Build.0 = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|Win32.ActiveCfg = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|x64.ActiveCfg = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|x86.ActiveCfg = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Debug|x86.Build.0 = Debug|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|Any CPU.ActiveCfg = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|Mixed Platforms.ActiveCfg = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|Mixed Platforms.Build.0 = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|Win32.ActiveCfg = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|x64.ActiveCfg = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|x86.ActiveCfg = Release|x86
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -290,6 +272,5 @@ Global
 		{43734F54-F8B9-4DD5-8B7B-E0654D11960E} = {DE03025A-FA3F-47D9-A3A4-8F0F7A6DF45C}
 		{3564B717-79FE-4FB7-9613-CE5BD0E9F06A} = {DE03025A-FA3F-47D9-A3A4-8F0F7A6DF45C}
 		{206CBFBD-473B-4D37-B732-25E0AA80FC4D} = {4F154050-BC76-42F1-8123-571053C4D71E}
-		{8E1DFA1E-6E6C-49F2-A660-37F708826BED} = {622CE618-1F87-4C90-9ADD-3F8B72FD992A}
 	EndGlobalSection
 EndGlobal

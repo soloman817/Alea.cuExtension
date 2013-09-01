@@ -1,5 +1,7 @@
 ﻿module Test.Alea.CUDA.Extension.MGPU.Benchmark.IntervalMove
 
+open System
+open System.IO
 open Alea.CUDA
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.MGPU
@@ -369,3 +371,27 @@ module IntervalMove =
             let input : float[] = Array.init ns (fun i -> float i)
             benchmarkIntervalMove 'B' input ns ni (ns / 25) i)
         benchmarkOutput outputType workingPathMovB imv_B_BMS4.Float64s
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                              //
+//  MGPU C++ Profiling                                                                                          //
+//                                                                                                              //
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+module Profiling =
+    open Extension.IO.NVProfilerTools
+    let workingDir = @"X:\dev\GitHub\moderngpu\Release\"
+    
+//    [<Test>]
+//    let ``nvprofiler 4type test: BulkRemove & BulkInsert`` () =
+//        let outfileName = "benchmarkinsert_nvprof_output.txt"
+//        let outfilePath = workingDir + outfileName
+//        if File.Exists(outfilePath) then
+//            File.Delete(outfilePath)
+//        let nvpdg = new NVProfDataGenerator(workingDir, outfilePath)
+//        let nvprofArgs = "--csv --normalized-time-unit " + timeUnit + " --print-gpu-trace "
+//        let programName = "benchmarkinsert.exe "
+//        nvpdg.Execute nvprofArgs programName ""
+//        printfn "done executing"
+//        let nvprofgputdc = new NVProfGPUTraceDataCollector(outfilePath, sourceCounts, nIterations)
+//        nvprofgputdc.DisplayAverageKernelLaunchTimings numberAlgs kernelsPerAlg typesPerAlg timeUnit

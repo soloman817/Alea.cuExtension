@@ -102,3 +102,4 @@ let ``nvprfiler parser test : no data gen`` () =
             (sourceCounts, avgs) ||> List.iter2 (fun n avgdur -> printfn "%d\t\t%9.3f" n avgdur)
             printfn "\n" ))
             )
+
