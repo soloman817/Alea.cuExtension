@@ -1,12 +1,59 @@
-﻿module Alea.CUDA.Extension.MGPU.DeviceUtil
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.DeviceUtil
 
 // This file maps to the deviceutil.cuh file in mgpu, just some utilities.
 
 open Alea.CUDA
 open Microsoft.FSharp.Quotations
 
+
+let [<ReflectedDefinition>] ExclusiveScan = 0
+let [<ReflectedDefinition>] InclusiveScan = 1
+
+
+let [<ReflectedDefinition>] MgpuBoundsLower = 0
+let [<ReflectedDefinition>] MgpuBoundsUpper = 1
+
+
+type ScanOpType =
+    | ScanOpTypeAdd
+    | ScanOpTypeMul
+    | ScanOpTypeMin
+    | ScanOpTypeMax
+
+
+type MgpuScanType =
+    | MgpuScanTypeExc
+    | MgpuScanTypeInc
+
+
+type MgpuSearchType =
+    | MgpuSearchTypeNone
+    | MgpuSearchTypeIndex
+    | MgpuSearchTypeMatch
+    | MgpuSearchTypeIndexMatch
+
+
+type MgpuJoinKind =
+    | MgpuJoinKindInner
+    | MgpuJoinKindLeft
+    | MgpuJoinKindRight
+    | MgpuJoinKindOutput
+
+
+type MgpuSetOp =
+    | MgpuSetOpIntersection
+    | MgpuSetOpUnion
+    | MgpuSetOpDiff
+    | MgpuSetOpSymDiff
+
+
+
+
+
 let [<ReflectedDefinition>] WARP_SIZE = 32
 let [<ReflectedDefinition>] LOG_WARP_SIZE = 5
+
 
 [<Struct;Align(8)>]
 type Int2 =
@@ -14,8 +61,8 @@ type Int2 =
     val mutable y : int
     [<ReflectedDefinition>] // @HERE!!@
     new (x, y) = { x = x; y = y }
-
 type int2 = Int2
+
 
 [<Struct;Align(8)>]
 type UInt2 =
@@ -23,7 +70,6 @@ type UInt2 =
     val mutable y : uint32
     [<ReflectedDefinition>]
     new (x, y) = { x = x; y = y }
-
 type uint2 = UInt2
 
 
@@ -34,8 +80,8 @@ type Int3 =
     val mutable z : int
     [<ReflectedDefinition>] // @HERE!!@
     new (x, y, z) = { x = x; y = y; z = z }
-
 type int3 = Int3
+
 
 [<Struct;Align(8)>]
 type Int4 =
@@ -44,8 +90,7 @@ type Int4 =
     val mutable z : int
     val mutable w : int
     [<ReflectedDefinition>] // @HERE!!@
-    new (x, y, z, w) = { x = x; y = y; z = z; w = w }
-    
+    new (x, y, z, w) = { x = x; y = y; z = z; w = w }    
 type int4 = Int4
 
 
@@ -79,7 +124,6 @@ type IComp<'TC> =
     abstract Identity : 'TC
     abstract Host : ('TC -> 'TC -> bool)
     abstract Device : Expr<'TC -> 'TC -> bool>
-    
 
 type CompType =
     | CompTypeLess
@@ -105,28 +149,16 @@ let comp (compType:CompType) (ident:'T) =
             | CompTypeGreater_Equal -> <@ fun a b -> a >= b @> }
 
 
-type ISwap<'TS> =
-    abstract Identity : 'TS
-    abstract Host : ('TS ref -> 'TS ref -> unit)
-    abstract Device : Expr<RWPtr<'TS> -> RWPtr<'TS> -> unit>
+let [<ReflectedDefinition>] swap a b =
+    let c = a
+    let mutable a = a
+    let mutable b = b
+    a <- b
+    b <- c
 
-let inline swap (ident:'T) =
-    { new ISwap<'T> with
-        member this.Identity = ident
-        member this.Host =
-            fun (a:'T ref) (b:'T ref) ->
-                let c = a
-                a := b.Value
-                b := c.Value
 
-        member this.Device =
-            <@ fun (a:RWPtr<'T>) (b:RWPtr<'T>) ->
-                let c = a
-                a.[0] <- b.[0]
-                b.[0] <- c.[0] @> }
-
-type MgpuSearchType =
-    | MgpuSearchTypeNone
-    | MgpuSearchTypeIndex
-    | MgpuSearchTypeMatch
-    | MgpuSearchTypeIndexMatch
+let counting_iterator (N:int) =
+    <@ fun (countingItr_global:DevicePtr<int>) (offset:int) (sharedCountingItr:RWPtr<int>) ->
+        for i = 0 to N - 1 do
+            sharedCountingItr.[i] <- countingItr_global.[i + offset]
+    @>

@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>8.0.30703</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{3564b717-79fe-4fb7-9613-ce5bd0e9f06a}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Test.Alea.CUDA.Extension.MGPU.Benchmark</RootNamespace>
+    <AssemblyName>Test.Alea.CUDA.Extension.MGPU.Benchmark</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <Name>Test.Alea.CUDA.Extension.MGPU.Benchmark</Name>
+    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
+    <RestorePackages>true</RestorePackages>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <Tailcalls>false</Tailcalls>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <WarningLevel>3</WarningLevel>
+    <DocumentationFile>bin\Debug\Test.Alea.CUDA.Extension.MGPU.Benchmark.XML</DocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <Tailcalls>true</Tailcalls>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <WarningLevel>3</WarningLevel>
+    <DocumentationFile>bin\Release\Test.Alea.CUDA.Extension.MGPU.Benchmark.XML</DocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Alea.CUDA">
+      <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.CUDA.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Alea.Interop">
+      <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.Interop.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CodeFormat">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CodeFormat.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CompilerBinding">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CompilerBinding.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.Markdown">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.Markdown.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="mscorlib" />
+    <Reference Include="FSharp.Core" />
+    <Reference Include="nunit.framework">
+      <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Numerics" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="BenchmarkStats.fs" />
+    <Compile Include="Insert.fs" />
+    <Compile Include="IntervalMove.fs" />
+    <Compile Include="Join.fs" />
+    <Compile Include="LaunchBox.fs" />
+    <Compile Include="LoadBalance.fs" />
+    <Compile Include="LocalitySort.fs" />
+    <Compile Include="Merge.fs" />
+    <Compile Include="Scan.fs" />
+    <Compile Include="SegSort.fs" />
+    <Compile Include="Sets.fs" />
+    <Compile Include="Sort.fs" />
+    <Compile Include="SortedSearch.fs" />
+    <Compile Include="NVProfIO.fs" />
+    <Compile Include="Program.fs" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.IO\Alea.CUDA.Extension.IO.fsproj">
+      <Name>Alea.CUDA.Extension.IO</Name>
+      <Project>{db94cda3-4e52-4105-bf5f-80fe2d7d161c}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.MGPU\Alea.CUDA.Extension.MGPU.fsproj">
+      <Name>Alea.CUDA.Extension.MGPU</Name>
+      <Project>{1c3aebb6-252a-4310-98c7-4bbe659b25fe}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">
+      <Name>Alea.CUDA.Extension</Name>
+      <Project>{aac76230-0e14-4f65-8300-01cdf6388a1d}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\Test.Alea.CUDA.Extension.MGPU\Test.Alea.CUDA.Extension.MGPU.fsproj">
+      <Name>Test.Alea.CUDA.Extension.MGPU</Name>
+      <Project>{43734f54-f8b9-4dd5-8b7b-e0654d11960e}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
+  <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
+  <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+	     Other similar extension points exist, see Microsoft.Common.targets.
+	<Target Name="BeforeBuild">
+	</Target>
+	<Target Name="AfterBuild">
+	</Target>
+	-->
+</Project>

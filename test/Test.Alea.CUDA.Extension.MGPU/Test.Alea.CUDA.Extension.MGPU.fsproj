@@ -63,6 +63,18 @@
       <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.Interop.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="FSharp.CodeFormat">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CodeFormat.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CompilerBinding">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CompilerBinding.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.Markdown">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.Markdown.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
     <Reference Include="nunit.framework">
@@ -76,30 +88,29 @@
   <ItemGroup>
     <Compile Include="Util.fs" />
     <Compile Include="BenchmarkStats.fs" />
-    <Compile Include="CTAScan.fs" />
-    <Compile Include="CTAMerge.fs" />
-    <Compile Include="CTASearch.fs" />
-    <Compile Include="CTASortedSearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="BulkRemove.fs" />
     <Compile Include="BulkInsert.fs" />
     <Compile Include="SortedSearch.fs" />
+    <Compile Include="Merge.fs" />
+    <Compile Include="Mergesort.fs" />
+    <Compile Include="LoadBalance.fs" />
+    <Compile Include="IntervalMove.fs" />
     <Compile Include="Debug.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
-    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.IO\Alea.CUDA.Extension.IO.fsproj">
+      <Name>Alea.CUDA.Extension.IO</Name>
+      <Project>{db94cda3-4e52-4105-bf5f-80fe2d7d161c}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension.MGPU\Alea.CUDA.Extension.MGPU.fsproj">
       <Name>Alea.CUDA.Extension.MGPU</Name>
       <Project>{1c3aebb6-252a-4310-98c7-4bbe659b25fe}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\src\Alea.CUDA.Extension.Output\Alea.CUDA.Extension.Output.fsproj">
-      <Name>Alea.CUDA.Extension.Output</Name>
-      <Project>{db94cda3-4e52-4105-bf5f-80fe2d7d161c}</Project>
       <Private>True</Private>
     </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Extension\Alea.CUDA.Extension.fsproj">

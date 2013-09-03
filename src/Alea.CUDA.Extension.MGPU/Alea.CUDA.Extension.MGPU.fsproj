@@ -32,11 +32,13 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Release\Alea.CUDA.Extension.MGPU.XML</DocumentationFile>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   <ItemGroup>
+    <Compile Include="Tuning.fs" />
     <Compile Include="QuotationUtil.fs" />
     <Compile Include="Static.fs" />
     <Compile Include="DeviceUtil.fs" />
@@ -47,7 +49,7 @@
     <Compile Include="CTASearch.fs" />
     <Compile Include="CTAMerge.fs" />
     <Compile Include="CTALoadBalance.fs" />
-    <Compile Include="CTASegSort.fs" />
+    <Compile Include="CTASegsort.fs" />
     <Compile Include="CTASortedSearch.fs" />
     <Compile Include="Reduce.fs" />
     <Compile Include="Scan.fs" />
@@ -55,17 +57,18 @@
     <Compile Include="BulkRemove.fs" />
     <Compile Include="BulkInsert.fs" />
     <Compile Include="SortedSearch.fs" />
-    <Compile Include="IntervalMove.fs" />
     <None Include="Join.fs" />
+    <Compile Include="IntervalMove.fs" />
     <Compile Include="LoadBalance.fs" />
     <Compile Include="LocalitySort.fs" />
     <Compile Include="Merge.fs" />
-    <Compile Include="MergeSort.fs" />
+    <Compile Include="Mergesort.fs" />
     <Compile Include="SegmentedSort.fs" />
     <Compile Include="SerialSets.fs" />
     <Compile Include="Sets.fs" />
     <Compile Include="PArray.fs" />
     <None Include="packages.config" />
+    <None Include="Script1.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
@@ -74,6 +77,18 @@
     </Reference>
     <Reference Include="Alea.Interop">
       <HintPath>..\..\packages\Alea.cuBase.1.1.549\lib\net40\Alea.Interop.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CodeFormat">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CodeFormat.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.CompilerBinding">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.CompilerBinding.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FSharp.Markdown">
+      <HintPath>..\..\packages\FSharp.Formatting.1.0.15\lib\net40\FSharp.Markdown.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />

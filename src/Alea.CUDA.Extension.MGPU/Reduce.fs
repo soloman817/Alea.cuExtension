@@ -18,11 +18,7 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 // numbers of thread in one block), and a VT (means how many values will be
 // handles by one thread, this is used in the local values you can see below in
 // the kernel)
-type Plan =
-    {
-        NT : int
-        VT: int
-    }
+
 
 let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let NT = plan.NT
@@ -145,8 +141,10 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                     numBlocks, task, lp, kernelReduce
 
             let action (hint:ActionHint) (data:DevicePtr<'TI>) (reduction:DevicePtr<'TV>) =
-                let lp = lp |> hint.ModifyLaunchParam
-                kernelReduce.Launch lp data count task reduction
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    kernelReduce.Launch lp data count task reduction
+                |> worker.Eval
 
             let result (reduction:'TV[]) =
                 reduction |> Array.reduce hplus

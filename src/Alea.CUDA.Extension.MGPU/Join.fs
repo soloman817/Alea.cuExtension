@@ -1,5 +1,7 @@
 ﻿module Alea.CUDA.Extension.MGPU.Join
+
 // NOT IMPLEMENTED YET
+
 //open System.Runtime.InteropServices
 //open Microsoft.FSharp.Collections
 //open Alea.CUDA
@@ -13,7 +15,7 @@
 //open Alea.CUDA.Extension.MGPU.CTAScan
 //open Alea.CUDA.Extension.MGPU.CTALoadBalance
 //
-//
+
 //type Plan =
 //    {
 //        NT : int
@@ -172,28 +174,17 @@
 //    }
 //
 //let relationalJoin (kind:MgpuJoinKind) (compOp:IComp<'TI>) =
-//    let supportLeft =
-//        match kind with
-//        | MgpuJoinKindLeft -> true
-//        | MgpuJoinKindOuter -> true
-//        | _ -> false
 //
-//    let supportRight =
-//        match kind with
-//        | MgpuJoinKindRight -> true
-//        | MgpuJoinKindOuter -> true
-//        | _ -> false
+//    let supportLeft = (kind = MgpuJoinKindLeft) || (kind = MgpuJoinKindOuter)
+//    let supportRight = (kind = MgpuJoinKindRight) || (kind = MgpuJoinKindOuter)
 //
 //    let leftType = if supportLeft then MgpuSearchTypeIndexMatch else MgpuSearchTypeIndex
 //
 ////    MGPU_MEM(int) aLowerBound = context.Malloc<int>(aCount);
 ////	MGPU_MEM(byte) bMatches;
-//    let mutable aLowerBound = 0
-//    let mutable bMatches = 0
-//
 //    let mutable rightJoinTotal = 0
-//
 //    if supportRight then
+//        
         
 
       

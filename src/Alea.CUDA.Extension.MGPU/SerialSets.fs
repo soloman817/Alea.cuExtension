@@ -19,38 +19,46 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 //// SerialSetIntersection
 //// Emit A if A and B are in range and equal.
 //
-//template<int VT, bool RangeCheck, typename T, typename Comp>
-//MGPU_DEVICE int SerialSetIntersection(const T* data, int aBegin, int aEnd,
-//	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) {
-//
-//	const int MinIterations = VT / 2;
-//	int commit = 0;
-//	
-//	#pragma unroll
-//	for(int i = 0; i < VT; ++i) {
-//		bool test = RangeCheck ? 
-//			((aBegin + bBegin < end) && (aBegin < aEnd) && (bBegin < bEnd)) :
-//			(i < MinIterations || (aBegin + bBegin < end));
-//
-//		if(test) {
-//			T aKey = data[aBegin];
-//			T bKey = data[bBegin];
-//
-//			bool pA = comp(aKey, bKey);
-//			bool pB = comp(bKey, aKey);
-//			
-//			// The outputs must come from A by definition of set interection.
-//			results[i] = aKey;
-//			indices[i] = aBegin;
-//
-//			if(!pB) ++aBegin;
-//			if(!pA) ++bBegin;
-//			if(pA == pB) commit |= 1<< i;
-//		}
-//	}
-//	return commit;
-//}
-//
+let serialSetIntersection (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+    let comp = compOp.Device
+    <@ fun  (data       :RWPtr<'T>) 
+            (aBegin     :int) 
+            (aEnd       :int) 
+            (bBegin     :int) 
+            (bEnd       :int) 
+            (end'       :int) 
+            (results    :RWPtr<'T>) 
+            (indices    :RWPtr<int>) 
+            ->
+            let comp = %comp
+
+            let mutable aBegin = aBegin
+            let mutable bBegin = bBegin
+
+            let minIterations = VT / 2
+            let mutable commit = 0
+
+            for i = 0 to VT - 1 do
+                let mutable test = if rangeCheck then ((aBegin + bBegin) < end') && ((aBegin < aEnd) && (bBegin < bEnd)) else ((i < minIterations) || ((aBegin + bBegin) < end'))
+
+                if test then
+                    let aKey = data.[aBegin]
+                    let bKey = data.[bBegin]
+
+                    let pA = comp aKey bKey
+                    let pB = comp bKey aKey
+
+                    results.[i] <- aKey
+                    indices.[i] <- aBegin
+
+                    if not pB then aBegin <- aBegin + 1
+                    if not pA then bBegin <- bBegin + 1
+
+                    if pA = pB then commit <- commit ||| 1 <<< i
+            commit
+    @>
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// SerialSetUnion
 //// Emit A if A <= B. Emit B if B < A.
@@ -58,155 +66,194 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 //template<int VT, bool RangeCheck, typename T, typename Comp>
 //MGPU_DEVICE int SerialSetUnion(const T* data, int aBegin, int aEnd,
 //	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) {
-//
-//	const int MinIterations = VT / 2;
-//	int commit = 0;
-//	
-//	#pragma unroll
-//	for(int i = 0; i < VT; ++i) {
-//		bool test = RangeCheck ? 
-//			(aBegin + bBegin < end) :
-//			(i < MinIterations || (aBegin + bBegin < end));
-//
-//		if(test) {
-//			T aKey = data[aBegin];
-//			T bKey = data[bBegin];
-//
-//			bool pA = false, pB = false;
-//			if(RangeCheck && aBegin >= aEnd) 
-//				pB = true;
-//			else if(RangeCheck && bBegin >= bEnd) 
-//				pA = true;
-//			else {
-//				// Both are in range.
-//				pA = comp(aKey, bKey);
-//				pB = comp(bKey, aKey);
-//			}
-//
-//			// Output A in case of a tie, so check if b < a.
-//			results[i] = pB ? bKey : aKey;
-//			indices[i] = pB ? bBegin : aBegin;
-//			if(!pB) ++aBegin;
-//			if(!pA) ++bBegin;
-//			commit |= 1<< i;
-//		}
-//	}
-//	return commit;
-//}
-//
+let serialSetUnion (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+    let comp = compOp.Device
+    <@ fun  (data       :RWPtr<'T>) 
+            (aBegin     :int) 
+            (aEnd       :int) 
+            (bBegin     :int) 
+            (bEnd       :int) 
+            (end'       :int) 
+            (results    :RWPtr<'T>) 
+            (indices    :RWPtr<int>) 
+            ->
+        let comp = %comp
+
+        let mutable aBegin = aBegin
+        let mutable bBegin = bBegin
+
+        let minIterations = VT / 2
+        let mutable commit = 0
+
+        for i = 0 to VT - 1 do
+            let mutable test = if rangeCheck then ((aBegin + bBegin) < end') else ((i < minIterations) || ((aBegin + bBegin) < end'))
+
+            if test then
+                let aKey = data.[aBegin]
+                let bKey = data.[bBegin]
+
+                let mutable pA = false
+                let mutable pB = false
+
+                if rangeCheck && (aBegin >= aEnd) then 
+                    pB <- true
+                elif rangeCheck && (bBegin >= bEnd) then
+                    pA <- true
+                else
+                    pA <- comp aKey bKey
+                    pB <- comp bKey aKey
+
+                results.[i] <- if pB then bKey else aKey
+                indices.[i] <- if pB then bBegin else aBegin
+
+                if not pB then aBegin <- aBegin + 1
+                if not pA then bBegin <- bBegin + 1
+
+                commit <- commit ||| 1 <<< i
+        commit
+    @>
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// SerialSetDifference
 //// Emit A if A < B.
-//
-//template<int VT, bool RangeCheck, typename T, typename Comp>
-//MGPU_DEVICE int SerialSetDifference(const T* data, int aBegin, int aEnd, 
-//	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) { 
-//
-//	const int MinIterations = VT / 2;
-//	int commit = 0;
-//	
-//	#pragma unroll
-//	for(int i = 0; i < VT; ++i) {
-//		bool test = RangeCheck ? 
-//			(aBegin + bBegin < end) :
-//			(i < MinIterations || (aBegin + bBegin < end));
-//		if(test) {
-//			T aKey = data[aBegin];
-//			T bKey = data[bBegin];
-//
-//			bool pA = false, pB = false;
-//			if(RangeCheck && aBegin >= aEnd)
-//				pB = true;
-//			else if(RangeCheck && bBegin >= bEnd)
-//				pA = true;
-//			else {
-//				pA = comp(aKey, bKey);
-//				pB = comp(bKey, aKey);
-//			}
-//
-//			// The outputs must come from A by definition of set difference.
-//			results[i] = aKey;
-//			indices[i] = aBegin;
-//			if(!pB) ++aBegin;
-//			if(!pA) ++bBegin;
-//			if(pA) commit |= 1<< i;
-//		}
-//	}
-//	return commit;
-//}
-//
+// 
+let serialSetDifference (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+    let comp = compOp.Device
+    <@ fun  (data       :RWPtr<'T>) 
+            (aBegin     :int) 
+            (aEnd       :int) 
+            (bBegin     :int) 
+            (bEnd       :int) 
+            (end'       :int) 
+            (results    :RWPtr<'T>) 
+            (indices    :RWPtr<int>) 
+            ->
+        let comp = %comp
+
+        let mutable aBegin = aBegin
+        let mutable bBegin = bBegin
+
+        let minIterations = VT / 2
+        let mutable commit = 0
+
+        for i = 0 to VT - 1 do
+            let mutable test = if rangeCheck then ((aBegin + bBegin) < end') else ((i < minIterations) || ((aBegin + bBegin) < end'))
+
+            if test then
+                let aKey = data.[aBegin]
+                let bKey = data.[bBegin]
+
+                let mutable pA = false
+                let mutable pB = false
+
+                if rangeCheck && (aBegin >= aEnd) then
+                    pB <- true
+                elif rangeCheck && (bBegin >= bEnd) then
+                    pA <- true
+                else
+                    pA <- comp aKey bKey
+                    pB <- comp bKey aKey
+
+                results.[i] <- aKey
+                indices.[i] <- aBegin
+                if not pB then aBegin <- aBegin + 1
+                if not pA then bBegin <- bBegin + 1
+                if pA then commit <- commit ||| (1 <<< i)
+
+        commit        
+        @>
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// SerialSetSymDiff
 //// Emit A if A < B and emit B if B < A.
 //
-//template<int VT, bool RangeCheck, typename T, typename Comp>
-//MGPU_DEVICE int SerialSetSymDiff(const T* data, int aBegin, int aEnd, 
-//	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) { 
-//
-//	const int MinIterations = VT / 2;
-//	int commit = 0;
-//	
-//	#pragma unroll
-//	for(int i = 0; i < VT; ++i) {
-//		bool test = RangeCheck ? 
-//			(aBegin + bBegin < end) :
-//			(i < MinIterations || (aBegin + bBegin < end));
-//		if(test) {
-//			T aKey = data[aBegin];
-//			T bKey = data[bBegin];
-//
-//			bool pA = false, pB = false;
-//			if(RangeCheck && (bBegin >= bEnd))
-//				pA = true;
-//			else if(RangeCheck && (aBegin >= aEnd))
-//				pB = true;
-//			else {
-//				pA = comp(aKey, bKey);
-//				pB = comp(bKey, aKey);
-//			}
-//
-//			results[i] = pA ? aKey : bKey;
-//			indices[i] = pA ? aBegin : bBegin;
-//			if(!pA) ++bBegin;
-//			if(!pB) ++aBegin;
-//			if(pA != pB) commit |= 1<< i;
-//		}
-//	}
-//	return commit;
-//}
-//
+let serialSetSymDiff (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+    let comp = compOp.Device
+    <@ fun  (data       :RWPtr<'T>) 
+            (aBegin     :int) 
+            (aEnd       :int) 
+            (bBegin     :int) 
+            (bEnd       :int) 
+            (end'       :int) 
+            (results    :RWPtr<'T>) 
+            (indices    :RWPtr<int>) 
+            ->
+        let comp = %comp
+
+        let mutable aBegin = aBegin
+        let mutable bBegin = bBegin
+
+        let minIterations = VT / 2
+        let mutable commit = 0
+
+
+        for i = 0 to VT - 1 do
+            let test = if rangeCheck then ((aBegin + bBegin) < end') else ((i < minIterations) || ((aBegin + bBegin) < end'))
+
+            if test then
+                let aKey = data.[aBegin]
+                let bKey = data.[bBegin]
+
+                let mutable pA = false
+                let mutable pB = false
+
+                if (rangeCheck && (bBegin >= aEnd)) then
+                    pA <- true
+                elif (rangeCheck && (aBegin >= aEnd)) then
+                    pB <- true
+                else
+                    pA <- comp aKey bKey
+                    pB <- comp bKey aKey
+
+                results.[i] <- if pA then aKey else bKey
+                indices.[i] <- if pA then aBegin else bBegin
+
+                if not pA then bBegin <- bBegin + 1
+                if not pB then aBegin <- aBegin + 1
+                if (pA <> pB) then commit <- commit ||| 1 <<< i
+        commit
+        @>
+
+
+
 //////////////////////////////////////////////////////////////////////////////////
 //// SerialSetOp
 //// Uses the MgpuSetOp enum to statically select one of the four serial ops
 //// above.
 //
-//template<int VT, bool RangeCheck, MgpuSetOp Op, typename T, typename Comp>
-//MGPU_DEVICE int SerialSetOp(const T* data, int aBegin, int aEnd, 
-//	int bBegin, int bEnd, int star, T* results, int* indices, Comp comp) {
-//
-//	int end = aBegin + bBegin + VT - star;
-//	if(RangeCheck) end = min(end, aEnd + bEnd);
-//	int commit;
-//	switch(Op) {
-//		case MgpuSetOpIntersection:
-//			commit = SerialSetIntersection<VT, RangeCheck>(data, aBegin, 
-//				aEnd, bBegin, bEnd, end, results, indices, comp);
-//			break;
-//		case MgpuSetOpUnion:
-//			commit = SerialSetUnion<VT, RangeCheck>(data, aBegin, aEnd,
-//				bBegin, bEnd, end, results, indices, comp);
-//			break;
-//		case MgpuSetOpDiff:
-//			commit = SerialSetDifference<VT, RangeCheck>(data, aBegin, aEnd,
-//				bBegin, bEnd, end, results, indices, comp);
-//			break;
-//		case MgpuSetOpSymDiff:
-//			commit = SerialSetSymDiff<VT, RangeCheck>(data, aBegin, aEnd,
-//				bBegin, bEnd, end, results, indices, comp);
-//			break;
-//	}
-//	__syncthreads();
-//	return commit;
-//}
-//
-//} // namespace mgpu
+let serialSetOp (VT:int) (rangeCheck:bool) (setOp:MgpuSetOp) (compOp:IComp<'T>) =
+    let comp = compOp.Device
+    let serialSetIntersection = serialSetIntersection VT rangeCheck compOp
+    let serialSetUnion = serialSetUnion VT rangeCheck compOp
+    let serialSetDifference = serialSetDifference VT rangeCheck compOp
+    let serialSetSymDiff = serialSetSymDiff VT rangeCheck compOp
+
+    <@ fun  (data:RWPtr<'T>) 
+            (aBegin:int) 
+            (aEnd:int) 
+            (bBegin:int) 
+            (bEnd:int) 
+            (star:int) 
+            (results:RWPtr<'T>) 
+            (indices:RWPtr<int>) 
+            ->
+        let comp = %comp
+        let serialSetIntersection = %serialSetIntersection
+        let serialSetUnion = %serialSetUnion
+        let serialSetDifference = %serialSetDifference
+        let serialSetSymDiff = %serialSetSymDiff
+
+        let mutable end' = aBegin + bBegin + VT - star
+        if rangeCheck then end' <- min end' (aEnd + bEnd)
+        let mutable commit = 0
+
+        match setOp with
+        | MgpuSetOpIntersection -> commit <- serialSetIntersection data aBegin aEnd bBegin bEnd end' results indices
+        | MgpuSetOpUnion -> commit <- serialSetUnion data aBegin aEnd bBegin bEnd end' results indices
+        | MgpuSetOpDiff -> commit <- serialSetDifference data aBegin aEnd bBegin bEnd end' results indices
+        | MgpuSetOpSymDiff -> commit <- serialSetSymDiff data aBegin aEnd bBegin bEnd end' results indices
+        __syncthreads()
+
+    @>

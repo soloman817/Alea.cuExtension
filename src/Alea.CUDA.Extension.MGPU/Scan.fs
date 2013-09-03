@@ -15,18 +15,9 @@ open Alea.CUDA.Extension.MGPU.CTAScan
 open Alea.CUDA.Extension.MGPU.Reduce
 
 
-type Plan =
-    {
-        NT : int
-        VT : int
-        ST : int
-    }
 
-let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
-    let NT = plan.NT
-    let VT = plan.VT
+let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let NV = NT * VT
-    let ST = plan.ST
 
     let capacity, scan = ctaScan NT op
     let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
@@ -103,14 +94,14 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                         x2 <- values.[i]                        
 //                  For inclusive scan, set the new value then store
 //                  For exclusive scan, store the old value then set the new one
-                if(ST = InclusiveScan) then 
+                if(mgpuScanType = InclusiveScan) then 
                         x <- x2
                 sharedResults.[index] <- combine inputs.[i] x
-                if(ST = ExclusiveScan) then 
+                if(mgpuScanType = ExclusiveScan) then 
                         x <- x2
             __syncthreads()
             
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) false
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) true
             start <- start + NV
             totalDefined <- true
 
@@ -121,11 +112,10 @@ let kernelParallelScan (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             @>
 
 
-let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
+let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let NT = plan.NT
     let VT = plan.VT
     let NV = NT * VT
-    let ST = plan.ST
 
     let capacity, scan = ctaScan NT op
     let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
@@ -167,7 +157,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             let count2 = min NV (count - range.x)
             
             // Load from global to shared memory
-            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs false
+            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs true
 
             let inputs = __local__<'TI>(VT).Ptr(0)
             let values = __local__<'TV>(VT).Ptr(0)
@@ -178,7 +168,7 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                 if index < count2 then
                     inputs.[i] <- sharedInputs.[index]
                     values.[i] <- extract inputs.[i] (range.x + index)
-                    if i > 0 then x <- plus x values.[i] else x <- values.[i]
+                    if i <> 0 then x <- plus x values.[i] else x <- values.[i]
             __syncthreads()
 
             let passTotal = __local__(1).Ptr(0)
@@ -196,64 +186,59 @@ let kernelScanDownsweep (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
                     let x2 =
                         // If this is not the first element in the scan, add x values.[i] into x
                         // Otherwise initialize x to values.[i]
-                        if ((i > 0 || tid > 0) || nextDefined) then
+                        if ((i <> 0 || tid <> 0) || nextDefined) then
                             plus x values.[i]
                         else
                             values.[i]
                     // For inclusive scan, set the new value then store.
                     // For exclusive scan, store the old value then set the new one
-                    if (ST = InclusiveScan) then
+                    if (mgpuScanType = InclusiveScan) then
                         x <- x2
                     sharedResults.[index] <- combine inputs.[i] x
-                    if (ST = ExclusiveScan) then
+                    if (mgpuScanType = ExclusiveScan) then
                         x <- x2
             __syncthreads()
 
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) false
+            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) true
             range.x <- range.x + NV
             nextDefined <- true
                                 
         // need totalAtEnd
         // infact, this usage of int as bool is not effiecient, you should also check xor bitwise operator
         let a = if (block <> 0) && (totalAtEnd <> 0) then 1 else 0
-        let b = (gridDim.x - 1) > 0
-        let c = tid = 0
-        if (a = (if (b && c) then 1 else 0)) then
+        let b = if ((gridDim.x - 1) <> 0) && (tid = 0) then 1 else 0        
+        if (a = b) then
             let dg = combine identity next
-            (dest_global.Reinterpret<'TR>()).[count] <- dg @>
+            dest_global.[count] <- dg @>
         
 
 type IScan<'TI, 'TV, 'TR> =
     {
-        NumBlocks: int
-        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TV> -> DevicePtr<'TR> -> unit
-        //Result : 'TI -> 'TV[] -> 'TV[]
-        //Total : 'TR
+        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TR> -> unit
+        NumBlocks: int        
     }
 
 
 let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
     let cutOff = 20000
-    // count < cutOff, do parallel scan
-    let psPlan = { NT = 512; VT = 3; ST = mgpuScanType} 
-        
+            
     // count >= cutOff, do parallel raking reduce as an upsweep, then
     // do parallel latency-oriented scan to reduce the spine of the 
     // raking reduction, then do a raking scan as downsweep
-    let rrUpsweepPlan : Reduce.Plan = { NT = 128; VT = 7 }
-    let plosPlan = { NT = 256; VT = 3; ST = ExclusiveScan}
-    let rsDownsweepPlan = {NT = 256; VT = 3; ST = mgpuScanType}
-
-    let kernelPS = kernelParallelScan psPlan op
+    let tuning = {NT = 128; VT = 7}
+        
+    let NT, VT = 512, 3
+    let kernelPS = kernelParallelScan NT VT mgpuScanType op
     let! kernelPS = kernelPS |> defineKernelFuncWithName "ps"
-
-    let kernelRRUpsweep = Reduce.kernelReduce rrUpsweepPlan op
+        
+    let kernelRRUpsweep = Reduce.kernelReduce tuning op
     let! kernelRRUpsweep = kernelRRUpsweep |> defineKernelFuncWithName "rrUpsweep"
 
-    let kernelPLOS = kernelParallelScan plosPlan op
+    let NT2, VT2 = 256, 3
+    let kernelPLOS = kernelParallelScan NT2 VT2 ExclusiveScan op
     let! kernelPLOS = kernelPLOS |> defineKernelFuncWithName "plos"
 
-    let kernelRSDownsweep = kernelScanDownsweep rsDownsweepPlan op
+    let kernelRSDownsweep = kernelScanDownsweep tuning mgpuScanType op
     let! kernelRSDownsweep = kernelRSDownsweep |> defineKernelFuncWithName "rsDownsweep"
     
     let hplus = op.HPlus
@@ -266,45 +251,53 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
         let kernelPLOS = kernelPLOS.Apply m
         let kernelRSDownsweep = kernelRSDownsweep.Apply m
         fun (count:int) ->
-            let numBlocks = 1
-            
+            let numBlocks = ref 1            
 
-            let action (hint:ActionHint) (data:DevicePtr<'TI>) (total:DevicePtr<'TV>) (dest:DevicePtr<'TR>)  =
-                if count < cutOff then
-                    //printfn "branch1, kernelParallelScan"
-                    
-                    let plan = psPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    let task = int2(numTiles, 1)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    let totalDevice = DevicePtr<'TV>(0n)
-                    let total = if total.Handle <> 0n then totalDevice else DevicePtr<'TV>(0n)
-                    //let total = if total.Handle <> 0n then totalDevice else total
-                    let end' = if totalAtEnd = 1 then (dest + count) else DevicePtr<'TR>(0n)
-                    kernelPS.Launch lp data count total end' dest                    
-                else
-                    //printfn "branch2"
-                    let plan = rrUpsweepPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    let numBlocks = min (numSm * 25) numTiles
-                    let task : int2 = divideTaskRange numTiles numBlocks
-                    let reductionDevice = worker.Malloc<'TV>(numBlocks + 1).Ptr
-                    let totalDevice : DevicePtr<'TV> = if total <> DevicePtr<'TV>(0n) then reductionDevice + numBlocks else DevicePtr<'TV>(0n)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    kernelRRUpsweep.Launch lp data count task reductionDevice
+            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) (total:DevicePtr<'TV>) (reductionDevice:DevicePtr<'TV>) (dest_global:DevicePtr<'TR>)  =
+                fun () ->
+                    let mutable total = total                 
+                    if count < cutOff then
+                        let NV = NT * VT
+                        let lp = LaunchParam(1, NT) |> hint.ModifyLaunchParam                        
+                        kernelPS.Launch lp 
+                            data_global 
+                            count 
+                            total 
+                            (if totalAtEnd = 1 then (dest_global + count) else (DevicePtr<'TR>(0n)))
+                            dest_global                    
+                    else
+                        let NV = tuning.NT * tuning.VT
+                        let numTiles = divup count NV
+                        numBlocks := min (numSm * 25) numTiles
+                        let task = divideTaskRange numTiles !numBlocks                        
+                        let totalDevice = reductionDevice + !numBlocks
+                        let lp = LaunchParam(!numBlocks, tuning.NT) |> hint.ModifyLaunchParam
+                        
+                        kernelRRUpsweep.Launch lp 
+                            data_global 
+                            count 
+                            task 
+                            reductionDevice
 
-                    let plan = plosPlan
-                    let NV = plan.NT * plan.VT
-                    let numTiles = divup count NV
-                    // need numBlocks for reduction, so we dont update it here
-                    let task = divideTaskRange numTiles (min (numSm * 25) numTiles)
-                    let lp = LaunchParam(numBlocks, plan.NT) |> hint.ModifyLaunchParam
-                    let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
-                    let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
-                    kernelPLOS.Launch lp reductionDevice1 numBlocks totalDevice (worker.Malloc(1).Ptr) reductionDevice2
-                                        
-                    kernelRSDownsweep.Launch lp data count task reductionDevice dest totalAtEnd
-                    
-            { NumBlocks = numBlocks; IScan.Action = action; (*Result = result; Total = hTotal*) } ) }
+                        let lp = LaunchParam(1, NT2) |> hint.ModifyLaunchParam
+                        let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
+                        let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
+                        kernelPLOS.Launch lp 
+                            reductionDevice1 
+                            !numBlocks 
+                            totalDevice 
+                            (DevicePtr(0n))
+                            reductionDevice2
+                        
+                        total <- totalDevice
+                        let lp = LaunchParam(!numBlocks, tuning.NT) |> hint.ModifyLaunchParam            
+                        kernelRSDownsweep.Launch lp 
+                            data_global 
+                            count 
+                            task 
+                            reductionDevice 
+                            dest_global 
+                            totalAtEnd
+
+                |> worker.Eval                    
+            { Action = action; NumBlocks = !numBlocks } ) }

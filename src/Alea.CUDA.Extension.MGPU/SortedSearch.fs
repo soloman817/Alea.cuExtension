@@ -23,7 +23,6 @@ type Plan =
     }
 
 let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
-    
     let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT (VT + 1) 
     let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
 
@@ -86,10 +85,10 @@ let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (index
         let deviceLoadSortedSearch = %deviceLoadSortedSearch
         let deviceMemToMemLoop = %deviceMemToMemLoop
 
-        let shared = __shared__<int>(sharedSize).Ptr(0)
-        let sharedKeys = shared.Reinterpret<'T>()
-        let sharedIndices = shared
-        let sharedReduce = shared
+        let shared = __shared__<'T>(sharedSize).Ptr(0)
+        let sharedKeys = shared
+        let sharedIndices = shared.Reinterpret<int>()
+        let sharedReduce = shared.Reinterpret<int>()
 
             
         let tid = threadIdx.x

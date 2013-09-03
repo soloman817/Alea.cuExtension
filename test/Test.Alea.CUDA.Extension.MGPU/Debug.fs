@@ -2,7 +2,9 @@
 
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
+open Microsoft.FSharp.Quotations
 open Alea.CUDA
+open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension
 open Alea.CUDA.Extension.Util
 open Alea.CUDA.Extension.MGPU
@@ -10,344 +12,278 @@ open Alea.CUDA.Extension.MGPU.Intrinsics
 open Alea.CUDA.Extension.MGPU.QuotationUtil
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.LoadStore
-open Alea.CUDA.Extension.MGPU.CTAScan
 open Alea.CUDA.Extension.MGPU.CTASearch
-open Alea.CUDA.Extension.MGPU.CTAMerge
-open Alea.CUDA.Extension.MGPU.CTASortedSearch
 
 open NUnit.Framework
 
 
-//let worker = getDefaultWorker()
-//
-//
-//
-//module SortedSearch =
-//    type Plan =
-//        {
-//            NT : int
-//            VT : int
-//        }
-//
-//    let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<int>) =
-//    
-//        let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT (VT + 1) 
-//        let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
-//
-//        <@ fun (range:int4) (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (tid:int) (block:int) (keys_shared:RWPtr<int>) (indices_shared:RWPtr<int>) ->
-//            let deviceLoad2ToShared = %deviceLoad2ToShared
-//            let ctaSortedSearch = %ctaSortedSearch
-//
-//            let a0 = range.x
-//            let a1 = range.y
-//            let b0 = range.z
-//            let b1 = range.w
-//            let aCount2 = a1 - a0
-//            let bCount2 = b1 - b0
-//
-//            let leftA = if (matchB && (bounds = MgpuBoundsLower)) && (a0 > 0) then 1 else 0
-//            let leftB = if (matchA && (bounds = MgpuBoundsUpper)) && (b0 > 0) then 1 else 0
-//            let rightA = if a1 < aCount then 1 else 0
-//            let rightB = if b1 < bCount then 1 else 0
-//
-//            let aStart = leftA
-//            let aEnd = aStart + aCount2 + rightA
-//            let bStart = aEnd + leftB
-//            let bEnd = bStart + bCount2 + rightB
-//
-//            deviceLoad2ToShared (a_global + a0 - leftA) aEnd (b_global + b0 - leftB) (bEnd - aEnd) tid keys_shared true
-//
-//            let extended = 
-//                let mutable x = (rightA = 1) && (rightB = 1) 
-//                x <- x && ((not matchA) || (leftB = 1))
-//                x <- x && ((not matchB) || (leftA = 1))
-//                x
-//            
-//            let matchCount = ctaSortedSearch keys_shared aStart aCount2 aEnd a0 bStart bCount2 bEnd b0 extended tid indices_shared
-//
-//            matchCount
-//        @>
-//
-//
-//
-//    let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (indexB:int) (matchB:int) (compOp:IComp<int>) =
-//        let NT = plan.NT
-//        let VT = plan.VT
-//        let NV = plan.NT * plan.VT
-//
-//        let indexA = if indexA = 0 then false else true
-//        let matchA = if matchA = 0 then false else true
-//        let indexB = if indexB = 0 then false else true
-//        let matchB = if matchB = 0 then false else true
-//    
-//        let capacity, reduce = ctaReduce NT (scanOp ScanOpTypeAdd 0)
-//        let sharedSize = max capacity (NT * (VT + 1))
-//
-//        let computeMergeRange = computeMergeRange.Device
-//        let deviceLoadSortedSearch = deviceLoadSortedSearch NT VT bounds indexA matchA indexB matchB compOp
-//        let deviceMemToMemLoop = deviceMemToMemLoop NT
-//
-//        <@ fun (a_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (mp_global:DevicePtr<int>) (aIndices_global:DevicePtr<int>) (bIndices_global:DevicePtr<int>) -> //(aMatchCount:DevicePtr<int>) (bMatchCount:DevicePtr<int>) ->
-//            let reduce = %reduce
-//            let computeMergeRange = %computeMergeRange
-//            let deviceLoadSortedSearch = %deviceLoadSortedSearch
-//            let deviceMemToMemLoop = %deviceMemToMemLoop
-//
-//            let shared = __shared__<int>(sharedSize).Ptr(0)
-//            let sharedKeys = shared
-//            let sharedIndices = shared
-//            let sharedReduce = shared
-//
-//            
-//            let tid = threadIdx.x
-//            let block = blockIdx.x
-//            let range = computeMergeRange aCount bCount block 0 NV mp_global
-//
-//            
-//            let matchCount = deviceLoadSortedSearch range a_global aCount b_global bCount tid block sharedKeys sharedIndices
-//            let aCount = range.y - range.x
-//            let bCount = range.w - range.z
-//
-//            if (indexA || matchA) then
-//                deviceMemToMemLoop aCount sharedIndices tid (aIndices_global + range.x) true
-//
-//            if (indexB || matchB) then
-//                deviceMemToMemLoop bCount (sharedIndices + aCount) tid (bIndices_global + range.z) true
-//
-////            if ((matchA || matchB) && (aMatchCount.[0] <> 0 || bMatchCount.[0] <> 0)) then
-////                let x = bfi (uint32 matchCount.y) (uint32 matchCount.x) 16u 16u
-////                let total = reduce tid x (sharedReduce.Reinterpret<uint32>())
-////                if (tid = 0) && (aMatchCount.[0] <> 0) then atomicAdd aMatchCount (0xffff &&& total)
-////                if (tid = 0) && (bMatchCount.[0] <> 0) then atomicAdd bMatchCount (total >>> 16)
-//            @>
-//
-//
-//    type ISortedSearch =
-//        {
-//            Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit //DevicePtr<int> -> DevicePtr<int> -> unit
-//            NumPartitions : int
-//        }
-//
-//
-//    let sortedSearch (bounds:int) (typeA:MgpuSearchType) (typeB:MgpuSearchType) (compOp:IComp<int>) = cuda {
-//        let plan = {NT = 128; VT = 7}
-//        let NT = plan.NT
-//        let VT = plan.VT
-//        let NV = NT * VT
-//
-//        let indexA = if (typeA = MgpuSearchTypeIndex) || (typeA = MgpuSearchTypeIndexMatch) then 1 else 0
-//        let matchA = if (typeA = MgpuSearchTypeMatch) || (typeA = MgpuSearchTypeIndexMatch) then 1 else 0
-//        let indexB = if (typeB = MgpuSearchTypeIndex) || (typeB = MgpuSearchTypeIndexMatch) then 1 else 0
-//        let matchB = if (typeB = MgpuSearchTypeMatch) || (typeB = MgpuSearchTypeIndexMatch) then 1 else 0
-//                
-//
-//        let! kernelSortedSearch = kernelSortedSearch plan bounds indexA matchA indexB matchB compOp |> defineKernelFuncWithName "ss"
-//        let! mpp = Search.mergePathPartitions bounds compOp
-//
-//        return PFunc(fun (m:Module) ->
-//            let worker = m.Worker
-//            let kernelSortedSearch = kernelSortedSearch.Apply m
-//            let mpp = mpp.Apply m
-//
-//            fun (aCount:int) (bCount:int) ->
-//                let numBlocks = divup (aCount + bCount) NV
-//                let lp = LaunchParam(numBlocks, NT)
-//
-//
-//    //                 Action : ActionHint -> a_global input       ->      b_global input    ->   patitions         ->       aindices output          ->        bindices output        ->        amatchCount ptr    ->      bmatchCount ptr     -> unit
-//                let action (hint:ActionHint) (a_global:DevicePtr<int>) (b_global:DevicePtr<int>) (parts:DevicePtr<int>) (aIndices_global:DevicePtr<int>) (bIndices_global:DevicePtr<int>) = //(aMatchCount:DevicePtr<int>) (bMatchCount:DevicePtr<int>) =
-//                    fun () ->
-//                        let lp = lp |> hint.ModifyLaunchParam
-//                        let mpp = mpp aCount bCount NV 0
-//                        let partitions = mpp.Action hint a_global b_global parts
-//                        kernelSortedSearch.Launch lp a_global aCount b_global bCount parts aIndices_global bIndices_global //aMatchCount bMatchCount
-//                    |> worker.Eval
-//                { Action = action; NumPartitions = numBlocks + 1 } ) }
-//
-//    let pSortedSearch (bounds:int) = cuda {
-//        let! api = sortedSearch bounds MgpuSearchTypeIndex MgpuSearchTypeNone (comp CompTypeLess 0)
-//        return PFunc(fun (m:Module) ->
-//            let worker = m.Worker
-//            let api = api.Apply m
-//            fun (aCount:int) (bCount:int) ->                
-//                //let sequence = Array.init aCount (fun i -> i)
-//                pcalc {
-//                    let api = api aCount bCount
-//                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
-//                    //let! counter = DArray.scatterInBlob worker sequence
-//                    let sortedSearch (aData:DArray<int>) (bData:DArray<int>) (aIndices:DArray<int>) = 
-//                        pcalc { do! PCalc.action (fun hint -> api.Action hint aData.Ptr bData.Ptr partition.Ptr aIndices.Ptr (DevicePtr(0n)) ) } //amc.Ptr bmc.Ptr ) }
-//                    return sortedSearch } ) } 
-//
-//
-//[<Test>]
-//let ``SortedSearch mgpu website example 1`` () =
-////Haystack array:
-//    let haystack =  [|   0;    5;    5;    7;    7;    7;    7;    8;    9;    9;
-//                        10;   11;   12;   14;   15;   15;   16;   17;   19;   19;
-//                        20;   24;   25;   28;   28;   29;   31;   33;   36;   36;
-//                        37;   38;   40;   42;   42;   43;   45;   46;   49;   50;
-//                        51;   51;   51;   52;   53;   55;   56;   57;   60;   60;
-//                        61;   61;   62;   62;   64;   66;   68;   69;   73;   74;
-//                        79;   81;   82;   84;   85;   88;   90;   90;   95;   97;
-//                        99;  101;  105;  108;  108;  111;  115;  118;  118;  119;
-//                       119;  119;  119;  122;  122;  123;  125;  126;  126;  130;
-//                       133;  133;  135;  135;  139;  140;  143;  145;  145;  146;
-//                       147;  149;  149;  149;  154;  158;  160;  161;  165;  166;
-//                       168;  169;  170;  172;  172;  174;  174;  174;  175;  175;
-//                       175;  177;  179;  182;  183;  184;  186;  187;  188;  190;
-//                       192;  193;  194;  196;  198;  199;  199;  205;  205;  208;
-//                       209;  215;  217;  218;  218;  218;  220;  220;  221;  221;
-//                       223;  224;  225;  230;  234;  234;  235;  240;  240;  243;
-//                       244;  249;  250;  251;  252;  253;  253;  254;  255;  255;
-//                       255;  257;  258;  258;  259;  262;  263;  265;  267;  270;
-//                       270;  274;  278;  278;  278;  279;  280;  281;  284;  284;
-//                       284;  285;  285;  292;  294;  295;  296;  296;  296;  298 |]
-//
-////Needles array:
-//    let needles = [|    3;    3;   12;   16;   16;   17;   17;   19;   20;   21;
-//                       24;   27;   27;   28;   30;   31;   35;   39;   40;   42;
-//                       52;   52;   53;   53;   54;   55;   57;   58;   62;   63;
-//                       72;   75;   83;   86;   86;   89;   92;   95;   98;   98;
-//                       99;   99;   99;  100;  104;  105;  107;  109;  110;  111;
-//                      112;  117;  118;  121;  124;  126;  129;  132;  133;  139;
-//                      140;  148;  156;  160;  161;  167;  168;  173;  179;  186;
-//                      191;  198;  202;  202;  212;  212;  214;  220;  223;  229;
-//                      233;  239;  245;  254;  256;  256;  260;  268;  269;  269;
-//                      271;  271;  272;  273;  277;  285;  296;  296;  299;  299 |]
-//
-////Lower bound array:
-//    let lowerBoundArray = [|    1;    1;   12;   16;   16;   17;   17;   18;   20;   21;
-//                               21;   23;   23;   23;   26;   26;   28;   32;   32;   33;
-//                               43;   43;   44;   44;   45;   45;   47;   48;   52;   54;
-//                               58;   60;   63;   65;   65;   66;   68;   68;   70;   70;
-//                               70;   70;   70;   71;   72;   72;   73;   75;   75;   75;
-//                               76;   77;   77;   83;   86;   87;   89;   90;   90;   94;
-//                               95;  101;  105;  106;  107;  110;  110;  115;  122;  126;
-//                              130;  134;  137;  137;  141;  141;  141;  146;  150;  153;
-//                              154;  157;  161;  167;  171;  171;  175;  179;  179;  179;
-//                              181;  181;  181;  181;  182;  191;  196;  196;  200;  200 |]
-//
-//    let pfunct = SortedSearch.pSortedSearch MgpuBoundsLower
-//    let sortedSearch = worker.LoadPModule(pfunct).Invoke
-//
-//    let dResult = pcalc {
-//        let! dNeedles = DArray.scatterInBlob worker needles
-//        let! dHaystack = DArray.scatterInBlob worker haystack
-//        
-//        let needlesSize, haystackSize = needles.Length, haystack.Length
-//        
-//        //let! aIndices = DArray.createInBlob worker needlesSize
-//        //let! bIndices = DArray.scatterInBlob worker [|0|]
-//        
-//        let! sortedSearch = sortedSearch needlesSize haystackSize
-//        
-//        do! sortedSearch dNeedles dHaystack dNeedles 
-//        
-//        let! results = dNeedles.Gather()
-//        return results } |> PCalc.run
-//
-//    printfn "%A" dResult
+let worker = getDefaultWorker()
+
+type Plan =
+    {
+        NT : int
+        VT : int
+    }
+
+let serialMerge (VT:int) (rangeCheck:bool) (comp:IComp<'TV>) =
+    let comp = comp.Device
+    <@ fun  (keys_shared    :RWPtr<'TV>) 
+            (aBegin         :int) 
+            (aEnd           :int) 
+            (bBegin         :int) 
+            (bEnd           :int) 
+            (results        :RWPtr<'TV>) 
+            (indices        :RWPtr<int>) 
+            ->
+        
+        let comp = %comp
+        let mutable aKey = keys_shared.[aBegin]
+        let mutable bKey = keys_shared.[bBegin]
+        let mutable aBegin = aBegin
+        let mutable bBegin = bBegin
+
+        for i = 0 to VT - 1 do
+            let mutable p = false
+            if rangeCheck then
+                p <- (bBegin >= bEnd) || ((aBegin < aEnd) && not(comp bKey aKey))
+            else
+                p <- not (comp bKey aKey)
+            results.[i] <- if p then aKey else bKey
+            indices.[i] <- if p then aBegin else bBegin
+            if p then
+                aBegin <- aBegin + 1
+                aKey <- keys_shared.[aBegin]                
+            else
+                bBegin <- bBegin + 1
+                bKey <- keys_shared.[bBegin]                
+        __syncthreads() @>
+
+let ctaBlocksortPass (NT:int) (VT:int) (compOp:IComp<'TV>) =
+    let mergePath = (mergePath MgpuBoundsLower compOp).DMergePath
+    let serialMerge = serialMerge VT true compOp
+    let comp = compOp.Device
+    <@ fun  (keys_shared    :RWPtr<'TV>) 
+            (tid            :int) 
+            (count          :int) 
+            (coop           :int) 
+            (keys           :RWPtr<'TV>) 
+            (indices        :RWPtr<int>) 
+            ->
+
+        let comp = %comp
+        let mergePath = %mergePath
+        let serialMerge = %serialMerge
+
+        let list = ~~~(coop - 1) &&& tid
+        let diag = min count (VT * ((coop - 1) &&& tid))
+        let start = VT * list
+        let a0 = min count start
+        let b0 = min count (start + VT * (coop / 2))
+        let b1 = min count (start + VT * coop)
+                
+        let p = mergePath (keys_shared + a0) (b0 - a0) (keys_shared + b0) (b1 - b0) diag
+        serialMerge keys_shared (a0 + p) b0 (b0 + diag - p) b1 keys indices 
+    @>
 
 
-//[<Test>]
-//let ``SortedSearch demo 2`` () =
-//    let aCount = 100
-//    let bCount = 100
-//    let aData = Array.init aCount (fun _ -> rng.Next(299)) |> Array.sort
-//    let bData = Array.init bCount (fun _ -> rng.Next(299)) |> Array.sort
-//    let aIndices = Array.init aCount (fun _ -> 0)
-//    let bIndices = Array.init bCount (fun _ -> 0)
-//
-//    let pfunct = SortedSearch.pSortedSearch MgpuBoundsLower
-//    let sortedSearch = worker.LoadPModule(pfunct).Invoke
-//
-//    let dResult = pcalc {
-//        let! dAData = DArray.scatterInBlob worker aData
-//        let! dAIndices = DArray.scatterInBlob worker aIndices
-//
-//        let! dBData = DArray.scatterInBlob worker bData
-//        let! dBIndices = DArray.scatterInBlob worker bIndices
-//                
-//        let! sortedSearch = sortedSearch aCount bCount
-//        
-//        do! sortedSearch dAData dBData dAIndices dBIndices
-//        
-//        let! results = dAIndices.Gather()
-//        return results } |> PCalc.runInWorker worker
-//
-//    printfn "%A" dResult
-//
-//[<Test>]
-//let ``SortedSearch demo 2 copy`` () = 
-//    let aCount = 100
-//    let bCount = 100
-//
-//    let aData = [| 1;    9;   10;   10;   10;   13;   15;   29;   29;   32;
-//                   33;   37;   37;   38;   40;   42;   44;   47;   51;   52;
-//                   56;   56;   63;   63;   66;   83;   83;   89;   90;   92;
-//                   94;   95;  108;  114;  117;  119;  122;  126;  126;  131;
-//                   133;  137;  142;  145;  146;  146;  147;  151;  164;  164;
-//                   189;  191;  193;  196;  196;  199;  203;  204;  208;  211;
-//                   212;  217;  222;  222;  226;  227;  229;  229;  237;  238;
-//                   238;  239;  239;  239;  240;  242;  244;  246;  247;  250;
-//                   254;  261;  263;  271;  274;  274;  276;  280;  285;  287;
-//                   287;  287;  289;  290;  290;  291;  294;  297;  298;  298 |]
-//
-//    let bData = [|  0;    3;    4;    5;   16;   20;   22;   35;   38;   41;
-//                   44;   46;   47;   48;   58;   62;   65;   67;   69;   73;
-//                   75;   76;   76;   77;   82;   85;   89;   99;  101;  102;
-//                   104;  105;  105;  106;  114;  116;  116;  117;  118;  121;
-//                   123;  126;  136;  140;  141;  149;  151;  158;  159;  164;
-//                   164;  168;  170;  170;  172;  174;  175;  175;  177;  178;
-//                   184;  193;  196;  203;  203;  208;  209;  211;  213;  218;
-//                   219;  225;  226;  227;  228;  232;  233;  233;  238;  242;
-//                   242;  244;  246;  246;  249;  252;  254;  263;  267;  272;
-//                   275;  278;  280;  282;  286;  287;  287;  289;  296;  296 |]
-//
-////Lower bound of A into B (* for match):
-////    0:     1;    4;    4;    4;    4;    4;    4;    7;    7;    7;
-////   10:     7;    8;    8; *  8;    9;   10; * 10; * 12;   14;   14;
-////   20:    14;   14;   16;   16;   17;   25;   25; * 26;   27;   27;
-////   30:    27;   27;   34; * 34; * 37;   39;   40; * 41; * 41;   42;
-////   40:    42;   43;   45;   45;   45;   45;   45; * 46; * 49; * 49;
-////   50:    61;   61; * 61; * 62; * 62;   63; * 63;   65; * 65; * 67;
-////   60:    68;   69;   71;   71; * 72; * 73;   75;   75;   78; * 78;
-////   70:  * 78;   79;   79;   79;   79; * 79; * 81; * 82;   84;   85;
-////   80:  * 86;   87; * 87;   89;   90;   90;   91; * 92;   94; * 95;
-////   90:  * 95; * 95; * 97;   98;   98;   98;   98;  100;  100;  100;
-////
-////Upper bound of B into A (* for match):
-////    0:     0;    1;    1;    1;    7;    7;    7;   11; * 14;   15;
-////   10:  * 17;   17; * 18;   18;   22;   22;   24;   25;   25;   25;
-////   20:    25;   25;   25;   25;   25;   27; * 28;   32;   32;   32;
-////   30:    32;   32;   32;   32; * 34;   34;   34; * 35;   35;   36;
-////   40:    37; * 39;   41;   42;   42;   47; * 48;   48;   48; * 50;
-////   50:  * 50;   50;   50;   50;   50;   50;   50;   50;   50;   50;
-////   60:    50; * 53; * 55; * 57; * 57; * 59;   59; * 60;   61;   62;
-////   70:    62;   64; * 65; * 66;   66;   68;   68;   68; * 71; * 76;
-////   80:  * 76; * 77; * 78; * 78;   79;   80; * 81; * 83;   83;   84;
-////   90:    86;   87; * 88;   88;   89; * 92; * 92; * 93;   97;   97;
-//
-//    
-//    let pfunct = SortedSearch.pSortedSearch MgpuBoundsLower
-//    let sortedSearch = worker.LoadPModule(pfunct).Invoke
-//
-//    let dResult = pcalc {
-//        let! dAData = DArray.scatterInBlob worker aData
-//        let! dAIndices = DArray.createInBlob worker aCount
-//
-//        let! dBData = DArray.scatterInBlob worker bData
-//        let! dBIndices = DArray.createInBlob worker bCount
-//                
-//        let! sortedSearch = sortedSearch aCount bCount
-//        
-//        do! sortedSearch dAData dBData dAIndices dBIndices
-//        
-//        let! results = dAIndices.Gather()
-//        return results } |> PCalc.runInWorker worker
-//
-//    printfn "rA: %A" dResult
-//    //printfn "rB: %A" rB
+let ctaBlocksortLoop (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
+    let ctaBlocksortPass = ctaBlocksortPass NT VT compOp
+    let deviceThreadToShared = deviceThreadToShared VT
+    let deviceGather = deviceGather NT VT
 
+    <@ fun  (threadValues   :RWPtr<'TV>) 
+            (keys_shared    :RWPtr<'TV>) 
+            (values_shared  :RWPtr<'TV>) 
+            (tid            :int) 
+            (count          :int) 
+            ->
+        
+        let ctaBlocksortPass = %ctaBlocksortPass
+        let deviceThreadToShared = %deviceThreadToShared
+        let deviceGather = %deviceGather
+
+        let mutable coop = 2
+        while coop <= NT do
+            let indices = __local__<int>(VT).Ptr(0)
+            let keys = __local__<'TV>(VT).Ptr(0)
+            ctaBlocksortPass keys_shared tid count coop keys indices            
+            deviceThreadToShared keys tid keys_shared true
+            coop <- coop * 2
+    @>
+
+
+let ctaMergesort (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =    
+    let deviceThreadToShared = deviceThreadToShared VT
+    let ctaBlocksortLoop = ctaBlocksortLoop NT VT hasValues compOp
+    //let oddEvenTransposeSort = oddEvenTransposeSort VT compOp
+    let comp = compOp.Device
+    <@ fun (threadKeys      :RWPtr<'TV>) 
+           (threadValues    :RWPtr<'TV>) 
+           (keys_shared     :RWPtr<'TV>) 
+           (values_shared   :RWPtr<'TV>) 
+           (count           :int) 
+           (tid             :int) 
+           ->
+
+        let comp = %comp
+        let deviceThreadToShared = %deviceThreadToShared
+        let ctaBlocksortLoop = %ctaBlocksortLoop
+        //let oddEvenTransposeSort = %oddEvenTransposeSort
+        if VT * tid < count then
+            //oddEvenTransposeSort threadKeys threadValues
+            let mutable level = 0
+            while level < VT do
+                let mutable i = 1 &&& level
+                while i < VT - 1 do                    
+                    if ( comp threadKeys.[i + 1] threadKeys.[i] ) then
+                        swap threadKeys.[i] threadKeys.[i + 1]
+                        swap threadValues.[i] threadValues.[i + 1]
+                    i <- i + 2
+                level <- level + 1            
+        deviceThreadToShared threadKeys tid keys_shared true
+        ctaBlocksortLoop threadValues keys_shared values_shared tid count 
+        @>
+
+let kernelBlocksort (plan:Plan) (hasValues:int) (compOp:IComp<'TV>) =
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+
+    let hasValues = if hasValues = 1 then true else false
+
+    let sharedSize = max NV (NT * (VT + 1))
+    let comp = compOp.Device
+    
+    let deviceGlobalToShared = deviceGlobalToShared NT VT
+    let deviceSharedToThread = deviceSharedToThread VT
+    let deviceSharedToGlobal = deviceSharedToGlobal NT VT
+    let deviceThreadToShared = deviceThreadToShared VT
+    let ctaMergesort = ctaMergesort NT VT hasValues compOp
+                                                    
+    <@ fun  (keysSource_global:DevicePtr<'TV>) 
+            (valsSource_global:DevicePtr<'TV>) 
+            (count:int) 
+            (keysDest_global:DevicePtr<'TV>) 
+            (valsDest_global:DevicePtr<'TV>) 
+            ->
+
+        let comp = %comp
+        let deviceGlobalToShared = %deviceGlobalToShared
+        let deviceSharedToThread = %deviceSharedToThread
+        let deviceSharedToGlobal = %deviceSharedToGlobal
+        let deviceThreadToShared = %deviceThreadToShared
+        let ctaMergesort = %ctaMergesort
+
+        let shared = __shared__<'TV>(sharedSize).Ptr(0)
+        let sharedKeys = shared
+        let sharedValues = shared
+
+        let tid = threadIdx.x
+        let block = blockIdx.x
+        let gid = NV * block
+        let count2 = min NV (count - gid)            
+
+        let threadValues = __local__<'TV>(VT).Ptr(0) 
+                
+        let threadKeys = __local__<'TV>(VT).Ptr(0)
+        deviceGlobalToShared count2 (keysSource_global + gid) tid sharedKeys true
+        deviceSharedToThread sharedKeys tid threadKeys true
+
+        let first = VT * tid
+        let mutable maxKey = threadKeys.[0]
+        if ((first + VT) > count2) && (first < count2) then            
+            for i = 1 to VT - 1 do
+                if (first + i) < count2 then
+                    maxKey <- if comp maxKey threadKeys.[i] then threadKeys.[i] else maxKey
+            for i = 0 to VT - 1 do
+                if (first + i) >= count2 then threadKeys.[i] <- maxKey
+
+        ctaMergesort threadKeys threadValues sharedKeys sharedValues count2 tid
+        deviceSharedToGlobal count2 sharedKeys tid (keysDest_global + gid) true
+
+        @>
+
+type IBlocksort<'TV> =
+    {
+        Action : ActionHint -> DevicePtr<'TV> -> unit
+    }
+
+
+let mergesortKeys (compOp:IComp<'TV>) = cuda {
+    let plan = { NT = 257; VT = 7 }
+    let NT = plan.NT
+    let VT = plan.VT
+    let NV = NT * VT
+    
+    let! kernelBlocksort = kernelBlocksort plan 0 compOp |> defineKernelFunc
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let kernelBlocksort = kernelBlocksort.Apply m
+        
+        fun (count:int) ->
+            let numBlocks = divup count NV
+            let numPasses = findLog2 numBlocks true
+            let lp = LaunchParam(numBlocks, NT)
+
+            let action (hint:ActionHint) (source:DevicePtr<'TV>) =
+                fun () ->
+                    let lp = lp |> hint.ModifyLaunchParam
+                    kernelBlocksort.Launch lp source (DevicePtr<'TV>(0n)) count source (DevicePtr<'TV>(0n))
+                |> worker.Eval
+            { Action = action } ) }
+
+let pMergesortKeys (compOp:IComp<'TV>) = cuda {
+    let! api = mergesortKeys compOp
+
+    return PFunc(fun (m:Module) ->
+        let worker = m.Worker
+        let api = api.Apply m
+        fun (count:int) ->
+            let api = api count
+            pcalc {                
+                let merger (source:DArray<'TV>) = 
+                    pcalc { do! PCalc.action (fun hint -> api.Action hint source.Ptr) }
+                return merger } ) }
+
+
+[<Test>]
+let `` simple MergeSort Keys test`` () =
+    let compOp = (comp CompTypeLess 0)
+    let pfunct = worker.LoadPModule(pMergesortKeys compOp).Invoke
+// Input:
+    let hSource = [|   81;   13;   90;   83;   12;   96;   91;   22;   63;   30;
+                        9;   54;   27;   18;   54;   99;   95;   99;   96;   96;
+                       15;   72;   97;   98;   95;   10;   48;   79;   80;   29;
+                       14;    0;   42;   11;   91;   63;   79;   87;   95;   50;
+                       65;   79;    3;   36;   84;   21;   93;   68;   67;   39;
+                       75;   74;   74;   47;   39;   42;   65;   17;   17;   30;
+                       70;   79;    3;   31;   27;   87;    4;   14;    9;   99;
+                       82;   82;   69;   12;   31;   76;   95;   49;    3;   66;
+                       43;   12;   38;   21;   76;    5;   79;    3;   18;   40;
+                       48;   45;   44;   48;   64;   79;   70;   92;   75;   80 |]
+
+//Sorted output:
+    let answer = [| 0;    3;    3;    3;    3;    4;    5;    9;    9;   10;
+                   11;   12;   12;   12;   13;   14;   14;   15;   17;   17;
+                   18;   18;   21;   21;   22;   27;   27;   29;   30;   30;
+                   31;   31;   36;   38;   39;   39;   40;   42;   42;   43;
+                   44;   45;   47;   48;   48;   48;   49;   50;   54;   54;
+                   63;   63;   64;   65;   65;   66;   67;   68;   69;   70;
+                   70;   72;   74;   74;   75;   75;   76;   76;   79;   79;
+                   79;   79;   79;   79;   80;   80;   81;   82;   82;   83;
+                   84;   87;   87;   90;   91;   91;   92;   93;   95;   95;
+                   95;   95;   96;   96;   96;   97;   98;   99;   99;   99 |]
+    
+    let count = hSource.Length
+
+    let dResult = pcalc {
+        let! dSource = DArray.scatterInBlob worker hSource
+        let! merge = pfunct count
+        do! merge dSource 
+        let! results = dSource.Gather()
+        return results } |> PCalc.run
+
+    let source = dResult
+    printfn "source %A" source
 

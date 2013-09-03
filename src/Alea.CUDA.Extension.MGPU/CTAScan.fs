@@ -1,4 +1,5 @@
-﻿module Alea.CUDA.Extension.MGPU.CTAScan
+﻿[<AutoOpen>]
+module Alea.CUDA.Extension.MGPU.CTAScan
 
 // this maps to ctascan.cuh. 
 
@@ -9,10 +10,6 @@ open Alea.CUDA.Extension.MGPU
 open Alea.CUDA.Extension.MGPU.Static
 open Alea.CUDA.Extension.MGPU.DeviceUtil
 open Alea.CUDA.Extension.MGPU.Intrinsics
-
-
-let [<ReflectedDefinition>] ExclusiveScan = 0
-let [<ReflectedDefinition>] InclusiveScan = 1
 
 
 // in c++, mgpu uses template to define the interface, but F# doesn't
@@ -28,11 +25,6 @@ type IScanOp<'TI, 'TV, 'TR> =
     abstract HCombine : ('TI -> 'TV -> 'TR)
     abstract DCombine : Expr<'TI -> 'TV -> 'TR>
 
-type ScanOpType =
-    | ScanOpTypeAdd
-    | ScanOpTypeMul
-    | ScanOpTypeMin
-    | ScanOpTypeMax
 
 let inline scanOp (opType:ScanOpType) (ident:'T) =
     { new IScanOp<'T, 'T, 'T> with
