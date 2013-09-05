@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy", "deploy", "{D276727F-0F17-4D86-BD4F-F823356BADD3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{BFEF4B21-536B-4F35-8088-E3DCCE373285}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{D38BBE97-EFB8-459B-A199-15A7682C876E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A5C10BA0-2E39-4FEA-9CD9-1B2E65F6425D}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Alea.CUDA.Utilities", "src\Alea.CUDA.Utilities\Alea.CUDA.Utilities.fsproj", "{CBA6A985-5910-45EE-BB08-9B6F36AC74BE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{5CB62A33-7682-4F2C-A7F9-0DDE75CBE968}"
+	ProjectSection(SolutionItems) = preProject
+		.nuget\NuGet.Config = .nuget\NuGet.Config
+		.nuget\NuGet.exe = .nuget\NuGet.exe
+		.nuget\NuGet.targets = .nuget\NuGet.targets
+	EndProjectSection
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MatrixMul", "samples\MatrixMul\MatrixMul.fsproj", "{B01F0618-887B-48CA-BEAE-F0720EDE2008}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "LaunchingTime", "samples\LaunchingTime\LaunchingTime.fsproj", "{3FCA88DA-5C39-4541-8821-9C6EACD3E58B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CBA6A985-5910-45EE-BB08-9B6F36AC74BE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CBA6A985-5910-45EE-BB08-9B6F36AC74BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CBA6A985-5910-45EE-BB08-9B6F36AC74BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CBA6A985-5910-45EE-BB08-9B6F36AC74BE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B01F0618-887B-48CA-BEAE-F0720EDE2008}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B01F0618-887B-48CA-BEAE-F0720EDE2008}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B01F0618-887B-48CA-BEAE-F0720EDE2008}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B01F0618-887B-48CA-BEAE-F0720EDE2008}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FCA88DA-5C39-4541-8821-9C6EACD3E58B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FCA88DA-5C39-4541-8821-9C6EACD3E58B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FCA88DA-5C39-4541-8821-9C6EACD3E58B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FCA88DA-5C39-4541-8821-9C6EACD3E58B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B01F0618-887B-48CA-BEAE-F0720EDE2008} = {BFEF4B21-536B-4F35-8088-E3DCCE373285}
+		{3FCA88DA-5C39-4541-8821-9C6EACD3E58B} = {BFEF4B21-536B-4F35-8088-E3DCCE373285}
+		{CBA6A985-5910-45EE-BB08-9B6F36AC74BE} = {D38BBE97-EFB8-459B-A199-15A7682C876E}
+	EndGlobalSection
+EndGlobal
