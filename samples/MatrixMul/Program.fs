@@ -75,9 +75,7 @@ let main argv =
             run ) }
 
     let blockSize = 32
-    let device = Device(0)
-    let worker = Worker.Create(device)
-    let program = blockSize |> template |> Util.load worker
+    let program = blockSize |> template |> Util.load Worker.Default
     ((320, 320), (640, 320)) ||> program.Run
 
     0 // return an integer exit code
