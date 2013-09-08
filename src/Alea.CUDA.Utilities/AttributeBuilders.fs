@@ -114,7 +114,7 @@ type RefClassAttribute() =
                         | _ -> IRTypeBuilder.Instance.Build(ctx, info.PropertyType)
                     irFieldName, irFieldType)
             let irStructFields = IRStructFields.Named(irStructFields)
-            let irStructType = IRStructType.Create(ctx.IRContext, irStructFields)
+            let irStructType = IRStructType.Create(ctx.IRContext, irStructFields, IRStructUsage.Class)
             let irStructPointerType = IRPointerType.Create(ctx.IRContext, irStructType, TypeQualifier.NotSpecified, AddressSpace.Generic, ctx.CompileOptions.AddressSize, None)
             irStructPointerType |> Some
 
