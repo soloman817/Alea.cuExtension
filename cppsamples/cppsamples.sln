@@ -13,8 +13,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Common", "Common", "{451951
 		Common\helper_timer.h = Common\helper_timer.h
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "XorShift7", "XorShift7\XorShift7.vcxproj", "{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -31,14 +29,6 @@ Global
 		{37A59BD8-20A6-46D5-B183-8B99D7EF2DD9}.Release|Win32.Build.0 = Release|Win32
 		{37A59BD8-20A6-46D5-B183-8B99D7EF2DD9}.Release|x64.ActiveCfg = Release|x64
 		{37A59BD8-20A6-46D5-B183-8B99D7EF2DD9}.Release|x64.Build.0 = Release|x64
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Debug|Win32.ActiveCfg = Debug|Win32
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Debug|Win32.Build.0 = Debug|Win32
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Debug|x64.ActiveCfg = Debug|x64
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Debug|x64.Build.0 = Debug|x64
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Release|Win32.ActiveCfg = Release|Win32
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Release|Win32.Build.0 = Release|Win32
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Release|x64.ActiveCfg = Release|x64
-		{3E8C1A61-EA88-4B1E-84E8-56A66BE6AEE2}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
