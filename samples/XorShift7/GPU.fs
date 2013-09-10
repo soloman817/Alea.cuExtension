@@ -7,9 +7,6 @@ open Microsoft.FSharp.NativeInterop
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
-#nowarn "9"
-#nowarn "51"
-
 [<ReflectedDefinition>]
 let jumpAhead (numThreads:int) (threadRank:int)
               (stateStart:deviceptr<uint32>) (jumpAheadMatrices:deviceptr<uint32>)

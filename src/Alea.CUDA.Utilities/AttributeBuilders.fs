@@ -24,7 +24,7 @@ type EmbeddedArrayProperty(fieldName:string) =
             | Some(irStruct), irIndex :: [] ->
                 let irStructPointer = irStruct.Reference.Pointer
                 let irStructType = irStruct.Type
-                let irFieldInfo = irStructType.Struct.FieldInfoByCLR(fieldName)
+                let irFieldInfo = irStructType.Struct.FieldInfo(fieldName)
                 let irFieldPointer = IRCommonInstructionBuilder.Instance.BuildStructGEP(ctx, irStructPointer, irFieldInfo)
                 let irIndex0 = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, 0L)
                 let irElementPointer = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irFieldPointer, irIndex0 :: irIndex :: [])
@@ -37,7 +37,7 @@ type EmbeddedArrayProperty(fieldName:string) =
             | Some(irStruct), irIndex :: [] ->
                 let irStructPointer = irStruct.Reference.Pointer
                 let irStructType = irStruct.Type
-                let irFieldInfo = irStructType.Struct.FieldInfoByCLR(fieldName)
+                let irFieldInfo = irStructType.Struct.FieldInfo(fieldName)
                 let irFieldPointer = IRCommonInstructionBuilder.Instance.BuildStructGEP(ctx, irStructPointer, irFieldInfo)
                 let irIndex0 = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, 0L)
                 let irElementPointer = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irFieldPointer, irIndex0 :: irIndex :: [])
@@ -52,7 +52,7 @@ type RefClassFieldAttribute() =
         member this.Build(ctx, irObject, info, irParams) =
             match irObject, irParams with
             | Some(irStructPointer), [] ->
-                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfoByCLR(info.Name)
+                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfo(info.Name)
                 let irFieldPointer = IRCommonInstructionBuilder.Instance.BuildStructGEP(ctx, irStructPointer, irFieldInfo)
                 IRCommonInstructionBuilder.Instance.BuildReference(ctx, irFieldPointer) |> Some
             | _ -> None
@@ -61,7 +61,7 @@ type RefClassFieldAttribute() =
         member this.Build(ctx, irObject, info, irParams, irValue) =
             match irObject, irParams with
             | Some(irStructPointer), [] ->
-                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfoByCLR(info.Name)
+                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfo(info.Name)
                 let irFieldPointer = IRCommonInstructionBuilder.Instance.BuildStructGEP(ctx, irStructPointer, irFieldInfo)
                 IRCommonInstructionBuilder.Instance.BuildStore(ctx, irFieldPointer, irValue) |> Some
             | _ -> None
@@ -76,7 +76,7 @@ type RefClassArrayFieldAttribute(length:int) =
         member this.Build(ctx, irObject, info, irParams) =
             match irObject, irParams with
             | Some(irStructPointer), [] ->
-                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfoByCLR(info.Name)
+                let irFieldInfo = irStructPointer.Type.Pointer.PointeeType.Struct.FieldInfo(info.Name)
                 let irFieldPointer = IRCommonInstructionBuilder.Instance.BuildStructGEP(ctx, irStructPointer, irFieldInfo)
                 irFieldPointer |> Some // array is a pointer, not reference
             | _ -> None

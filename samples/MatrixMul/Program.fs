@@ -2,6 +2,7 @@
 
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.CUDA.TestUtilities
 
 [<EntryPoint>]
 let main argv = 

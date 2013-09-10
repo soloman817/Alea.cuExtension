@@ -2,6 +2,7 @@
 
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.CUDA.TestUtilities
 open NUnit.Framework
 open Sample.MatrixMul
 

@@ -39,15 +39,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.2.616\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.2.617\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core, Version=4.3.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="nunit.framework">
-      <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
@@ -57,12 +53,16 @@
   <ItemGroup>
     <Compile Include="CPU.fs" />
     <Compile Include="GPU.fs" />
-    <Compile Include="Tests.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.CUDA.TestUtilities\Alea.CUDA.TestUtilities.fsproj">
+      <Name>Alea.CUDA.TestUtilities</Name>
+      <Project>{36b79188-29a3-4458-b0b9-301231204177}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Utilities\Alea.CUDA.Utilities.fsproj">
       <Name>Alea.CUDA.Utilities</Name>
       <Project>{cba6a985-5910-45ee-bb08-9b6f36ac74be}</Project>

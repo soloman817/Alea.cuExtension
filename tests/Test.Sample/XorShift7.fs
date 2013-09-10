@@ -3,6 +3,7 @@
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.CUDA.TestUtilities
 open NUnit.Framework
 open Sample.XorShift7
 
@@ -33,7 +34,7 @@ let template (convertExpr:Expr<uint32 -> 'T>) = cuda {
 
         generate ) }
 
-let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) (eps:float option) =
+let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) =
     use program = template convertD |> Util.load Worker.Default
 
     let streams = 114688
@@ -63,11 +64,11 @@ let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) (eps:float
         printfn "%A" hOutputs
         printfn "%A" dOutputs
 
-    TestUtil.assertArrayEqual eps hOutputs dOutputs
+    TestUtil.assertArrayEqual None hOutputs dOutputs
 
-let [<Test>] ``correctness on uint32``() = correctness <@ uint32 @> uint32 None
-let [<Test>] ``correctness on float32``() = correctness <@ Common.toFloat32 @> Common.toFloat32 None
-let [<Test>] ``correctness on float64``() = correctness <@ Common.toFloat64 @> Common.toFloat64 None
+let [<Test>] ``correctness on uint32``() = correctness <@ uint32 @> uint32
+let [<Test>] ``correctness on float32``() = correctness <@ Common.toFloat32 @> Common.toFloat32
+let [<Test>] ``correctness on float64``() = correctness <@ Common.toFloat64 @> Common.toFloat64
 
 let test (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) streams steps seed runs rank =
     use program = template convertD |> Util.load Worker.Default
