@@ -20,7 +20,7 @@ let query (dev:Device) =
 
     printfn "  CUDA Capability Major/Minor version number:    %d.%d" dev.Arch.Major dev.Arch.Minor
 
-    printfn "  Total amount of global memory:                 %.0f MBytes (%d bytes)" (float(dev.TotalMemory) / 1048576.0) (dev.TotalMemory.ToInt64())
+    printfn "  Total amount of global memory:                 %.0f MBytes (%u bytes)" (float(uint64(dev.TotalMemory)) / 1048576.0) (uint64(dev.TotalMemory))
 
     let multiProcessorCount = dev.Attributes.MULTIPROCESSOR_COUNT
     let cudaCoresPerSM = if coresPerSM.ContainsKey(dev.Arch.Major <<< 4 + dev.Arch.Minor) then coresPerSM.[dev.Arch.Major <<< 4 + dev.Arch.Minor] else 192
