@@ -4,8 +4,7 @@ open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
-// this template didn't malloc memories, it is in-place updater,
-// used for performance test
+// This template does not malloc memories, it is in-place updater used for performance test
 let template (convertExpr:Expr<uint32 -> 'T>) = cuda {
     let! kernel = GPU.kernel convertExpr |> Compiler.DefineKernel
 

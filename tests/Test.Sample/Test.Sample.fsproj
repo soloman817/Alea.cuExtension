@@ -39,7 +39,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.2.617\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.2.619\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
@@ -58,6 +58,7 @@
     <Compile Include="MatrixMul.fs" />
     <Compile Include="Sobol.fs" />
     <Compile Include="XorShift7.fs" />
+    <Compile Include="TriDiag.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />
@@ -71,6 +72,11 @@
     <ProjectReference Include="..\..\samples\Sobol\Sobol.fsproj">
       <Name>Sobol</Name>
       <Project>{b419c7bf-9ef1-4491-beaf-721cc1bf1bfe}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\TriDiag\TriDiag.fsproj">
+      <Name>TriDiag</Name>
+      <Project>{2fd23a80-fbb1-46ba-ae4d-1d3e13becc97}</Project>
       <Private>True</Private>
     </ProjectReference>
     <ProjectReference Include="..\..\samples\XorShift7\XorShift7.fsproj">
