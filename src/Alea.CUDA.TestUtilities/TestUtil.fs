@@ -21,6 +21,8 @@ let genRandomUInt64 minv maxv _ = if minv < 0 || maxv < 0 then failwith "minv or
 let genRandomDouble minv maxv _ = rng.NextDouble() * (maxv - minv) + minv
 let genRandomSingle minv maxv _ = (rng.NextDouble() * (maxv - minv) + minv) |> float32
 
+let genByArray (array:'T[]) i = array.[i]
+
 let assertArrayEqual (eps:float option) (A:'T[]) (B:'T[]) =
     (A, B) ||> Array.iter2 (fun a b -> eps |> function
         | None -> Assert.AreEqual(a, b)
