@@ -41,12 +41,14 @@
   <ItemGroup>
     <Compile Include="AttributeBuilders.fs" />
     <Compile Include="NumericLiteralG.fs" />
+    <Compile Include="LibDeviceEx.fs" />
+    <Compile Include="NumericTraits.fs" />
     <Compile Include="Util.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.2.620\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.2.625\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />

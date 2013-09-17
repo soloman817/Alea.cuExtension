@@ -142,6 +142,14 @@ type XorShift7() =
 
         r
 
+/// We generate the random numbers in different runs and in each block in non-overlapping streams.
+/// This template produces a single run, of total numRun runs, identified by the run rank.
+/// The streams are used to parallelize the generation of a run and must be a multiple of the block size.
+/// The total number of random variates generated in a run is numStreams*numSteps. 
+/// The concept of runs can also be used to generate nonoverlapping blocks of random numbers on multiple 
+/// devices, e.g. by mapping the number of devices to the numRuns and the run rank to the device id. 
+/// Obviously we can also implement the use cases of multiple runs per device, just let numRuns be a suitable
+/// multiple of the number of devices.
 let kernel (convertExpr:Expr<uint32 -> 'T>) =
     <@ fun (numRuns:int) (runRank:int) (stateStart:deviceptr<uint32>) (jumpAheadMatrices:deviceptr<uint32>) (numSteps:int) (results:deviceptr<'T>) ->
         // Shared memory declaration; aligned to 4 because of the

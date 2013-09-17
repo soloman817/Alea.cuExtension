@@ -52,3 +52,4 @@ type GenericNumberFromInt32Attribute() =
 
 [<GenericNumberFromInt32>]
 let inline FromInt32(i:int) : ^t = (GenericNumberFromInt32 $ Unchecked.defaultof< ^t>) i
+

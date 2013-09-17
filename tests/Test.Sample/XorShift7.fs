@@ -7,8 +7,14 @@ open Alea.CUDA.TestUtilities
 open NUnit.Framework
 open Sample.XorShift7
 
-// this template shows the full usage of this algorithm, it includes
-// all memory management so you can get a feeling of how to use it
+/// This template shows the full usage of this algorithm, it includes
+/// all memory management so you can get a feeling of how to use it.
+/// A single call generates a block of streams*steps random numbers
+/// within a sequence of runs block, identified by the rank id. 
+/// These runs blocks are all non-overlapping. Internally the algorithm
+/// applies a proper jump ahead of the random number generator. 
+/// The value streams must be a multiple of the block size, which is
+/// currently set to 256. 
 let template (convertExpr:Expr<uint32 -> 'T>) = cuda {
     let! kernel = GPU.kernel convertExpr |> Compiler.DefineKernel
 
