@@ -1,11 +1,11 @@
 ﻿[<AutoOpen>]
-module Alea.CUDA.Utilities.NumericTraits
+module Alea.CUDA.Utilities.NumericConverters
 
 open System
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 
-type RealTraitsAttribute() =
+type RealConverterAttribute() =
     inherit Attribute()
 
     interface ICustomCallBuilder with
@@ -51,8 +51,8 @@ type RealTraitsAttribute() =
                 | _ -> None
             | _ -> None
 
-[<RealTraits>]
-type RealTraits<'T> =
+[<RealConverter>]
+type RealConverter<'T> =
     abstract Of : int8 -> 'T
     abstract Of : uint8 -> 'T
     abstract Of : int16 -> 'T
@@ -64,33 +64,30 @@ type RealTraits<'T> =
     abstract Of : float32 -> 'T
     abstract Of : float -> 'T
 
-type Real32Traits() =
-    interface RealTraits<float32> with
-        member this.Of(x:int8) = x |> float32
-        member this.Of(x:uint8) = x |> float32
-        member this.Of(x:int16) = x |> float32
-        member this.Of(x:uint16) = x |> float32
-        member this.Of(x:int) = x |> float32
-        member this.Of(x:uint32) = x |> float32
-        member this.Of(x:int64) = x |> float32
-        member this.Of(x:uint64) = x |> float32
-        member this.Of(x:float32) = x
-        member this.Of(x:float) = x |> float32
+type RealConverter =
 
-type Real64Traits() =
-    interface RealTraits<float> with
-        member this.Of(x:int8) = x |> float
-        member this.Of(x:uint8) = x |> float
-        member this.Of(x:int16) = x |> float
-        member this.Of(x:uint16) = x |> float
-        member this.Of(x:int) = x |> float
-        member this.Of(x:uint32) = x |> float
-        member this.Of(x:int64) = x |> float
-        member this.Of(x:uint64) = x |> float
-        member this.Of(x:float32) = x |> float
-        member this.Of(x:float) = x
+    static member Real32 =
+        { new RealConverter<float32> with
+            member this.Of(x:int8) = x |> float32
+            member this.Of(x:uint8) = x |> float32
+            member this.Of(x:int16) = x |> float32
+            member this.Of(x:uint16) = x |> float32
+            member this.Of(x:int) = x |> float32
+            member this.Of(x:uint32) = x |> float32
+            member this.Of(x:int64) = x |> float32
+            member this.Of(x:uint64) = x |> float32
+            member this.Of(x:float32) = x
+            member this.Of(x:float) = x |> float32 }
 
-type RealTraits =
-    static member Real32 = Real32Traits() :> RealTraits<float32>
-    static member Real64 = Real64Traits() :> RealTraits<float>
-
+    static member Real64 =
+        { new RealConverter<float> with
+            member this.Of(x:int8) = x |> float
+            member this.Of(x:uint8) = x |> float
+            member this.Of(x:int16) = x |> float
+            member this.Of(x:uint16) = x |> float
+            member this.Of(x:int) = x |> float
+            member this.Of(x:uint32) = x |> float
+            member this.Of(x:int64) = x |> float
+            member this.Of(x:uint64) = x |> float
+            member this.Of(x:float32) = x |> float
+            member this.Of(x:float) = x }
