@@ -40,21 +40,19 @@
   <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   <ItemGroup>
     <Compile Include="AttributeBuilders.fs" />
+    <Compile Include="NumericLiteralG.fs" />
+    <Compile Include="NumericConverters.fs" />
+    <Compile Include="LibDeviceEx.fs" />
     <Compile Include="Util.fs" />
-    <Compile Include="TestUtil.fs" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
-      <HintPath>..\..\packages\Alea.cuBase.1.2.616\lib\net40\Alea.CUDA.dll</HintPath>
+      <HintPath>..\..\packages\Alea.cuBase.1.2.627\lib\net40\Alea.CUDA.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core, Version=4.3.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="nunit.framework">
-      <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />

@@ -5,12 +5,12 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>3fca88da-5c39-4541-8821-9c6eacd3e58b</ProjectGuid>
+    <ProjectGuid>2fd23a80-fbb1-46ba-ae4d-1d3e13becc97</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>LaunchingTime</RootNamespace>
-    <AssemblyName>LaunchingTime</AssemblyName>
+    <RootNamespace>TriDiag</RootNamespace>
+    <AssemblyName>TriDiag</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <Name>LaunchingTime</Name>
+    <Name>TriDiag</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -23,7 +23,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Debug\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\TriDiag.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -34,7 +34,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Release\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Release\TriDiag.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
@@ -51,6 +51,9 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common.fs" />
+    <Compile Include="CPU.fs" />
+    <Compile Include="GPU.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />

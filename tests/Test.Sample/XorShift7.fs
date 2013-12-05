@@ -3,11 +3,18 @@
 open Microsoft.FSharp.Quotations
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.CUDA.TestUtilities
 open NUnit.Framework
 open Sample.XorShift7
 
-// this template shows the full usage of this algorithm, it includes
-// all memory management so you can get a feeling of how to use it
+/// This template shows the full usage of this algorithm, it includes
+/// all memory management so you can get a feeling of how to use it.
+/// A single call generates a block of streams*steps random numbers
+/// within a sequence of runs block, identified by the rank id. 
+/// These runs blocks are all non-overlapping. Internally the algorithm
+/// applies a proper jump ahead of the random number generator. 
+/// The value streams must be a multiple of the block size, which is
+/// currently set to 256. 
 let template (convertExpr:Expr<uint32 -> 'T>) = cuda {
     let! kernel = GPU.kernel convertExpr |> Compiler.DefineKernel
 
@@ -33,7 +40,7 @@ let template (convertExpr:Expr<uint32 -> 'T>) = cuda {
 
         generate ) }
 
-let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) (eps:float option) =
+let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) =
     use program = template convertD |> Util.load Worker.Default
 
     let streams = 114688
@@ -63,11 +70,11 @@ let correctness (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) (eps:float
         printfn "%A" hOutputs
         printfn "%A" dOutputs
 
-    TestUtil.assertArrayEqual eps hOutputs dOutputs
+    TestUtil.assertArrayEqual None hOutputs dOutputs
 
-let [<Test>] ``correctness on uint32``() = correctness <@ uint32 @> uint32 None
-let [<Test>] ``correctness on float32``() = correctness <@ Common.toFloat32 @> Common.toFloat32 None
-let [<Test>] ``correctness on float64``() = correctness <@ Common.toFloat64 @> Common.toFloat64 None
+let [<Test>] ``correctness on uint32``() = correctness <@ uint32 @> uint32
+let [<Test>] ``correctness on float32``() = correctness <@ Common.toFloat32 @> Common.toFloat32
+let [<Test>] ``correctness on float64``() = correctness <@ Common.toFloat64 @> Common.toFloat64
 
 let test (convertD:Expr<uint32 -> 'T>) (convertH:uint32 -> 'T) streams steps seed runs rank =
     use program = template convertD |> Util.load Worker.Default

@@ -5,12 +5,12 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>3fca88da-5c39-4541-8821-9c6eacd3e58b</ProjectGuid>
+    <ProjectGuid>cc858c62-6e3a-4da9-9ddd-16d422569257</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>LaunchingTime</RootNamespace>
-    <AssemblyName>LaunchingTime</AssemblyName>
+    <RootNamespace>Test.Sample</RootNamespace>
+    <AssemblyName>Test.Sample</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <Name>LaunchingTime</Name>
+    <Name>Test.Sample</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -23,7 +23,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Debug\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Test.Sample.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -34,7 +34,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Release\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Release\Test.Sample.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
@@ -46,16 +46,56 @@
     <Reference Include="FSharp.Core, Version=4.3.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <Private>True</Private>
     </Reference>
+    <Reference Include="nunit.framework">
+      <HintPath>..\..\packages\NUnit.2.6.2\lib\nunit.framework.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MatrixMul.fs" />
+    <Compile Include="Sobol.fs" />
+    <Compile Include="XorShift7.fs" />
+    <Compile Include="Mrg32k3a.fs" />
+    <Compile Include="LiborMM.fs" />
+    <Compile Include="TriDiag.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\samples\LiborMM\LiborMM.fsproj">
+      <Name>LiborMM</Name>
+      <Project>{4bf873ee-5484-4fb0-b344-5fcbb61bf3f7}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\MatrixMul\MatrixMul.fsproj">
+      <Name>MatrixMul</Name>
+      <Project>{b01f0618-887b-48ca-beae-f0720ede2008}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\Mrg32k3a\Mrg32k3a.fsproj">
+      <Name>Mrg32k3a</Name>
+      <Project>{95f32d6c-b028-4e2c-922e-16b13c704ef5}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\Sobol\Sobol.fsproj">
+      <Name>Sobol</Name>
+      <Project>{b419c7bf-9ef1-4491-beaf-721cc1bf1bfe}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\TriDiag\TriDiag.fsproj">
+      <Name>TriDiag</Name>
+      <Project>{2fd23a80-fbb1-46ba-ae4d-1d3e13becc97}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\samples\XorShift7\XorShift7.fsproj">
+      <Name>XorShift7</Name>
+      <Project>{a760d69b-39f2-401c-9054-f51008457d2c}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.TestUtilities\Alea.CUDA.TestUtilities.fsproj">
       <Name>Alea.CUDA.TestUtilities</Name>
       <Project>{36b79188-29a3-4458-b0b9-301231204177}</Project>

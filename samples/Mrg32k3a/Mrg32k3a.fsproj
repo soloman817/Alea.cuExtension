@@ -5,12 +5,12 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>3fca88da-5c39-4541-8821-9c6eacd3e58b</ProjectGuid>
+    <ProjectGuid>95f32d6c-b028-4e2c-922e-16b13c704ef5</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>LaunchingTime</RootNamespace>
-    <AssemblyName>LaunchingTime</AssemblyName>
+    <RootNamespace>Mrg32k3a</RootNamespace>
+    <AssemblyName>Mrg32k3a</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <Name>LaunchingTime</Name>
+    <Name>Mrg32k3a</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -23,7 +23,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Debug\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Mrg32k3a.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -34,7 +34,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <DocumentationFile>bin\Release\LaunchingTime.XML</DocumentationFile>
+    <DocumentationFile>bin\Release\Mrg32k3a.XML</DocumentationFile>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
@@ -51,16 +51,14 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common.fs" />
+    <Compile Include="CPU.fs" />
+    <Compile Include="GPU.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Alea.CUDA.TestUtilities\Alea.CUDA.TestUtilities.fsproj">
-      <Name>Alea.CUDA.TestUtilities</Name>
-      <Project>{36b79188-29a3-4458-b0b9-301231204177}</Project>
-      <Private>True</Private>
-    </ProjectReference>
     <ProjectReference Include="..\..\src\Alea.CUDA.Utilities\Alea.CUDA.Utilities.fsproj">
       <Name>Alea.CUDA.Utilities</Name>
       <Project>{cba6a985-5910-45ee-bb08-9b6f36ac74be}</Project>

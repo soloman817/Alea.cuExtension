@@ -12,6 +12,10 @@ let compileWithOptions (options:CompileOptions) (template:Template<'T>) =
     Compiler.Compile(template, options) |> function
     | CompileResult.Success(irm, warnings) ->
         warnings |> Array.iter (fun (src, warning) -> printfn "%A: %A" src warning)
+        if debug then
+            printfn "==== IRMODULE ===="
+            irm.Dump()
+            printfn "=================="
         irm
     | CompileResult.Fail(src, err, ex) ->
         printfn "%A" err
@@ -27,6 +31,10 @@ let linkWithLibraries (libraries:IRModule list) (irm:IRModule<'T>) =
             printfn "===== Link Log ====="
             printfn "%s" log
             printfn "===================="
+        if debug then
+            printfn "==== PTXMODULE ===="
+            ptxm.Dump()
+            printfn "==================="
         ptxm
     | LinkResult.Fail(err) ->
         printfn "%A" err
