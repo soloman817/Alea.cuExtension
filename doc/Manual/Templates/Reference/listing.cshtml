@@ -1,0 +1,13 @@
+@{ 
+    Layout = "default";
+    Title = "Listing";
+}
+
+@RenderBody()
+
+<div class="row">
+    <div class="span9">
+        <hr />
+        <p><small>@(((IDictionary<string, string>)ViewBag.Properties)["project-name"]) @(((IDictionary<string, string>)ViewBag.Properties)["product-version"]) &copy; QuantAlea GmbH.</small></p>
+    </div>
+</div>

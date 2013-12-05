@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>@(((IDictionary<string, string>)ViewBag.Properties)["project-name"]) - @(((IDictionary<string, string>)ViewBag.Properties)["assembly-name"]) - @Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="../../favicon.ico">
+    <script src="../../style/jquery-1.8.0.min.js"></script>
+    <script src="../../style/jquery-ui.1.8.23.min.js"></script>
+    <script src="../../style/bootstrap.2.2.1.min.js"></script>
+    <link href="../../style/bootstrap-combined.2.2.1.min.css" rel="stylesheet">
+    <link href="../../style/style.css" type="text/css" rel="stylesheet" />
+    <script src="../../style/tips.js" type="text/javascript"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+    <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <style type="text/css">
+        h2
+        {
+            font-size: 140%;
+        }
+
+        thead
+        {
+            font-weight: bold;
+        }
+
+        .type-list .type-name, .module-list .module-name
+        {
+            width: 25%;
+            font-weight: bold;
+        }
+
+        .member-list .member-name
+        {
+            width: 35%;
+        }
+
+        #main table .xmldoc h2
+        {
+            font-size: 120%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="masthead">
+            <ul class="nav nav-pills pull-right">
+                <li><a href="http://www.quantalea.net">www.quantalea.net</a></li>
+            </ul>
+            <h3 class="muted"><a href="../../index.html"><img src="../../images/cubes_32x32.png"/></a><a href="../../index.html">@(((IDictionary<string, string>)ViewBag.Properties)["project-name"])</a></h3>
+        </div>
+        <hr />
+        <div class="row">
+            <div class="span3">
+                <ul class="nav nav-list" id="menu">
+                    @(((IDictionary<string, string>)ViewBag.Properties)["nav-list"])
+                </ul>
+            </div>
+            <div class="span9">
+                @RenderBody()
+            </div>
+        </div>
+    </div>
+</body>
+</html>
