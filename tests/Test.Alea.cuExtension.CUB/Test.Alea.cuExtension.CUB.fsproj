@@ -5,13 +5,14 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>8fa638be-cdc0-43b1-bbc2-5527d40584ad</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <RootNamespace>Alea.cuBase.CUB</RootNamespace>
-    <AssemblyName>Alea.cuBase.CUB</AssemblyName>
+    <ProjectGuid>5b71efc7-122f-4ecb-8034-11c73521cedb</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Test.Alea.cuExtension.CUB</RootNamespace>
+    <AssemblyName>Test.Alea.cuExtension.CUB</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
-    <Name>Alea.cuExtension.CUB</Name>
+    <Name>Test.Alea.cuExtension.CUB</Name>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
@@ -23,7 +24,9 @@
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Alea.cuBase.CUB.XML</DocumentationFile>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DocumentationFile>bin\Debug\Test.Alea.cuExtension.CUB.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -32,7 +35,9 @@
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Release\Alea.cuBase.CUB.XML</DocumentationFile>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DocumentationFile>bin\Release\Test.Alea.cuExtension.CUB.XML</DocumentationFile>
+    <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">
@@ -43,19 +48,17 @@
     <Reference Include="FSharp.Core, Version=$(TargetFSharpCoreVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <Private>True</Private>
     </Reference>
+    <Reference Include="nunit.framework">
+      <HintPath>..\..\packages\NUnit.2.6.3\lib\nunit.framework.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Script.fsx" />
-    <Compile Include="Utilities.fs" />
-    <Compile Include="Block.fs" />
-    <Compile Include="Device.fs" />
-    <Compile Include="Grid.fs" />
-    <Compile Include="Host.fs" />
-    <Compile Include="Thread.fs" />
-    <Compile Include="Warp.fs" />
+    <Compile Include="Program.fs" />
+    <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <PropertyGroup>

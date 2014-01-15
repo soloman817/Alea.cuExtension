@@ -66,38 +66,6 @@
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\samples\LiborMM\LiborMM.fsproj">
-      <Name>LiborMM</Name>
-      <Project>{4bf873ee-5484-4fb0-b344-5fcbb61bf3f7}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\samples\MatrixMul\MatrixMul.fsproj">
-      <Name>MatrixMul</Name>
-      <Project>{b01f0618-887b-48ca-beae-f0720ede2008}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\samples\Mrg32k3a\Mrg32k3a.fsproj">
-      <Name>Mrg32k3a</Name>
-      <Project>{95f32d6c-b028-4e2c-922e-16b13c704ef5}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\samples\Sobol\Sobol.fsproj">
-      <Name>Sobol</Name>
-      <Project>{b419c7bf-9ef1-4491-beaf-721cc1bf1bfe}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\samples\TriDiag\TriDiag.fsproj">
-      <Name>TriDiag</Name>
-      <Project>{2fd23a80-fbb1-46ba-ae4d-1d3e13becc97}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\samples\XorShift7\XorShift7.fsproj">
-      <Name>XorShift7</Name>
-      <Project>{a760d69b-39f2-401c-9054-f51008457d2c}</Project>
-      <Private>True</Private>
-    </ProjectReference>
-  </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
   </PropertyGroup>
