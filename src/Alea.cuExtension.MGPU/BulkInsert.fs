@@ -112,6 +112,7 @@ let bulkInsert()  = cuda {
     return Entry(fun program ->
         let worker = program.Worker
         let kernelBulkInsert = program.Apply kernelBulkInsert
+        let mpp = mpp program
                 
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
@@ -120,12 +121,12 @@ let bulkInsert()  = cuda {
             let run (a_global:deviceptr<'T>) (indices_global:deviceptr<int>) (zeroItr:deviceptr<int>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) (dest_global:deviceptr<'T>) =
                 fun () ->
                     
-                    let mpp = mpp aCount bCount NV 0
+                    let mpp = mpp. aCount bCount NV 0
                     let partitions = mpp indices_global zeroItr parts
                     kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount parts dest_global
                 |> worker.Eval
             
-            { NumPartitions = numBlocks + 1 } ) }
+            run ) }
 
 
 

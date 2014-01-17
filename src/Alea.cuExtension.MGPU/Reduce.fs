@@ -35,9 +35,8 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     // R::Storage is TV[Capacity]
     // Inputs is TI[NV]
     let capacity, reduce = ctaReduce NT op
-    let alignOfTI, sizeOfTI = TypeUtil.cudaAlignOf typeof<'TI>, sizeof<'TI>
-    let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
-    let sharedAlign = max alignOfTI alignOfTV
+    let sizeOfTI = sizeof<'TI>
+    let sizeOfTV = sizeof<'TV>
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
     //let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
@@ -150,7 +149,7 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
             let result (reduction:'TV[]) =
                 reduction |> Array.reduce hplus
 
-            { NumBlocks = numBlocks; Result = result } ) }
+            result ) }
 
 
         
