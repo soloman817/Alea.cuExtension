@@ -5,10 +5,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -38,7 +39,7 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
     let sharedAlign = max alignOfTI alignOfTV
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-    let createSharedExpr = createSharedExpr sharedAlign sharedSize
+    //let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
     // get neccesary quotations for later doing slicing in quotation
     let commutative = op.Commutative
@@ -47,16 +48,16 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
     let plus = op.DPlus
     let deviceGlobalToReg = deviceGlobalToReg NT VT
 
-    <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'TV>) ->
+    <@ fun (data_global:deviceptr<'TI>) (count:int) (task:int2) (reduction_global:deviceptr<'TV>) ->
         // quotation slicing (you can google what it means)
         let extract = %extract
         let plus = %plus
         let deviceGlobalToReg = %deviceGlobalToReg
         let reduce = %reduce
 
-        let shared = %(createSharedExpr)
-        let sharedReduce = shared.Reinterpret<'TV>()
-        let sharedInputs = shared.Reinterpret<'TI>()
+        //let shared = %(createSharedExpr)
+        let sharedReduce = __shared__.Array<'TV>(sharedSize)
+        let sharedInputs = __shared__.Array<'TI>(sharedSize)
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -76,7 +77,7 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             // so that is why deviceGlobalToReg is used. 
             // Please check http://www.moderngpu.com/scan/globalscan.html#Scan
             // and check the concept of transposeValues. 
-            let inputs = __local__<'TI>(VT).Ptr(0)
+            let inputs = __local__.Array<'TI>(VT) |> __array_to_ptr
             deviceGlobalToReg count2 (data_global + range.x) tid inputs false
 
             if commutative <> 0 then
@@ -93,31 +94,31 @@ let kernelReduce (plan:Plan) (op:IScanOp<'TI, 'TV, 'TR>) =
             totalDefined <- true
 
         if commutative <> 0 then
-            total <- reduce tid total sharedReduce
+            total <- reduce tid total (sharedReduce |> __array_to_ptr)
 
         if tid = 0 then reduction_global.[block] <- total @>
 
 // each raw implmenetation could return an interface (or api), which doesn't contain
 // any memory management, this will be used later for wrapping with pcalc
-type IReduce<'TI, 'TV> =
-    {
-        NumBlocks : int // how may 'TV
-        Action : ActionHint -> DevicePtr<'TI> ->DevicePtr<'TV> -> unit
-        Result : 'TV[] -> 'TV
-    }
+//type IReduce<'TI, 'TV> =
+//    {
+//        NumBlocks : int // how may 'TV
+//        Action : ActionHint -> deviceptr<'TI> ->deviceptr<'TV> -> unit
+//        Result : 'TV[] -> 'TV
+//    }
 
 let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
     let cutOff = 20000
     let plan1 = { NT = 512; VT = 5 }
     let plan2 = { NT = 128; VT = 9 }
-    let! kernelReduce1 = kernelReduce plan1 op |> defineKernelFunc
-    let! kernelReduce2 = kernelReduce plan2 op |> defineKernelFunc
+    let! kernelReduce1 = kernelReduce plan1 op |> Compiler.DefineKernel
+    let! kernelReduce2 = kernelReduce plan2 op |> Compiler.DefineKernel
     let hplus = op.HPlus
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelReduce1 = kernelReduce1.Apply m
-        let kernelReduce2 = kernelReduce2.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelReduce1 = program.Apply kernelReduce1
+        let kernelReduce2 = program.Apply kernelReduce2
 
         fun (count:int) ->
             let numBlocks, task, lp, kernelReduce =
@@ -135,21 +136,21 @@ let reduce (op:IScanOp<'TI, 'TV, 'TR>) = cuda {
                     let kernelReduce = kernelReduce2
                     let NV = plan.NT * plan.VT
                     let numTiles = divup count NV
-                    let numBlocks = min (worker.Device.NumSm * 25) numTiles
+                    let numBlocks = min (worker.Device.Attributes.MULTIPROCESSOR_COUNT * 25) numTiles
                     let task = divideTaskRange numTiles numBlocks
                     let lp = LaunchParam(numBlocks, plan.NT)
                     numBlocks, task, lp, kernelReduce
 
-            let action (hint:ActionHint) (data:DevicePtr<'TI>) (reduction:DevicePtr<'TV>) =
+            let run (data:deviceptr<'TI>) (reduction:deviceptr<'TV>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     kernelReduce.Launch lp data count task reduction
                 |> worker.Eval
 
             let result (reduction:'TV[]) =
                 reduction |> Array.reduce hplus
 
-            { NumBlocks = numBlocks; Action = action; Result = result } ) }
+            { NumBlocks = numBlocks; Result = result } ) }
 
 
         

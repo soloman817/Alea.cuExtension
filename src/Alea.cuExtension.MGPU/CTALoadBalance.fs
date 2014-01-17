@@ -5,9 +5,9 @@ open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTASearch
@@ -23,7 +23,7 @@ open Alea.cuExtension.MGPU.CTAMerge
 // bBegin in shared memory.
 
 let deviceSerialLoadBalanceSearch (VT:int) (rangeCheck:bool) =
-    <@ fun (b_shared:RWPtr<int>) (aBegin:int) (aEnd:int) (bFirst:int) (bBegin:int) (bEnd:int) (a_shared:RWPtr<int>) -> 
+    <@ fun (b_shared:deviceptr<int>) (aBegin:int) (aEnd:int) (bFirst:int) (bBegin:int) (bEnd:int) (a_shared:deviceptr<int>) -> 
         let mutable bKey = b_shared.[bBegin]
         let mutable aBegin = aBegin
         let mutable bBegin = bBegin
@@ -63,13 +63,13 @@ let ctaLoadBalance (NT:int) (VT:int) =
     let itrSize = NT * (VT + 1)
     let counting_iterator = counting_iterator itrSize
     <@ fun  (destCount      :int) 
-            (b_global       :DevicePtr<int>)
+            (b_global       :deviceptr<int>)
             (sourceCount    :int)
             (block          :int)
             (tid            :int)
-            (countingItr_global :DevicePtr<int>)
-            (mp_global      :DevicePtr<int>)
-            (indices_shared :RWPtr<int>)
+            (countingItr_global :deviceptr<int>)
+            (mp_global      :deviceptr<int>)
+            (indices_shared :deviceptr<int>)
             (loadPrecedingB :bool)
             ->
         let counting_iterator = %counting_iterator
@@ -107,11 +107,11 @@ let ctaLoadBalance (NT:int) (VT:int) =
         let diag = min (VT * tid) (aCount + bCount - loadPrecedingB)
         
         //let countingItr = mpCountingItr + a0
-        //let sharedCountingItr = __local__<int>(itrSize).Ptr(0)
+        //let sharedCountingItr = __local__.Array<int>(itrSize) |> __array_to_ptr
         //counting_iterator countingItr_global a0 sharedCountingItr
         //__syncthreads()
         let mp = mergePath (countingItr_global + a0) aCount (b_shared + loadPrecedingB) (bCount - loadPrecedingB) diag
-//        let a = __local__<int>(1).Ptr(0)
+//        let a = __local__.Array<int>(1) |> __array_to_ptr
 //        a.[0] <- a0
 //        let b = b_shared + loadPrecedingB
 //        let bCount2 = bCount - loadPrecedingB

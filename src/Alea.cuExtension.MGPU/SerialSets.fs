@@ -4,9 +4,9 @@ open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -21,14 +21,14 @@ open Alea.cuExtension.MGPU.CTAScan
 //
 let serialSetIntersection (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
     let comp = compOp.Device
-    <@ fun  (data       :RWPtr<'T>) 
+    <@ fun  (data       :deviceptr<'T>) 
             (aBegin     :int) 
             (aEnd       :int) 
             (bBegin     :int) 
             (bEnd       :int) 
             (end'       :int) 
-            (results    :RWPtr<'T>) 
-            (indices    :RWPtr<int>) 
+            (results    :deviceptr<'T>) 
+            (indices    :deviceptr<int>) 
             ->
             let comp = %comp
 
@@ -68,14 +68,14 @@ let serialSetIntersection (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
 //	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) {
 let serialSetUnion (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
     let comp = compOp.Device
-    <@ fun  (data       :RWPtr<'T>) 
+    <@ fun  (data       :deviceptr<'T>) 
             (aBegin     :int) 
             (aEnd       :int) 
             (bBegin     :int) 
             (bEnd       :int) 
             (end'       :int) 
-            (results    :RWPtr<'T>) 
-            (indices    :RWPtr<int>) 
+            (results    :deviceptr<'T>) 
+            (indices    :deviceptr<int>) 
             ->
         let comp = %comp
 
@@ -120,14 +120,14 @@ let serialSetUnion (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
 // 
 let serialSetDifference (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
     let comp = compOp.Device
-    <@ fun  (data       :RWPtr<'T>) 
+    <@ fun  (data       :deviceptr<'T>) 
             (aBegin     :int) 
             (aEnd       :int) 
             (bBegin     :int) 
             (bEnd       :int) 
             (end'       :int) 
-            (results    :RWPtr<'T>) 
-            (indices    :RWPtr<int>) 
+            (results    :deviceptr<'T>) 
+            (indices    :deviceptr<int>) 
             ->
         let comp = %comp
 
@@ -171,14 +171,14 @@ let serialSetDifference (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
 //
 let serialSetSymDiff (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
     let comp = compOp.Device
-    <@ fun  (data       :RWPtr<'T>) 
+    <@ fun  (data       :deviceptr<'T>) 
             (aBegin     :int) 
             (aEnd       :int) 
             (bBegin     :int) 
             (bEnd       :int) 
             (end'       :int) 
-            (results    :RWPtr<'T>) 
-            (indices    :RWPtr<int>) 
+            (results    :deviceptr<'T>) 
+            (indices    :deviceptr<int>) 
             ->
         let comp = %comp
 
@@ -230,14 +230,14 @@ let serialSetOp (VT:int) (rangeCheck:bool) (setOp:MgpuSetOp) (compOp:IComp<'T>) 
     let serialSetDifference = serialSetDifference VT rangeCheck compOp
     let serialSetSymDiff = serialSetSymDiff VT rangeCheck compOp
 
-    <@ fun  (data:RWPtr<'T>) 
+    <@ fun  (data:deviceptr<'T>) 
             (aBegin:int) 
             (aEnd:int) 
             (bBegin:int) 
             (bEnd:int) 
             (star:int) 
-            (results:RWPtr<'T>) 
-            (indices:RWPtr<int>) 
+            (results:deviceptr<'T>) 
+            (indices:deviceptr<int>) 
             ->
         let comp = %comp
         let serialSetIntersection = %serialSetIntersection

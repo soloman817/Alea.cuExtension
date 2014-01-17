@@ -55,11 +55,11 @@ let ctaReduce (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let plus = op.DPlus
 
     let reduce =
-        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) ->
+        <@ fun (tid:int) (x:'TV) (storage:deviceptr<'TV>) ->
             let plus = %plus
 
             let mutable x = x
-            let dest = brev(uint32(tid)) >>> (32 - sLogPow2OfNT)
+            let dest = LibDevice.__nv_brev(uint32(tid)) >>> (32 - sLogPow2OfNT)
             let dest = int(dest)
             storage.[dest + dest / WARP_SIZE] <- x
             __syncthreads()
@@ -93,7 +93,7 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let identity = op.Identity
 
     let scan =
-        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) (total:RWPtr<'TV>) (stype:int) ->
+        <@ fun (tid:int) (x:'TV) (storage:deviceptr<'TV>) (total:deviceptr<'TV>) (stype:int) ->
             let plus = %plus
             let extract = %extract
 
@@ -123,9 +123,9 @@ let ctaScan (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
 let ctaScan2 (NT:int) (op:IScanOp<'TI, 'TV, 'TR>) =
     let capacity, scan = ctaScan NT op
     let scan2 =
-        <@ fun (tid:int) (x:'TV) (storage:RWPtr<'TV>) ->
+        <@ fun (tid:int) (x:'TV) (storage:deviceptr<'TV>) ->
             let scan = %scan
-            let total = __local__<'TV>(1).Ptr(0) 
+            let total = __local__.Array<'TV>(1) |> __array_to_ptr 
             scan tid x storage total ExclusiveScan @>
 
     capacity, scan2

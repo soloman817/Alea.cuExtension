@@ -5,10 +5,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTASearch
@@ -22,39 +23,38 @@ let kernelBinarySearch (NT:int) (bounds:int) (compOp:IComp<int>) =
     let bounds = if bounds = 0 then MgpuBoundsLower else MgpuBoundsUpper
     let binarySearch = (binarySearch bounds compOp).DBinarySearch
     
-    <@ fun (count:int) (data_global:DevicePtr<int>) (numItems:int) (nv:int) (partitions_global:DevicePtr<int>) (numSearches:int) ->
+    <@ fun (count:int) (data_global:deviceptr<int>) (numItems:int) (nv:int) (partitions_global:deviceptr<int>) (numSearches:int) ->
         let binarySearch = %binarySearch
         let gid = NT * blockIdx.x + threadIdx.x
         if (gid < numSearches) then
             let p = binarySearch data_global numItems (min (nv * gid) count)
             partitions_global.[gid] <- p @>
 
-// @COMMENTS@ : also here, cause I think it is just for index calculation. Tell me if
-// I was wrong that there is cases that will use it for non-int usage.
-type IBinarySearchPartitions =
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> unit        
-    }
+//// @COMMENTS@ : also here, cause I think it is just for index calculation. Tell me if
+//// I was wrong that there is cases that will use it for non-int usage.
+//type IBinarySearchPartitions =
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> unit        
+//    }
 
 let binarySearchPartitions (bounds:int) (compOp:IComp<int>) = cuda { 
     let NT = 64
     let bounds = if bounds = MgpuBoundsLower then 0 else 1
-    let! kernelBinarySearch = (kernelBinarySearch NT bounds compOp) |> defineKernelFuncWithName "bsp"
+    let! kernelBinarySearch = (kernelBinarySearch NT bounds compOp) |> Compiler.DefineKernel //"bsp"
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelBinarySearch = kernelBinarySearch.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelBinarySearch = program.Apply kernelBinarySearch
         
         fun (count:int) (numItems:int) (nv:int) ->
             let numBlocks = divup count nv
             let numPartitionBlocks = divup (numBlocks + 1) NT
             let lp = LaunchParam(numPartitionBlocks, NT)
             
-            let action (hint:ActionHint) (data_global:DevicePtr<int>) (partitionsDevice:DevicePtr<int>) =
-                let lp = lp |> hint.ModifyLaunchParam
+            let run (data_global:deviceptr<int>) (partitionsDevice:deviceptr<int>) =
                 kernelBinarySearch.Launch lp count data_global numItems nv partitionsDevice (numBlocks + 1)
-                            
-            { Action = action } ) }
+            run            
+             ) }
 
 
 // Leaving as int for now
@@ -64,7 +64,7 @@ let kernelMergePartition (NT:int) (bounds:int) (compOp:IComp<'T>) =
     let mergePath = (mergePath bounds compOp).DMergePath
     let findMergesortFrame = findMergesortFrame.Device
 
-    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (nv:int) (coop:int) (mp_global:DevicePtr<int>) (numSearches:int) ->
+    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (nv:int) (coop:int) (mp_global:deviceptr<int>) (numSearches:int) ->
         let mergePath = %mergePath
         let findMergesortFrame = %findMergesortFrame
 
@@ -87,31 +87,30 @@ let kernelMergePartition (NT:int) (bounds:int) (compOp:IComp<'T>) =
             mp_global.[partition] <- mp @>
 
 
-type IMergePathPartitions<'T> =
-    {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> unit                
-    }
+//type IMergePathPartitions<'T> =
+//    {
+//        Action : ActionHint -> deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> unit                
+//    }
 
 
 let mergePathPartitions (bounds:int) (compOp:IComp<'T>) = cuda {
     let NT = 64
     let bounds = if bounds = MgpuBoundsLower then 0 else 1
-    let! kernelMergePartition = (kernelMergePartition NT bounds compOp) |> defineKernelFuncWithName "kmp"
+    let! kernelMergePartition = (kernelMergePartition NT bounds compOp) |> Compiler.DefineKernel //"kmp"
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelMergePartition = kernelMergePartition.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelMergePartition = program.Apply kernelMergePartition
 
         fun (aCount:int) (bCount:int) (nv:int) (coop:int) ->
             let numPartitions = divup (aCount + bCount) nv
             let numPartitionBlocks = divup (numPartitions + 1) NT
             let lp = LaunchParam(numPartitionBlocks, NT)
             
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (partitionsDevice:DevicePtr<int>) =
-                let lp = lp |> hint.ModifyLaunchParam
+            let run (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (partitionsDevice:deviceptr<int>) =
                 kernelMergePartition.Launch lp a_global aCount b_global bCount nv coop partitionsDevice (numPartitions + 1)
-                
-            { Action = action } ) }
+            run
+             ) }
 
 
 let kernelSetPartition (NT:int) (duplicates:int) (compOp:IComp<'T>) =
@@ -119,7 +118,7 @@ let kernelSetPartition (NT:int) (duplicates:int) (compOp:IComp<'T>) =
 
     let balancedPathSearch = (balancedPathSearch duplicates 0L compOp).DBalancedPath
     
-    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (nv:int) (bp_global:DevicePtr<int>) (numSearches:int) ->
+    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (nv:int) (bp_global:deviceptr<int>) (numSearches:int) ->
         let balancedPathSearch = %balancedPathSearch
         let gid = NT * blockIdx.x + threadIdx.x
         if gid < numSearches then
@@ -130,30 +129,30 @@ let kernelSetPartition (NT:int) (duplicates:int) (compOp:IComp<'T>) =
     @>
 
 
-type IFindSetPartitions<'T> =
-    {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> unit
-    }
+//type IFindSetPartitions<'T> =
+//    {
+//        Action : ActionHint -> deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> unit
+//    }
 
 
 let findSetPartitions (duplicates:bool) (compOp:IComp<'T>) = cuda {
     let NT = 64
     let duplicates = if duplicates then 1 else 0
-    let! kernelSetPartition = kernelSetPartition NT duplicates compOp |> defineKernelFuncWithName "fsp"
+    let! kernelSetPartition = kernelSetPartition NT duplicates compOp |> Compiler.DefineKernel //"fsp"
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelSetPartition = kernelSetPartition.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelSetPartition = program.Apply kernelSetPartition
 
         fun (aCount:int) (bCount:int) (nv:int) ->
             let numPartitions = divup (aCount + bCount) nv
             let numPartitionBlocks = divup (numPartitions + 1) NT
             let lp = LaunchParam(numPartitionBlocks, NT)
 
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (parts:DevicePtr<int>) =
-                let lp = lp |> hint.ModifyLaunchParam
+            let run (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) =
                 kernelSetPartition.Launch lp a_global aCount b_global bCount nv parts (numPartitions + 1)
-            { Action = action } ) }
+            run
+             ) }
 
 
 // MODERN GPU C++ CODE

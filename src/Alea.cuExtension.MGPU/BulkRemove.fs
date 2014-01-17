@@ -5,10 +5,11 @@ open System.Diagnostics
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTASearch
@@ -65,7 +66,7 @@ let kernelBulkRemove (plan:Plan) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
     let deviceGather = deviceGather NT VT
         
-    <@ fun (source_global:DevicePtr<'T>) (sourceCount:int) (indices_global:DevicePtr<int>) (indicesCount:int) (p_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
+    <@ fun (source_global:deviceptr<'T>) (sourceCount:int) (indices_global:deviceptr<int>) (indicesCount:int) (p_global:deviceptr<int>) (dest_global:deviceptr<'T>) ->
         
         let deviceGather = %deviceGather
         
@@ -79,7 +80,7 @@ let kernelBulkRemove (plan:Plan) =
         // for other algorithms such as reduce, scan, we need use createSharedExpr, please check my reduce
         // example and think again why I need it (hint, for alignment)
 
-        let shared = __shared__<int>(sharedSize).Ptr(0)
+        let shared = __shared__.Array<int>(sharedSize) |> __array_to_ptr
         let sharedScan = shared
         let sharedIndices = shared
 
@@ -105,7 +106,7 @@ let kernelBulkRemove (plan:Plan) =
         // Load the indices into register
         let begin' = p0
         let indexCount = p1 - begin'
-        let indices = __local__<int>(VT).Ptr(0)
+        let indices = __local__.Array<int>(VT) |> __array_to_ptr
         deviceGlobalToReg indexCount (indices_global + begin') tid indices false
 
         // Set the counter to 0 for each index we've loaded
@@ -137,17 +138,17 @@ let kernelBulkRemove (plan:Plan) =
         // is sourceCount - indexCount
         source_global <- source_global + gid
         let count = sourceCount - indexCount
-        let values = __local__<'T>(VT).Ptr(0)
+        let values = __local__.Array<'T>(VT) |> __array_to_ptr
         deviceGather count source_global indices tid values false
 
         // Store all the valid registers to dest_global
         deviceRegToGlobal count values tid (dest_global + gid - begin') false  @>
 
-type IBulkRemove<'T> =
-    {
-        Action : ActionHint -> int -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit        
-        NumPartitions : int
-    }
+//type IBulkRemove<'T> =
+//    {
+//        Action : ActionHint -> int -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<'T> -> unit        
+//        NumPartitions : int
+//    }
 
 
 // @COMMENTS@ : actrually, bulkRemove just need use a comp of int (for index), so you don't
@@ -160,13 +161,13 @@ let bulkRemove(plan:Plan) = cuda {
     //let plan = { NT = 128; VT = 11 }
     let NV = plan.NT * plan.VT
     
-    let! kernelBulkRemove = kernelBulkRemove plan |> defineKernelFuncWithName "br"
+    let! kernelBulkRemove = kernelBulkRemove plan |> Compiler.DefineKernel //"br"
     let! bsp = Search.binarySearchPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelBulkRemove = kernelBulkRemove.Apply m
-        let bsp = bsp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelBulkRemove = program.Apply kernelBulkRemove
+        //let bsp = program.Apply bsp
 
         // @COMMENTS@: you need understand why I need only sourceCount, but not indicesCount here.
         // because we need numBlocks, and to calculate numBlocks we only need sourceCount.
@@ -189,15 +190,15 @@ let bulkRemove(plan:Plan) = cuda {
             // so the correct way is to expose the size for partitions from the interface, and let
             // the wrapper do the memory.
             
-            let action (hint:ActionHint) (indicesCount:int) (parts:DevicePtr<int>) (source_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
+            let run (indicesCount:int) (parts:deviceptr<int>) (source_global:deviceptr<'T>) (indices_global:deviceptr<int>) (dest_global:deviceptr<'T>) =
                 // @COMMENTS@ : here I use worker.Eval, because otherwise, it will do thread switching, make them
                 // all do in one eval, ignore the switching.
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let bsp = bsp sourceCount indicesCount NV
-                    let partitions = bsp.Action hint indices_global parts
+                    let partitions = bsp indices_global parts
                     kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts dest_global
                 |> worker.Eval
 
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
             

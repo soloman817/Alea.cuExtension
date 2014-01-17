@@ -6,10 +6,10 @@
 //open Microsoft.FSharp.Collections
 //open Alea.CUDA
 //open Alea.cuExtension
-//open Alea.cuExtension.Util
+////open Alea.cuExtension.Util
 //open Alea.cuExtension.MGPU
 //open Alea.cuExtension.MGPU.Intrinsics
-//open Alea.cuExtension.MGPU.QuotationUtil
+////open Alea.cuExtension.MGPU.QuotationUtil
 //open Alea.cuExtension.MGPU.DeviceUtil
 //open Alea.cuExtension.MGPU.LoadStore
 //open Alea.cuExtension.MGPU.CTAScan
@@ -42,12 +42,12 @@
 //    let deviceMemToMemLoop = deviceMemToMemLoop NT
 //    let ctaLoadBalance = ctaLoadBalance NT VT
 //     
-//    <@ fun (total:int) (aLowerBound_global:DevicePtr<int>) (aCountsScan_global:DevicePtr<int>) (aCount:int) (mp_global:DevicePtr<int>) (aIndices_global:DevicePtr<int>) (bIndices_global:DevicePtr<int>) ->
+//    <@ fun (total:int) (aLowerBound_global:deviceptr<int>) (aCountsScan_global:deviceptr<int>) (aCount:int) (mp_global:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) ->
 //        let ulonglong_as_uint2 = %ulonglong_as_uint2
 //        let ctaLoadBalance = %ctaLoadBalance
 //        let deviceMemToMemLoop = %deviceMemToMemLoop
 //
-//        let shared = __shared__<int>(sharedSize).Ptr(0)
+//        let shared = __shared__<int>(sharedSize) |> __array_to_ptr
 //        let indices_shared = shared
 //
 //        let tid = threadIdx.x
@@ -59,8 +59,8 @@
 //        let output_shared = indices_shared
 //        let input_shared = indices_shared + outputCount
 //
-//        let aIndex = __local__<int>(VT).Ptr(0)
-//        let rank = __local__<int>(VT).Ptr(0)
+//        let aIndex = __local__.Array<int>(VT) |> __array_to_ptr
+//        let rank = __local__.Array<int>(VT) |> __array_to_ptr
 //        for i = 0 to VT - 1 do
 //            let index = NT * i + tid
 //            if index < outputCount then
@@ -91,11 +91,11 @@
 //    let sharedSize = capacity
 //    let ulonglong_as_uint2 = ulonglong_as_uint2
 //
-//    <@ fun (matches_global:DevicePtr<uint64>) (count:int) (totals_global:DevicePtr<int>) ->
+//    <@ fun (matches_global:deviceptr<uint64>) (count:int) (totals_global:deviceptr<int>) ->
 //        let reduce = %reduce
 //        let ulonglong_as_uint2 = %ulonglong_as_uint2
 //
-//        let shared = __shared__<int>(sharedSize).Ptr(0)
+//        let shared = __shared__<int>(sharedSize) |> __array_to_ptr
 //        let sharedReduce = shared
 //        
 //        let tid = threadIdx.x
@@ -126,12 +126,12 @@
 //    let ulonglong_as_uint2 = ulonglong_as_uint2
 //    let deviceMemToMemLoop = deviceMemToMemLoop NT
 //    
-//    <@ fun (matches_global:DevicePtr<uint64>) (count:int) (scan_global:DevicePtr<int>) (rightJoin_global:DevicePtr<int>) ->
+//    <@ fun (matches_global:deviceptr<uint64>) (count:int) (scan_global:deviceptr<int>) (rightJoin_global:deviceptr<int>) ->
 //        let scan = %scan
 //        let ulonglong_as_uint2 = %ulonglong_as_uint2
 //        let deviceMemToMemLoop = %deviceMemToMemLoop
 //
-//        let shared = __shared__<int>(sharedSize).Ptr(0)
+//        let shared = __shared__<int>(sharedSize) |> __array_to_ptr
 //        let sharedIndices = shared
 //        let sharedScan = shared
 //
@@ -155,7 +155,7 @@
 //
 //            packed <- packed ^^^ 0101010101010101UL
 //
-//        let total = __local__<int>(1).Ptr(0)
+//        let total = __local__.Array<int>(1) |> __array_to_ptr
 //        let mutable scan = scan tid (int x) sharedScan total ExclusiveScan
 //
 //        if x <> 0 then

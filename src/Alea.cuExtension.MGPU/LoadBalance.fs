@@ -3,10 +3,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTALoadBalance
@@ -25,11 +26,11 @@ let kernelLoadBalance (plan:Plan) =
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
 
     let sharedSize = NT * (VT + 1)
-    <@ fun (aCount:int) (b_global:DevicePtr<int>) (bCount:int) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (indices_global:DevicePtr<int>) ->
+    <@ fun (aCount:int) (b_global:deviceptr<int>) (bCount:int) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (indices_global:deviceptr<int>) ->
         let ctaLoadBalance = %ctaLoadBalance
         let deviceSharedToGlobal = %deviceSharedToGlobal
 
-        let indices_shared = __shared__<int>(sharedSize).Ptr(0)
+        let indices_shared = __shared__.Array<int>(sharedSize) |> __array_to_ptr
 
         let mutable aCount = aCount
 
@@ -43,36 +44,36 @@ let kernelLoadBalance (plan:Plan) =
     @>
 
 
-type ILoadBalanceSearch =
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit
-        NumPartitions : int
-    }
+//type ILoadBalanceSearch =
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
+//        NumPartitions : int
+//    }
 
 
 let loadBalanceSearch() = cuda {
     let plan = { NT = 128; VT = 7 }
     let NV = plan.NT * plan.VT
 
-    let! kernelLoadBalance = kernelLoadBalance plan |> defineKernelFuncWithName "lbs"
+    let! kernelLoadBalance = kernelLoadBalance plan |> Compiler.DefineKernel //"lbs"
     let! mpp = Search.mergePathPartitions MgpuBoundsUpper (comp CompTypeLess 0)
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelLoadBalance = kernelLoadBalance.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelLoadBalance = program.Apply kernelLoadBalance
+        //let mpp = mpp.Apply m
 
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
 
-            let action (hint:ActionHint) (b_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) =
+            let run (b_global:deviceptr<int>) (indices_global:deviceptr<int>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint countingItr_global b_global mp_global
+                    let partitions = mpp countingItr_global b_global mp_global
                     kernelLoadBalance.Launch lp aCount b_global bCount countingItr_global mp_global indices_global
                 |> worker.Eval
             
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 

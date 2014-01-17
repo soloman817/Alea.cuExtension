@@ -5,9 +5,9 @@ open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -19,14 +19,14 @@ open Alea.cuExtension.MGPU.CTAScan
 //// register.
 //// http://en.wikipedia.org/wiki/Odd%E2%80%93even_sort
 type IOddEvenTransposeSortT<'T> =
-    abstract member Sort : Expr<RWPtr<'T> -> RWPtr<'T> -> int -> unit>
+    abstract member Sort : Expr<deviceptr<'T> -> deviceptr<'T> -> int -> unit>
 
 //let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'T>) =
 //    { new IOddEvenTransposeSortT<'T> with
 //        member this.Sort = 
 //            let swap = (swap compOp.Identity).Device
 //            let comp = compOp.Device            
-//            <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int)  ->
+//            <@ fun (keys:deviceptr<'T>) (values:deviceptr<'T>) (flags:int)  ->
 //                let swap = %swap
 //                let comp = %comp
 //                            
@@ -41,7 +41,7 @@ type IOddEvenTransposeSortT<'T> =
 
 let oddEvenTransposeSortT (VT:int) (compOp:IComp<'T>) =
     let comp = compOp.Device        
-    <@ fun (keys:RWPtr<'T>) (values:RWPtr<'T>) (flags:int) ->        
+    <@ fun (keys:deviceptr<'T>) (values:deviceptr<'T>) (flags:int) ->        
         let comp = %comp
         let mutable level = 0
         while level < VT do
@@ -62,7 +62,7 @@ let oddEvenTransposeSortT (VT:int) (compOp:IComp<'T>) =
 //    let swap = (swap compOp.Identity).Device
 //    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
 //    let comp = compOp.Device
-//    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+//    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
 //        let swap = %swap
 //        let comp = %comp
 //        let oddEvenTransposeSortT = %oddEvenTransposeSortT
@@ -79,19 +79,19 @@ let oddEvenTransposeSortT (VT:int) (compOp:IComp<'T>) =
 
 let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
     let oddEvenTransposeSortT = oddEvenTransposeSortT VT compOp
-    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) ->
+    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) ->
         let oddEvenTransposeSortT = %oddEvenTransposeSortT
         oddEvenTransposeSortT keys values 0
     @>
 
 
 let oddEvenTransposeSortFlags (VT:int) (compOp:IComp<'TV>) =
-    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
         ()
     @>
 
 let oddEvenMergesortFlags (VT:int) (compOp:IComp<'TV>) =
-    <@ fun (keys:RWPtr<'TV>) (values:RWPtr<'TV>) (flags:int) ->
+    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
         ()
     @>
 //////////////////////////////////////////////////////////////////////////////////

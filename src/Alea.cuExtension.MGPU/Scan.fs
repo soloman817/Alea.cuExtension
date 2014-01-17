@@ -5,10 +5,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -24,7 +25,7 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
     let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
     let sharedAlign = max alignOfTI alignOfTV
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-    let createSharedExpr = createSharedExpr sharedAlign sharedSize
+    //let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
     // get neccesary quotations for later doing slicing in quotation
     let commutative = op.Commutative
@@ -37,7 +38,7 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
     
 
-    <@ fun (cta_global:DevicePtr<'TI>) (count:int) (total_global:DevicePtr<'TV>) (end_global:DevicePtr<'TR>) (dest_global:DevicePtr<'TR>) ->
+    <@ fun (cta_global:deviceptr<'TI>) (count:int) (total_global:deviceptr<'TV>) (end_global:deviceptr<'TR>) (dest_global:deviceptr<'TR>) ->
         let extract = %extract
         let combine = %combine
         let plus = %plus
@@ -46,10 +47,10 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
         let deviceSharedToGlobal = %deviceSharedToGlobal
         let scan = %scan
 
-        let shared = %(createSharedExpr)
-        let sharedScan = shared.Reinterpret<'TV>()
-        let sharedInputs = shared.Reinterpret<'TI>()
-        let sharedResults = shared.Reinterpret<'TR>()
+        //let shared = %(createSharedExpr)
+        let sharedScan = __shared__.Array<'TV>(sharedSize)
+        let sharedInputs = __shared__.Array<'TI>(sharedSize)
+        let sharedResults = __shared__.Array<'TR>(sharedSize)
 
         let tid = threadIdx.x
         
@@ -61,11 +62,11 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
         while(start < count) do
             // load data in to shared memory
             let count2 = min NV (count - start)
-            deviceGlobalToShared count2 (cta_global + start) tid sharedInputs true
+            deviceGlobalToShared count2 (cta_global + start) tid (sharedInputs |> __array_to_ptr) true
                         
             // Transpose data into register in thread order.  Reduce terms serially
-            let inputs = __local__<'TI>(VT).Ptr(0)
-            let values = __local__<'TV>(VT).Ptr(0)
+            let inputs = __local__.Array<'TI>(VT) |> __array_to_ptr
+            let values = __local__.Array<'TV>(VT) |> __array_to_ptr
             let mutable x = extract identity -1
             for i = 0 to VT - 1 do
                 let index = VT * tid + i
@@ -75,8 +76,8 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
                     x <- if i <> 0 then plus x values.[i] else values.[i]                    
             __syncthreads()
             
-            let passTotal = __local__(1).Ptr(0)
-            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+            let passTotal = __local__.Array(1) |> __array_to_ptr
+            let mutable x = scan tid x (sharedScan |> __array_to_ptr) passTotal ExclusiveScan
             
             if totalDefined then
                 x <- plus total x
@@ -101,13 +102,13 @@ let kernelParallelScan (NT:int) (VT:int) (mgpuScanType:int) (op:IScanOp<'TI, 'TV
                         x <- x2
             __syncthreads()
             
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + start) true
+            deviceSharedToGlobal count2 (sharedResults |> __array_to_ptr) tid (dest_global + start) true
             start <- start + NV
             totalDefined <- true
 
-        if (total_global.Handle64 <> 0L) && (tid = 0) then
+        if (total_global.Handle <> (nativeint 0)) && (tid = 0) then
             total_global.[0] <- total
-        if (end_global.Handle64 <> 0L) && (tid = 0) then
+        if (end_global.Handle <> (nativeint 0)) && (tid = 0) then
             end_global.[0] <- combine identity total 
             @>
 
@@ -122,7 +123,7 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
     let alignOfTV, sizeOfTV = TypeUtil.cudaAlignOf typeof<'TV>, sizeof<'TV>
     let sharedAlign = max alignOfTI alignOfTV
     let sharedSize = max (sizeOfTI * NV) (sizeOfTV * capacity)
-    let createSharedExpr = createSharedExpr sharedAlign sharedSize
+    //let createSharedExpr = createSharedExpr sharedAlign sharedSize
 
     // get neccesary quotations for later doing slicing in quotation
     let commutative = op.Commutative
@@ -133,7 +134,7 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
     let deviceGlobalToShared = deviceGlobalToShared NT VT
 
-    <@ fun (data_global:DevicePtr<'TI>) (count:int) (task:int2) (reduction_global:DevicePtr<'TV>) (dest_global:DevicePtr<'TR>) (totalAtEnd:int) ->
+    <@ fun (data_global:deviceptr<'TI>) (count:int) (task:int2) (reduction_global:deviceptr<'TV>) (dest_global:deviceptr<'TR>) (totalAtEnd:int) ->
         let extract = %extract
         let combine = %combine
         let plus = %plus
@@ -141,10 +142,10 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
         let deviceSharedToGlobal = %deviceSharedToGlobal
         let scan = %scan
 
-        let shared = %(createSharedExpr)
-        let sharedScan = shared.Reinterpret<'TV>()
-        let sharedInputs = shared.Reinterpret<'TI>()
-        let sharedResults = shared.Reinterpret<'TR>()
+        //let shared = %(createSharedExpr)
+        let sharedScan = __shared__.Array<'TV>(sharedSize)
+        let sharedInputs = __shared__.Array<'TI>(sharedSize)
+        let sharedResults = __shared__.Array<'TR>(sharedSize)
     
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -157,10 +158,10 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
             let count2 = min NV (count - range.x)
             
             // Load from global to shared memory
-            deviceGlobalToShared count2 (data_global + range.x) tid sharedInputs true
+            deviceGlobalToShared count2 (data_global + range.x) tid (sharedInputs |> __array_to_ptr) true
 
-            let inputs = __local__<'TI>(VT).Ptr(0)
-            let values = __local__<'TV>(VT).Ptr(0)
+            let inputs = __local__.Array<'TI>(VT) |> __array_to_ptr
+            let values = __local__.Array<'TV>(VT) |> __array_to_ptr
             let mutable x = extract identity -1
 
             for i = 0 to VT - 1 do
@@ -171,8 +172,8 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
                     if i <> 0 then x <- plus x values.[i] else x <- values.[i]
             __syncthreads()
 
-            let passTotal = __local__(1).Ptr(0)
-            let mutable x = scan tid x sharedScan passTotal ExclusiveScan
+            let passTotal = __local__.Array(1) |> __array_to_ptr
+            let mutable x = scan tid x (sharedScan |> __array_to_ptr) passTotal ExclusiveScan
 
             if nextDefined then
                 x <- plus next x
@@ -199,7 +200,7 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
                         x <- x2
             __syncthreads()
 
-            deviceSharedToGlobal count2 sharedResults tid (dest_global + range.x) true
+            deviceSharedToGlobal count2 (sharedResults |> __array_to_ptr) tid (dest_global + range.x) true
             range.x <- range.x + NV
             nextDefined <- true
                                 
@@ -212,11 +213,11 @@ let kernelScanDownsweep (plan:Plan) (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR
             dest_global.[count] <- dg @>
         
 
-type IScan<'TI, 'TV, 'TR> =
-    {
-        Action : ActionHint -> DevicePtr<'TI> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TR> -> unit
-        NumBlocks: int        
-    }
+//type IScan<'TI, 'TV, 'TR> =
+//    {
+//        Action : ActionHint -> deviceptr<'TI> -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<'TR> -> unit
+//        NumBlocks: int        
+//    }
 
 
 let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda {
@@ -229,41 +230,41 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
         
     let NT, VT = 512, 3
     let kernelPS = kernelParallelScan NT VT mgpuScanType op
-    let! kernelPS = kernelPS |> defineKernelFuncWithName "ps"
+    let! kernelPS = kernelPS |> Compiler.DefineKernel //"ps"
         
     let kernelRRUpsweep = Reduce.kernelReduce tuning op
-    let! kernelRRUpsweep = kernelRRUpsweep |> defineKernelFuncWithName "rrUpsweep"
+    let! kernelRRUpsweep = kernelRRUpsweep |> Compiler.DefineKernel //"rrUpsweep"
 
     let NT2, VT2 = 256, 3
     let kernelPLOS = kernelParallelScan NT2 VT2 ExclusiveScan op
-    let! kernelPLOS = kernelPLOS |> defineKernelFuncWithName "plos"
+    let! kernelPLOS = kernelPLOS |> Compiler.DefineKernel //"plos"
 
     let kernelRSDownsweep = kernelScanDownsweep tuning mgpuScanType op
-    let! kernelRSDownsweep = kernelRSDownsweep |> defineKernelFuncWithName "rsDownsweep"
+    let! kernelRSDownsweep = kernelRSDownsweep |> Compiler.DefineKernel //"rsDownsweep"
     
     let hplus = op.HPlus
         
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let numSm = worker.Device.NumSm
-        let kernelPS = kernelPS.Apply m
-        let kernelRRUpsweep = kernelRRUpsweep.Apply m
-        let kernelPLOS = kernelPLOS.Apply m
-        let kernelRSDownsweep = kernelRSDownsweep.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let numSm = worker.Device.Attributes.MULTIPROCESSOR_COUNT
+        let kernelPS = program.Apply kernelPS
+        let kernelRRUpsweep = program.Apply kernelRRUpsweep
+        let kernelPLOS = program.Apply kernelPLOS
+        let kernelRSDownsweep = program.Apply kernelRSDownsweep
         fun (count:int) ->
             let numBlocks = ref 1            
 
-            let action (hint:ActionHint) (data_global:DevicePtr<'TI>) (total:DevicePtr<'TV>) (reductionDevice:DevicePtr<'TV>) (dest_global:DevicePtr<'TR>)  =
+            let run (data_global:deviceptr<'TI>) (total:deviceptr<'TV>) (reductionDevice:deviceptr<'TV>) (dest_global:deviceptr<'TR>)  =
                 fun () ->
                     let mutable total = total                 
                     if count < cutOff then
                         let NV = NT * VT
-                        let lp = LaunchParam(1, NT) |> hint.ModifyLaunchParam                        
+                        let lp = LaunchParam(1, NT) //|> hint.ModifyLaunchParam                        
                         kernelPS.Launch lp 
                             data_global 
                             count 
                             total 
-                            (if totalAtEnd = 1 then (dest_global + count) else (DevicePtr<'TR>(0n)))
+                            (if totalAtEnd = 1 then (dest_global + count) else (deviceptr<'TR>(0n)))
                             dest_global                    
                     else
                         let NV = tuning.NT * tuning.VT
@@ -271,7 +272,7 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                         numBlocks := min (numSm * 25) numTiles
                         let task = divideTaskRange numTiles !numBlocks                        
                         let totalDevice = reductionDevice + !numBlocks
-                        let lp = LaunchParam(!numBlocks, tuning.NT) |> hint.ModifyLaunchParam
+                        let lp = LaunchParam(!numBlocks, tuning.NT) //|> hint.ModifyLaunchParam
                         
                         kernelRRUpsweep.Launch lp 
                             data_global 
@@ -279,18 +280,18 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                             task 
                             reductionDevice
 
-                        let lp = LaunchParam(1, NT2) |> hint.ModifyLaunchParam
+                        let lp = LaunchParam(1, NT2) //|> hint.ModifyLaunchParam
                         let reductionDevice1 = reductionDevice.Reinterpret<'TI>()
                         let reductionDevice2 = reductionDevice.Reinterpret<'TR>()
                         kernelPLOS.Launch lp 
                             reductionDevice1 
                             !numBlocks 
                             totalDevice 
-                            (DevicePtr(0n))
+                            (deviceptr(0n))
                             reductionDevice2
                         
                         total <- totalDevice
-                        let lp = LaunchParam(!numBlocks, tuning.NT) |> hint.ModifyLaunchParam            
+                        let lp = LaunchParam(!numBlocks, tuning.NT) //|> hint.ModifyLaunchParam            
                         kernelRSDownsweep.Launch lp 
                             data_global 
                             count 
@@ -300,4 +301,4 @@ let scan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) = cuda 
                             totalAtEnd
 
                 |> worker.Eval                    
-            { Action = action; NumBlocks = !numBlocks } ) }
+            { NumBlocks = !numBlocks } ) }

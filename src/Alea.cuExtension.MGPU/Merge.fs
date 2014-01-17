@@ -3,10 +3,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTASearch
@@ -26,22 +27,22 @@ let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'TV>) 
     let deviceMerge = deviceMerge NT VT hasValues compOp
     let sharedSize = max NV (NT * (VT + 1))
 
-    <@ fun  (aKeys_global:DevicePtr<'TV>) (aVals_global:DevicePtr<'TV>) 
+    <@ fun  (aKeys_global:deviceptr<'TV>) (aVals_global:deviceptr<'TV>) 
             (aCount:int) 
-            (bKeys_global:DevicePtr<'TV>) (bVals_global:DevicePtr<'TV>) 
+            (bKeys_global:deviceptr<'TV>) (bVals_global:deviceptr<'TV>) 
             (bCount:int) 
-            (mp_global:DevicePtr<int>) 
+            (mp_global:deviceptr<int>) 
             (coop:int) 
-            (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) 
+            (keys_global:deviceptr<'TV>) (vals_global:deviceptr<'TV>) 
             ->
 
         let comp = %comp
         let computeMergeRange = %computeMergeRange
         let deviceMerge = %deviceMerge
 
-        let shared = __shared__<'TV>(sharedSize).Ptr(0)
+        let shared = __shared__.Array<'TV>(sharedSize) |> __array_to_ptr
         let sharedKeys = shared
-        let sharedIndices = shared.Reinterpret<int>()
+        let sharedIndices = __shared__.Array<int>()
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -51,11 +52,11 @@ let kernelMerge (plan:Plan) (hasValues:int) (mergeSort:int) (compOp:IComp<'TV>) 
         deviceMerge aKeys_global aVals_global bKeys_global bVals_global tid block range sharedKeys sharedIndices keys_global vals_global
         @>
 
-type IMergeKeys<'TV> =
-    {
-        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TV> -> unit
-        NumPartitions : int
-    }
+//type IMergeKeys<'TV> =
+//    {
+//        Action : ActionHint -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<int> -> deviceptr<'TV> -> unit
+//        NumPartitions : int
+//    }
 
 let mergeKeys (compOp:IComp<'TV>) = cuda {
     let plan = { NT = 128; VT = 11 }
@@ -63,32 +64,32 @@ let mergeKeys (compOp:IComp<'TV>) = cuda {
     let VT = plan.VT
     let NV = NT * VT
 
-    let! kernelMerge = (kernelMerge plan 0 0 compOp) |> defineKernelFunc
+    let! kernelMerge = (kernelMerge plan 0 0 compOp) |> Compiler.DefineKernel
     let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelMerge = kernelMerge.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelMerge = program.Apply kernelMerge
+        //let mpp = mpp.Apply m
 
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TV>) (bKeys_global:DevicePtr<'TV>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TV>) =
+            let run (aKeys_global:deviceptr<'TV>) (bKeys_global:deviceptr<'TV>) (parts:deviceptr<int>) (keys_global:deviceptr<'TV>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint aKeys_global bKeys_global parts
-                    kernelMerge.Launch lp aKeys_global (DevicePtr<'TV>(0n)) aCount bKeys_global (DevicePtr<'TV>(0n)) bCount parts 0 keys_global (DevicePtr<'TV>(0n))
+                    let partitions = mpp aKeys_global bKeys_global parts
+                    kernelMerge.Launch lp aKeys_global (deviceptr<'TV>(0n)) aCount bKeys_global (deviceptr<'TV>(0n)) bCount parts 0 keys_global (deviceptr<'TV>(0n))
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
-type IMergePairs<'TV> =
-    {
-        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TV> -> DevicePtr<'TV> -> unit
-        NumPartitions : int
-    }
+//type IMergePairs<'TV> =
+//    {
+//        Action : ActionHint -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<int> -> deviceptr<'TV> -> deviceptr<'TV> -> unit
+//        NumPartitions : int
+//    }
 
 
 let mergePairs (compOp:IComp<'TV>) = cuda {
@@ -97,33 +98,33 @@ let mergePairs (compOp:IComp<'TV>) = cuda {
     let VT = plan.VT
     let NV = NT * VT
 
-    let! kernelMerge = kernelMerge plan 1 0 compOp |> defineKernelFuncWithName "mp"
+    let! kernelMerge = kernelMerge plan 1 0 compOp |> Compiler.DefineKernel //"mp"
     let! mpp = Search.mergePathPartitions MgpuBoundsLower compOp
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelMerge = kernelMerge.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelMerge = program.Apply kernelMerge
+        //let mpp = mpp.Apply m
 
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (aKeys_global:DevicePtr<'TV>) (aVals_global:DevicePtr<'TV>) (bKeys_global:DevicePtr<'TV>) (bVals_global:DevicePtr<'TV>) (parts:DevicePtr<int>) (keys_global:DevicePtr<'TV>) (vals_global:DevicePtr<'TV>) =
+            let run (aKeys_global:deviceptr<'TV>) (aVals_global:deviceptr<'TV>) (bKeys_global:deviceptr<'TV>) (bVals_global:deviceptr<'TV>) (parts:deviceptr<int>) (keys_global:deviceptr<'TV>) (vals_global:deviceptr<'TV>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint aKeys_global bKeys_global parts
+                    let partitions = mpp aKeys_global bKeys_global parts
                     kernelMerge.Launch lp aKeys_global aVals_global aCount bKeys_global bVals_global bCount parts 0 keys_global vals_global
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 
-type IPKernelMergesort<'TV> =
-    {
-        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<'TV> -> unit
-        NumPartitions : int
-    }
+//type IPKernelMergesort<'TV> =
+//    {
+//        Action : ActionHint -> deviceptr<'TV> -> deviceptr<int> -> deviceptr<'TV> -> unit
+//        NumPartitions : int
+//    }
 
 let pKernelMergesort (plan:Plan) (compOp:IComp<'TV>) = cuda {
     let NV = plan.NT * plan.VT
@@ -131,22 +132,22 @@ let pKernelMergesort (plan:Plan) (compOp:IComp<'TV>) = cuda {
     let hasValues = 0
     let mergeSort = 1
     
-    let! kernelMerge = (kernelMerge plan hasValues mergeSort compOp) |> defineKernelFunc
+    let! kernelMerge = (kernelMerge plan hasValues mergeSort compOp) |> Compiler.DefineKernel
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelMerge = kernelMerge.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelMerge = program.Apply kernelMerge
 
         fun (count:int) (coop:int) ->
             let numBlocks = divup count NV
             let lp = LaunchParam(numBlocks, plan.NT)
 
-            let action (hint:ActionHint) (source:DevicePtr<'TV>) (parts:DevicePtr<int>) (dest:DevicePtr<'TV>) =
+            let run (source:deviceptr<'TV>) (parts:deviceptr<int>) (dest:deviceptr<'TV>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
-                    kernelMerge.Launch lp source (DevicePtr<'TV>(0n)) count source (DevicePtr<'TV>(0n)) 0 parts coop dest (DevicePtr<'TV>(0n))
+                    
+                    kernelMerge.Launch lp source (deviceptr<'TV>(0n)) count source (deviceptr<'TV>(0n)) 0 parts coop dest (deviceptr<'TV>(0n))
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 //////////////////////////////////////////////////////////////////////////////////
 //// KernelMerge

@@ -3,11 +3,12 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
 open Alea.cuExtension.MGPU.Intrinsics
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -26,7 +27,7 @@ let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:
     let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT (VT + 1) 
     let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
 
-    <@ fun (range:int4) (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (tid:int) (block:int) (keys_shared:RWPtr<'T>) (indices_shared:RWPtr<int>) ->
+    <@ fun (range:int4) (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (tid:int) (block:int) (keys_shared:deviceptr<'T>) (indices_shared:deviceptr<int>) ->
         let deviceLoad2ToShared = %deviceLoad2ToShared
         let ctaSortedSearch = %ctaSortedSearch
 
@@ -79,32 +80,33 @@ let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (index
     let deviceLoadSortedSearch = deviceLoadSortedSearch NT VT bounds indexA matchA indexB matchB compOp
     let deviceMemToMemLoop = deviceMemToMemLoop NT
 
-    <@ fun (a_global:DevicePtr<'T>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (aIndices_global:DevicePtr<int>) (bIndices_global:DevicePtr<int>) -> //(aMatchCount:DevicePtr<int>) (bMatchCount:DevicePtr<int>) ->
+    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (mp_global:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) -> //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) ->
         let reduce = %reduce
         let computeMergeRange = %computeMergeRange
         let deviceLoadSortedSearch = %deviceLoadSortedSearch
         let deviceMemToMemLoop = %deviceMemToMemLoop
 
-        let shared = __shared__<'T>(sharedSize).Ptr(0)
-        let sharedKeys = shared
-        let sharedIndices = shared.Reinterpret<int>()
-        let sharedReduce = shared.Reinterpret<int>()
+        //let shared = __shared__.Array<'T>(sharedSize) |> __array_to_ptr
+        let sharedKeys = __shared__.Array<'T>(sharedSize)
+        let sharedIndices = __shared__.Array<int>(sharedSize)
+        let sharedReduce = __shared__.Array<int>(sharedSize)
 
-            
+        //let x = b_global + 1
         let tid = threadIdx.x
         let block = blockIdx.x
         let range = computeMergeRange aCount bCount block 0 NV mp_global
 
             
-        let matchCount = deviceLoadSortedSearch range a_global aCount b_global bCount tid block sharedKeys sharedIndices
+        let matchCount = deviceLoadSortedSearch range a_global aCount b_global bCount tid block (sharedKeys |> __array_to_ptr) (sharedIndices |> __array_to_ptr)
         let aCount = range.y - range.x
         let bCount = range.w - range.z
 
         if (indexA || matchA) then
-            deviceMemToMemLoop aCount sharedIndices tid (aIndices_global + range.x) true
+            deviceMemToMemLoop aCount (sharedIndices |> __array_to_ptr) tid (aIndices_global + range.x) true
 
+        let sharedIndices = (sharedIndices |> __array_to_ptr) + aCount
         if (indexB || matchB) then
-            deviceMemToMemLoop bCount (sharedIndices + aCount) tid (bIndices_global + range.z) true
+            deviceMemToMemLoop bCount sharedIndices tid (bIndices_global + range.z) true
 
 //            if ((matchA || matchB) && (aMatchCount.[0] <> 0 || bMatchCount.[0] <> 0)) then
 //                let x = bfi (uint32 matchCount.y) (uint32 matchCount.x) 16u 16u
@@ -114,11 +116,11 @@ let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (index
         @>
 
 
-type ISortedSearch<'T> =
-    {                                                                                                                         // cause use until we have support for atomics  
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> unit //DevicePtr<int> -> DevicePtr<int> -> unit
-        NumPartitions : int
-    }
+//type ISortedSearch<'T> =
+//    {                                                                                                                         // cause use until we have support for atomics  
+//        Action : ActionHint -> deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit //deviceptr<int> -> deviceptr<int> -> unit
+//        NumPartitions : int
+//    }
 
 
 let sortedSearch (bounds:int) (typeA:MgpuSearchType) (typeB:MgpuSearchType) (compOp:IComp<'T>) = cuda {
@@ -133,24 +135,24 @@ let sortedSearch (bounds:int) (typeA:MgpuSearchType) (typeB:MgpuSearchType) (com
     let matchB = if (typeB = MgpuSearchTypeMatch) || (typeB = MgpuSearchTypeIndexMatch) then 1 else 0
                 
 
-    let! kernelSortedSearch = kernelSortedSearch plan bounds indexA matchA indexB matchB compOp |> defineKernelFuncWithName "ss"
+    let! kernelSortedSearch = kernelSortedSearch plan bounds indexA matchA indexB matchB compOp |> Compiler.DefineKernel //"ss"
     let! mpp = Search.mergePathPartitions bounds compOp
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelSortedSearch = kernelSortedSearch.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelSortedSearch = program.Apply kernelSortedSearch
+        //let mpp = mpp.Apply m
 
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
 
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (b_global:DevicePtr<'T>) (parts:DevicePtr<int>) (aIndices_global:DevicePtr<int>) (bIndices_global:DevicePtr<int>) = //(aMatchCount:DevicePtr<int>) (bMatchCount:DevicePtr<int>) =
+            let run (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) = //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint a_global b_global parts
+                    let partitions = mpp a_global b_global parts
                     kernelSortedSearch.Launch lp a_global aCount b_global bCount parts aIndices_global bIndices_global //aMatchCount bMatchCount
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }

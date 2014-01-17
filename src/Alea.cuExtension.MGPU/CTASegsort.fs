@@ -4,11 +4,12 @@ module Alea.cuExtension.MGPU.CTASegsort
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
 open Alea.cuExtension.MGPU.Static
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.Intrinsics
 open Alea.cuExtension.MGPU.LoadStore
@@ -18,7 +19,7 @@ open Alea.cuExtension.MGPU.CTAMerge
 
 
 let extractThreadHeadFlags =
-    <@ fun (flags:RWPtr<uint32>) (index:int) (numBits:int) ->
+    <@ fun (flags:deviceptr<uint32>) (index:int) (numBits:int) ->
         let index2 = index >>> 5
         let shift = 31u &&& (uint32 index)
         let mutable headFlags = flags.[index2] >>> (int32 shift)
@@ -33,13 +34,13 @@ let extractThreadHeadFlags =
 
 let segmentedSerialMerge (VT:int) (compOp:IComp<'TV>) =
     let comp = compOp.Device
-    <@ fun  (keys_shared    :RWPtr<'TV>)
+    <@ fun  (keys_shared    :deviceptr<'TV>)
             (aBegin         :int)
             (aEnd           :int)
             (bBegin         :int)
             (bEnd           :int)
-            (results        :RWPtr<'TV>)
-            (indices        :RWPtr<int>)
+            (results        :deviceptr<'TV>)
+            (indices        :deviceptr<int>)
             (leftEnd        :int)
             (rightStart     :int)
             (sync           :bool)
@@ -86,12 +87,12 @@ let ctaSegsortPass (NT:int) (VT:int) (compOp:IComp<'TV>) =
     let segmentedMergePath = (segmentedMergePath compOp).DSegmentedMergePath
     let segmentedSerialMerge = segmentedSerialMerge VT compOp
 
-    <@ fun  (keys_shared:RWPtr<'TV>)
-            (ranges_shared:RWPtr<int>)
+    <@ fun  (keys_shared:deviceptr<'TV>)
+            (ranges_shared:deviceptr<int>)
             (tid:int)
             (pass:int)
-            (results:RWPtr<'TV>)
-            (indices:RWPtr<int>)
+            (results:deviceptr<'TV>)
+            (indices:deviceptr<int>)
             (activeRange:int2)
             ->
         let findMergesortFrame = %findMergesortFrame
@@ -136,11 +137,11 @@ let ctaSegsortLoop (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
     let ctaSegsortPass = ctaSegsortPass NT VT compOp
 
     let _, numPasses = sLogPow2 NT 1
-    <@ fun  (threadKeys:RWPtr<'TV>)
-            (threadValues:RWPtr<'TV>)
-            (keys_shared:RWPtr<'TV>)
-            (values_shared:RWPtr<'TV>)
-            (ranges_shared:RWPtr<int>)
+    <@ fun  (threadKeys:deviceptr<'TV>)
+            (threadValues:deviceptr<'TV>)
+            (keys_shared:deviceptr<'TV>)
+            (values_shared:deviceptr<'TV>)
+            (ranges_shared:deviceptr<int>)
             (tid:int)
             (activeRange:int2)
             ->
@@ -149,7 +150,7 @@ let ctaSegsortLoop (NT:int) (VT:int) (hasValues:bool) (compOp:IComp<'TV>) =
         let ctaSegsortPass = %ctaSegsortPass
 
         for pass = 0 to numPasses do
-            let indices = __local__<int>(VT).Ptr(0)
+            let indices = __local__.Array<int>(VT) |> __array_to_ptr
             ctaSegsortPass keys_shared ranges_shared tid pass threadKeys indices activeRange
 
             if hasValues then
@@ -173,13 +174,13 @@ let ctaSegsort (NT:int) (VT:int) (stable:bool) (hasValues:bool) (compOp:IComp<'T
     let deviceThreadToShared = deviceThreadToShared VT
     let ctaSegsortLoop = ctaSegsortLoop NT VT hasValues compOp
     
-    <@ fun  (threadKeys:RWPtr<'TV>)
-            (threadValues:RWPtr<'TV>)
+    <@ fun  (threadKeys:deviceptr<'TV>)
+            (threadValues:deviceptr<'TV>)
             (tid:int)
             (headFlags:int)
-            (keys_shared:RWPtr<'TV>)
-            (values_shared:RWPtr<'TV>)
-            (ranges_shared:RWPtr<int>)
+            (keys_shared:deviceptr<'TV>)
+            (values_shared:deviceptr<'TV>)
+            (ranges_shared:deviceptr<int>)
             ->
         let oddEvenTransposeSortFlags = %oddEvenTransposeSortFlags
         let oddEvenMergesortFlags = %oddEvenMergesortFlags
@@ -221,18 +222,18 @@ let deviceSegBlocksort (NT:int) (VT:int) (stable:bool) (hasValues:bool) (compOp:
     let deviceSharedToGlobal = deviceSharedToGlobal NT VT
     let deviceThreadToShared = deviceThreadToShared VT
 
-    <@ fun  (keys_global    :DevicePtr<'TV>)
-            (values_global  :DevicePtr<'TV>)
+    <@ fun  (keys_global    :deviceptr<'TV>)
+            (values_global  :deviceptr<'TV>)
             (count2         :int)
-            (keys_shared    :RWPtr<'TV>)
-            (values_shared  :RWPtr<'TV>)
-            (ranges_shared  :RWPtr<int>)
+            (keys_shared    :deviceptr<'TV>)
+            (values_shared  :deviceptr<'TV>)
+            (ranges_shared  :deviceptr<int>)
             (headFlags      :int)
             (tid            :int)
             (block          :int)
-            (keysDest_global:DevicePtr<'TV>)
-            (valsDest_global:DevicePtr<'TV>)
-            (ranges_global  :DevicePtr<int>)
+            (keysDest_global:deviceptr<'TV>)
+            (valsDest_global:deviceptr<'TV>)
+            (ranges_global  :deviceptr<int>)
             ->
         let deviceGlobalToShared = %deviceGlobalToShared
         let deviceSharedToThread = %deviceSharedToThread
@@ -241,11 +242,11 @@ let deviceSegBlocksort (NT:int) (VT:int) (stable:bool) (hasValues:bool) (compOp:
         let deviceThreadToShared = %deviceThreadToShared
 
         let gid = NT * VT * block
-        let threadKeys = __local__<'TV>(VT).Ptr(0)
+        let threadKeys = __local__.Array<'TV>(VT) |> __array_to_ptr
         deviceGlobalToShared count2 (keys_global + gid) tid keys_shared true
         deviceSharedToThread keys_shared tid threadKeys true
 
-        let threadValues = __local__<'TV>(VT).Ptr(0)
+        let threadValues = __local__.Array<'TV>(VT) |> __array_to_ptr
         if hasValues then
             deviceGlobalToShared count2 (values_global + gid) tid values_shared true
             deviceSharedToThread values_shared tid threadValues true
@@ -267,13 +268,13 @@ let deviceSegBlocksort (NT:int) (VT:int) (stable:bool) (hasValues:bool) (compOp:
 //// Load indices from an array and cooperatively turn into a head flag bitfield
 //// for each thread.
 let deviceIndicesToHeadFlags (NT:int) (VT:int) =
-    <@ fun  (indices_global     :DevicePtr<int>) 
-            (partitions_global  :DevicePtr<int>) 
+    <@ fun  (indices_global     :deviceptr<int>) 
+            (partitions_global  :deviceptr<int>) 
             (tid:               int) 
             (block              :int) 
             (count2             :int) 
-            (words_shared       :RWPtr<int>)
-            (flags_shared       :RWPtr<byte>)
+            (words_shared       :deviceptr<int>)
+            (flags_shared       :deviceptr<byte>)
             ->
         let flagWordsPerThread = divup VT 4
         let gid = NT * VT * block

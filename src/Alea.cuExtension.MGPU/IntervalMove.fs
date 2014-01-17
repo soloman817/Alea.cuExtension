@@ -3,10 +3,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTALoadBalance
@@ -31,12 +32,12 @@ let kernelIntervalExpand (plan:Plan) =
     let sharedSize = NT * (VT + 1)
 
     <@ fun  (destCount          :int) 
-            (indices_global     :DevicePtr<int>) 
-            (values_global      :DevicePtr<'T>) 
+            (indices_global     :deviceptr<int>) 
+            (values_global      :deviceptr<'T>) 
             (sourceCount        :int)
-            (countingItr_global :DevicePtr<int>) 
-            (mp_global          :DevicePtr<int>) 
-            (output_global      :DevicePtr<'T>) 
+            (countingItr_global :deviceptr<int>) 
+            (mp_global          :deviceptr<int>) 
+            (output_global      :deviceptr<'T>) 
             ->
         let ctaLoadBalance = %ctaLoadBalance
         let deviceSharedToReg = %deviceSharedToReg
@@ -47,8 +48,8 @@ let kernelIntervalExpand (plan:Plan) =
         let mutable destCount = destCount
         let mutable sourceCount = sourceCount
 
-        let shared = __shared__<'T>(sharedSize).Ptr(0)
-        let sharedIndices = shared.Reinterpret<int>()
+        let shared = __shared__.Array<'T>(sharedSize) |> __array_to_ptr
+        let sharedIndices = __shared__.Array<int>()
         let sharedValues = shared
 
         let tid = threadIdx.x
@@ -57,22 +58,22 @@ let kernelIntervalExpand (plan:Plan) =
         destCount <- range.y - range.x
         sourceCount <- range.w - range.z
 
-        let sources = __local__<int>(VT).Ptr(0)
+        let sources = __local__.Array<int>(VT) |> __array_to_ptr
         deviceSharedToReg (NT * VT) sharedIndices tid sources true
         deviceMemToMemLoop sourceCount (values_global + range.z) tid sharedValues true
 
-        let values = __local__<'T>(VT).Ptr(0)
+        let values = __local__.Array<'T>(VT) |> __array_to_ptr
         deviceGather destCount (sharedValues - range.z) sources tid values false
 
         deviceRegToGlobal destCount values tid (output_global + range.x) false
     @>
 
 
-type IIntervalExpand<'T> = 
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> unit
-        NumPartitions : int
-    }
+//type IIntervalExpand<'T> = 
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+//        NumPartitions : int
+//    }
 
 
 
@@ -84,26 +85,26 @@ let intervalExpand (plan:Plan) = cuda {
     let VT = plan.VT
     let NV = NT * VT
 
-    let! kernelIntervalExpand = kernelIntervalExpand plan |> defineKernelFuncWithName "kie"
+    let! kernelIntervalExpand = kernelIntervalExpand plan |> Compiler.DefineKernel //"kie"
     let! mpp = Search.mergePathPartitions MgpuBoundsUpper (comp CompTypeLess 0)
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelIntervalExpand = kernelIntervalExpand.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelIntervalExpand = program.Apply kernelIntervalExpand
+        //let mpp = mpp.Apply m
 
         fun (moveCount:int) (intervalCount:int) ->
             let numBlocks = divup (moveCount + intervalCount) NV
             let lp = LaunchParam(numBlocks, NT)
 
-            let action (hint:ActionHint) (indices_global:DevicePtr<int>) (values_global:DevicePtr<'T>) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (output_global:DevicePtr<'T>) =
+            let run (indices_global:deviceptr<int>) (values_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp moveCount intervalCount NV 0
-                    let partitions = mpp.Action hint countingItr_global indices_global mp_global                    
+                    let partitions = mpp countingItr_global indices_global mp_global                    
                     kernelIntervalExpand.Launch lp moveCount indices_global values_global intervalCount countingItr_global mp_global output_global
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 
 
@@ -125,14 +126,14 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
     let deviceScatter = deviceScatter NT VT
     let deviceRegToGlobal = deviceRegToGlobal NT VT
     <@ fun  (moveCount          :int) 
-            (gather_global      :DevicePtr<int>) 
-            (scatter_global     :DevicePtr<int>) 
-            (indices_global     :DevicePtr<int>) 
+            (gather_global      :deviceptr<int>) 
+            (scatter_global     :deviceptr<int>) 
+            (indices_global     :deviceptr<int>) 
             (intervalCount      :int) 
-            (input_global       :DevicePtr<'T>)
-            (countingItr_global :DevicePtr<int>) 
-            (mp_global          :DevicePtr<int>) 
-            (output_global      :DevicePtr<'T>) 
+            (input_global       :deviceptr<'T>)
+            (countingItr_global :deviceptr<int>) 
+            (mp_global          :deviceptr<int>) 
+            (output_global      :deviceptr<'T>) 
             ->
         let ctaLoadBalance = %ctaLoadBalance
         let deviceMemToMemLoop = %deviceMemToMemLoop
@@ -144,7 +145,7 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
         let mutable moveCount = moveCount
         let mutable intervalCount = intervalCount
 
-        let indices_shared = __shared__<int>(NT * (VT + 1)).Ptr(0)
+        let indices_shared = __shared__.Array<int>(NT * (VT + 1)) |> __array_to_ptr
         
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -158,8 +159,8 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
         let intervals_shared = indices_shared + moveCount
         let intervals_shared2 = intervals_shared - range.z
 
-        let interval = __local__<int>(VT).Ptr(0)
-        let rank = __local__<int>(VT).Ptr(0)
+        let interval = __local__.Array<int>(VT) |> __array_to_ptr
+        let rank = __local__.Array<int>(VT) |> __array_to_ptr
 
         for i = 0 to VT - 1 do
             let index = NT * i + tid
@@ -170,8 +171,8 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
                 rank.[i] <- gid - intervals_shared2.[interval.[i]]
         __syncthreads()
 
-        let gatherArr = __local__<int>(VT).Ptr(0)
-        let scatterArr = __local__<int>(VT).Ptr(0)
+        let gatherArr = __local__.Array<int>(VT) |> __array_to_ptr
+        let scatterArr = __local__.Array<int>(VT) |> __array_to_ptr
         if gather then
             deviceMemToMemLoop intervalCount (gather_global + range.z) tid intervals_shared true
 
@@ -186,7 +187,7 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
                 scatterArr.[i] <- intervals_shared2.[interval.[i]] + rank.[i]
             __syncthreads()
 
-        let data = __local__<'T>(VT).Ptr(0)
+        let data = __local__.Array<'T>(VT) |> __array_to_ptr
         if gather then
             deviceGather moveCount input_global gatherArr tid data false
         else
@@ -199,11 +200,11 @@ let kernelIntervalMove (plan:Plan) (gather:int) (scatter:int) =
     @>
 
 
-type IIntervalGather<'T> =
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> unit
-        NumPartitions : int
-    }
+//type IIntervalGather<'T> =
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+//        NumPartitions : int
+//    }
 
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -212,33 +213,33 @@ type IIntervalGather<'T> =
 let intervalGather (plan:Plan) = cuda {    
     let NV = plan.NT * plan.VT
 
-    let! kernelIntervalMove = kernelIntervalMove plan 1 0 |> defineKernelFuncWithName "kim"
+    let! kernelIntervalMove = kernelIntervalMove plan 1 0 |> Compiler.DefineKernel //"kim"
     let! mpp = Search.mergePathPartitions MgpuBoundsUpper (comp CompTypeLess 0)
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelIntervalMove = kernelIntervalMove.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelIntervalMove = program.Apply kernelIntervalMove
+        //let mpp = mpp.Apply m
 
         fun (moveCount:int) (intervalCount:int) ->
             let numBlocks = divup (moveCount + intervalCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
 
-            let action (hint:ActionHint) (gather_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (input_global:DevicePtr<'T>) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (output_global:DevicePtr<'T>) =
+            let run (gather_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp moveCount intervalCount NV 0
-                    let partitions = mpp.Action hint countingItr_global indices_global mp_global
-                    kernelIntervalMove.Launch lp moveCount gather_global (DevicePtr(0n)) indices_global intervalCount input_global countingItr_global mp_global output_global
+                    let partitions = mpp countingItr_global indices_global mp_global
+                    kernelIntervalMove.Launch lp moveCount gather_global (deviceptr(0n)) indices_global intervalCount input_global countingItr_global mp_global output_global
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 
-type IIntervalScatter<'T> = 
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> unit
-        NumPartitions : int
-    }
+//type IIntervalScatter<'T> = 
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+//        NumPartitions : int
+//    }
 
 //////////////////////////////////////////////////////////////////////////////////
 //// IntervalScatter
@@ -246,33 +247,33 @@ type IIntervalScatter<'T> =
 let intervalScatter (plan:Plan) = cuda {    
     let NV = plan.NT * plan.VT
     
-    let! kernelIntervalMove = kernelIntervalMove plan 0 1 |> defineKernelFuncWithName "kim"
+    let! kernelIntervalMove = kernelIntervalMove plan 0 1 |> Compiler.DefineKernel //"kim"
     let! mpp = Search.mergePathPartitions MgpuBoundsUpper (comp CompTypeLess 0)
     
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelIntervalMove = kernelIntervalMove.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelIntervalMove = program.Apply kernelIntervalMove
+        //let mpp = mpp.Apply m
         
         fun (moveCount:int) (intervalCount:int) ->
             let numBlocks = divup (moveCount + intervalCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
             
-            let action (hint:ActionHint) (scatter_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (input_global:DevicePtr<'T>)  (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (output_global:DevicePtr<'T>) =
+            let run (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>)  (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp moveCount intervalCount NV 0
-                    let partitions = mpp.Action hint countingItr_global indices_global mp_global
-                    kernelIntervalMove.Launch lp moveCount (DevicePtr<int>(0n)) scatter_global indices_global intervalCount input_global countingItr_global mp_global output_global
+                    let partitions = mpp countingItr_global indices_global mp_global
+                    kernelIntervalMove.Launch lp moveCount (deviceptr<int>(0n)) scatter_global indices_global intervalCount input_global countingItr_global mp_global output_global
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 
-type IIntervalMove<'T> = 
-    {
-        Action : ActionHint -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> unit
-        NumPartitions : int
-    }
+//type IIntervalMove<'T> = 
+//    {
+//        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+//        NumPartitions : int
+//    }
 
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -281,23 +282,23 @@ type IIntervalMove<'T> =
 let intervalMove (plan:Plan) = cuda {    
     let NV = plan.NT * plan.VT
     
-    let! kernelIntervalMove = kernelIntervalMove plan 1 1 |> defineKernelFuncWithName "kim"
+    let! kernelIntervalMove = kernelIntervalMove plan 1 1 |> Compiler.DefineKernel //"kim"
     let! mpp = Search.mergePathPartitions MgpuBoundsUpper (comp CompTypeLess 0)
     
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelIntervalMove = kernelIntervalMove.Apply m
-        let mpp = mpp.Apply m
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelIntervalMove = program.Apply kernelIntervalMove
+        //let mpp = mpp.Apply m
         
         fun (moveCount:int) (intervalCount:int) ->
             let numBlocks = divup (moveCount + intervalCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
             
-            let action (hint:ActionHint) (gather_global:DevicePtr<int>) (scatter_global:DevicePtr<int>) (indices_global:DevicePtr<int>) (input_global:DevicePtr<'T>) (countingItr_global:DevicePtr<int>) (mp_global:DevicePtr<int>) (output_global:DevicePtr<'T>) =
+            let run (gather_global:deviceptr<int>) (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp moveCount intervalCount NV 0
-                    let partitions = mpp.Action hint countingItr_global indices_global mp_global
+                    let partitions = mpp countingItr_global indices_global mp_global
                     kernelIntervalMove.Launch lp moveCount gather_global scatter_global indices_global intervalCount input_global countingItr_global mp_global output_global
                 |> worker.Eval
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }

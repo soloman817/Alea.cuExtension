@@ -13,7 +13,7 @@ open Alea.cuExtension.MGPU.DeviceUtil
 // if you call it from host, you will get exception. we can extend this
 // later to add host algorithm, but I leave it now, because for now, it 
 // is only called from kernel.
-let [<ReflectedDefinition>] brev x = DeviceFunction.__brev(x)
+//let [<ReflectedDefinition>] brev x = DeviceFunction.__brev(x)
 
 let [<ReflectedDefinition>] clz x =
     let mutable i = 31

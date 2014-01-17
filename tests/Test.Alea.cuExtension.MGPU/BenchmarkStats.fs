@@ -1,5 +1,5 @@
 ﻿module Test.Alea.cuBase.MGPU.BenchmarkStats
-open Alea.cuBase.IO.Util
+
 // Sample stats from running various algorithm benchmarks.  Used for comparison
 
 type TestParams =

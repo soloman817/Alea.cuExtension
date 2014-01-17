@@ -52,7 +52,7 @@
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
     <Compile Include="Tuning.fs" />
-    <Compile Include="QuotationUtil.fs" />
+    <None Include="QuotationUtil.fs" />
     <Compile Include="Static.fs" />
     <Compile Include="DeviceUtil.fs" />
     <Compile Include="Intrinsics.fs" />

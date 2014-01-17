@@ -4,9 +4,9 @@ open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTASegsort
@@ -38,24 +38,24 @@ let kernelSegBlocksortIndices (plan:Plan) (stable:int) (hasValues:int) (compOp:I
     let deviceIndicesToHeadFlags = deviceIndicesToHeadFlags NT VT
     let deviceSegBlocksort = deviceSegBlocksort NT VT stable hasValues compOp
 
-    <@ fun  (keys_global:DevicePtr<'TV>)
-            (values_global:DevicePtr<'TV>)
+    <@ fun  (keys_global:deviceptr<'TV>)
+            (values_global:deviceptr<'TV>)
             (count:int)
-            (indices_global:DevicePtr<int>)
-            (partitions_global:DevicePtr<int>)
-            (keysDest_global:DevicePtr<'TV>)
-            (valsDest_global:DevicePtr<'TV>)
-            (ranges_global:DevicePtr<int>)
+            (indices_global:deviceptr<int>)
+            (partitions_global:deviceptr<int>)
+            (keysDest_global:deviceptr<'TV>)
+            (valsDest_global:deviceptr<'TV>)
+            (ranges_global:deviceptr<int>)
             ->
         let deviceIndicesToHeadFlags = %deviceIndicesToHeadFlags
         let deviceSegBlocksort = %deviceSegBlocksort
 
-        let shared = __shared__<'TV>(sharedSize).Ptr(0)
-        let sharedFlags = shared.Reinterpret<byte>()
-        let sharedWords = shared.Reinterpret<int>()
+        let shared = __shared__<'TV>(sharedSize) |> __array_to_ptr
+        let sharedFlags = __shared__.Array<byte>()
+        let sharedWords = __shared__.Array<int>()
         let sharedKeys = shared
         let sharedValues = shared
-        let sharedRanges = __shared__<int>(NT).Ptr(0)
+        let sharedRanges = __shared__<int>(NT) |> __array_to_ptr
 
         let tid = threadIdx.x
         let block = blockIdx.x
@@ -74,7 +74,7 @@ let kernelSegBlocksortIndices (plan:Plan) (stable:int) (hasValues:int) (compOp:I
 
 type ISegBlocksortIndices<'TV> =
     {
-        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+        Action : ActionHint -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<int> -> unit
         NumPartitions : int
     }
 
@@ -92,22 +92,22 @@ let kernelSegBlocksortFlags (plan:Plan) (stable:int) (hasValues:int) (compOp:ICo
        
     let deviceSegBlocksort = deviceSegBlocksort NT VT stable hasValues compOp
 
-    <@ fun  (keys_global:DevicePtr<'TV>)
-            (values_global:DevicePtr<'TV>)
+    <@ fun  (keys_global:deviceptr<'TV>)
+            (values_global:deviceptr<'TV>)
             (count:int)
-            (flags_global:DevicePtr<uint32>)            
-            (keysDest_global:DevicePtr<'TV>)
-            (valsDest_global:DevicePtr<'TV>)
-            (ranges_global:DevicePtr<int>)
+            (flags_global:deviceptr<uint32>)            
+            (keysDest_global:deviceptr<'TV>)
+            (valsDest_global:deviceptr<'TV>)
+            (ranges_global:deviceptr<int>)
             ->
         
         let deviceSegBlocksort = %deviceSegBlocksort
         let extractThreadHeadFlags = %extractThreadHeadFlags
 
-        let sharedKeys = __shared__<'TV>(NV).Ptr(0)
+        let sharedKeys = __shared__<'TV>(NV) |> __array_to_ptr
         let sharedValues = sharedKeys
 
-        let sharedRanges = __shared__<int>(NT).Ptr(0)
+        let sharedRanges = __shared__<int>(NT) |> __array_to_ptr
         let sharedFlags = sharedRanges.Reinterpret<uint32>()
 
         let tid = threadIdx.x
@@ -137,7 +137,7 @@ let kernelSegBlocksortFlags (plan:Plan) (stable:int) (hasValues:int) (compOp:ICo
 
 type ISegBlocksortFlags<'TV> =
     {
-        Action : ActionHint -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<uint32> -> DevicePtr<'TV> -> DevicePtr<'TV> -> DevicePtr<int> -> unit
+        Action : ActionHint -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<uint32> -> deviceptr<'TV> -> deviceptr<'TV> -> deviceptr<int> -> unit
     }
 
 
@@ -151,20 +151,20 @@ type ISegBlocksortFlags<'TV> =
 //    let VT = plan.VT
 //    let NV = NT * VT
 //
-//    <@ fun  (keys_global        :DevicePtr<'TV>)
-//            (values_global      :DevicePtr<'TV>)
+//    <@ fun  (keys_global        :deviceptr<'TV>)
+//            (values_global      :deviceptr<'TV>)
 //            //(support            :SegSortSupport)
 //            (count              :int)
 //            (pass               :int)
-//            (keysDest_global    :DevicePtr<'TV>)
-//            (valsDest_global    :DevicePtr<'TV>)
+//            (keysDest_global    :deviceptr<'TV>)
+//            (valsDest_global    :deviceptr<'TV>)
 //            ->
 //
 //
-//        let shared = __shared__<'TV>(NT * (VT + 1)).Ptr(0)
+//        let shared = __shared__<'TV>(NT * (VT + 1)) |> __array_to_ptr
 //        let sharedKeys = shared
-//        let sharedIndices = shared.Reinterpret<int>()
-//        let sharedRange = __shared__<int4>(1).Ptr(0)
+//        let sharedIndices = __shared__.Array<int>()
+//        let sharedRange = __shared__<int4>(1) |> __array_to_ptr
 //
 //        let tid = threadIdx.x
 //

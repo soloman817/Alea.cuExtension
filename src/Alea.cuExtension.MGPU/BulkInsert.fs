@@ -3,10 +3,11 @@
 open System.Runtime.InteropServices
 open Microsoft.FSharp.Collections
 open Alea.CUDA
+open Alea.CUDA.Utilities
 open Alea.cuExtension
-open Alea.cuExtension.Util
+//open Alea.cuExtension.Util
 open Alea.cuExtension.MGPU
-open Alea.cuExtension.MGPU.QuotationUtil
+//open Alea.cuExtension.MGPU.QuotationUtil
 open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
@@ -33,13 +34,13 @@ let kernelBulkInsert (plan:Plan) =
     let computeMergeRange = computeMergeRange.Device
     let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 
-    <@ fun (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (aCount:int) (b_global:DevicePtr<'T>) (bCount:int) (mp_global:DevicePtr<int>) (dest_global:DevicePtr<'T>) ->
+    <@ fun (a_global:deviceptr<'T>) (indices_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (mp_global:deviceptr<int>) (dest_global:deviceptr<'T>) ->
         let deviceGlobalToReg = %deviceGlobalToReg
         let computeMergeRange = %computeMergeRange
         let deviceTransferMergeValues = %deviceTransferMergeValues
         let S = %scan2
         
-        let shared = __shared__<int>(sharedSize).Ptr(0)
+        let shared = __shared__.Array<int>(sharedSize) |> __array_to_ptr
         let sharedScan = shared
         let sharedIndices = shared
 
@@ -59,7 +60,7 @@ let kernelBulkInsert (plan:Plan) =
             sharedIndices.[NT * i + tid] <- 0
         __syncthreads()
 
-        let indices = __local__<int>(VT).Ptr(0)
+        let indices = __local__.Array<int>(VT) |> __array_to_ptr
         deviceGlobalToReg aCount (indices_global + a0) tid indices true
         
         for i = 0 to VT - 1 do
@@ -93,11 +94,11 @@ let kernelBulkInsert (plan:Plan) =
 
 
 
-type IBulkInsert<'T> =
-    {
-        Action : ActionHint -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<int> -> DevicePtr<'T> -> DevicePtr<int> -> DevicePtr<'T> -> unit
-        NumPartitions : int
-    }
+//type IBulkInsert<'T> =
+//    {
+//        Action : ActionHint -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<'T> -> unit
+//        NumPartitions : int
+//    }
 
 
 
@@ -105,27 +106,26 @@ let bulkInsert()  = cuda {
     let plan = { NT = 128; VT = 7 }
     let NV = plan.NT * plan.VT
 
-    let! kernelBulkInsert = kernelBulkInsert plan |> defineKernelFuncWithName "bi"
+    let! kernelBulkInsert = kernelBulkInsert plan |> Compiler.DefineKernel //"bi"
     let! mpp = Search.mergePathPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
-    return PFunc(fun (m:Module) ->
-        let worker = m.Worker
-        let kernelBulkInsert = kernelBulkInsert.Apply m
-        let mpp = mpp.Apply m
-        
+    return Entry(fun program ->
+        let worker = program.Worker
+        let kernelBulkInsert = program.Apply kernelBulkInsert
+                
         fun (aCount:int) (bCount:int) ->
             let numBlocks = divup (aCount + bCount) NV
             let lp = LaunchParam(numBlocks, plan.NT)
                         
-            let action (hint:ActionHint) (a_global:DevicePtr<'T>) (indices_global:DevicePtr<int>) (zeroItr:DevicePtr<int>) (b_global:DevicePtr<'T>) (parts:DevicePtr<int>) (dest_global:DevicePtr<'T>) =
+            let run (a_global:deviceptr<'T>) (indices_global:deviceptr<int>) (zeroItr:deviceptr<int>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) (dest_global:deviceptr<'T>) =
                 fun () ->
-                    let lp = lp |> hint.ModifyLaunchParam
+                    
                     let mpp = mpp aCount bCount NV 0
-                    let partitions = mpp.Action hint indices_global zeroItr parts
+                    let partitions = mpp indices_global zeroItr parts
                     kernelBulkInsert.Launch lp a_global indices_global aCount b_global bCount parts dest_global
                 |> worker.Eval
             
-            { Action = action; NumPartitions = numBlocks + 1 } ) }
+            { NumPartitions = numBlocks + 1 } ) }
 
 
 
