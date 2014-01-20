@@ -8,7 +8,7 @@
     <ProjectGuid>8fa638be-cdc0-43b1-bbc2-5527d40584ad</ProjectGuid>
     <OutputType>Library</OutputType>
     <RootNamespace>Alea.cuBase.CUB</RootNamespace>
-    <AssemblyName>Alea.cuBase.CUB</AssemblyName>
+    <AssemblyName>Alea.cuExtension.CUB</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
     <Name>Alea.cuExtension.CUB</Name>
@@ -23,7 +23,7 @@
     <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>bin\Debug\Alea.cuBase.CUB.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\Alea.cuExtension.CUB.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -49,11 +49,13 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Script.fsx" />
+    <Compile Include="Common.fs" />
     <Compile Include="Utilities.fs" />
     <Compile Include="Block.fs" />
     <Compile Include="Device.fs" />
     <Compile Include="Grid.fs" />
     <Compile Include="Host.fs" />
+    <Compile Include="Iterator.fs" />
     <Compile Include="Thread.fs" />
     <Compile Include="Warp.fs" />
     <None Include="packages.config" />

@@ -101,6 +101,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy", "deploy", "{B54D12
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Test.Alea.cuExtension.CUB", "tests\Test.Alea.cuExtension.CUB\Test.Alea.cuExtension.CUB.fsproj", "{5B71EFC7-122F-4ECB-8034-11C73521CEDB}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{81988DBC-6403-43D0-857E-7AC17E32A504}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "CUB.BlockRadixSort", "samples\CUB.BlockRadixSort\CUB.BlockRadixSort.fsproj", "{793E34F9-C064-44AB-A552-82AB94E80C0C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -133,6 +137,10 @@ Global
 		{5B71EFC7-122F-4ECB-8034-11C73521CEDB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5B71EFC7-122F-4ECB-8034-11C73521CEDB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5B71EFC7-122F-4ECB-8034-11C73521CEDB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{793E34F9-C064-44AB-A552-82AB94E80C0C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{793E34F9-C064-44AB-A552-82AB94E80C0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{793E34F9-C064-44AB-A552-82AB94E80C0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{793E34F9-C064-44AB-A552-82AB94E80C0C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -155,5 +163,6 @@ Global
 		{9B1136CB-CC09-4977-839E-546DC6D9FF81} = {9C10E530-EDA1-4360-8462-4109104FC94F}
 		{C4CF13CE-AF1B-4425-92BB-818387F548A5} = {9C10E530-EDA1-4360-8462-4109104FC94F}
 		{4CA50E88-C596-43B6-9625-FB914CD0D86A} = {9C10E530-EDA1-4360-8462-4109104FC94F}
+		{793E34F9-C064-44AB-A552-82AB94E80C0C} = {81988DBC-6403-43D0-857E-7AC17E32A504}
 	EndGlobalSection
 EndGlobal

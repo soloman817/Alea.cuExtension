@@ -57,9 +57,24 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Utilities.fs" />
+    <Compile Include="Block.fs" />
+    <Compile Include="Device.fs" />
+    <Compile Include="Grid.fs" />
+    <Compile Include="Host.fs" />
+    <Compile Include="Iterator.fs" />
+    <Compile Include="Thread.fs" />
+    <Compile Include="Warp.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.cuExtension.CUB\Alea.cuExtension.CUB.fsproj">
+      <Name>Alea.cuExtension.CUB</Name>
+      <Project>{8fa638be-cdc0-43b1-bbc2-5527d40584ad}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>

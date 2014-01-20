@@ -1,4 +1,4 @@
-﻿module Alea.cuExtension.CUB.Grid
+﻿module Test.Alea.cuExtension.CUB.Grid
 
     module Barrier =
         let f() = "barrier"
@@ -11,3 +11,5 @@
 
     module Queue =
         let f() = "queue"
+
+

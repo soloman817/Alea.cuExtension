@@ -1,5 +1,5 @@
-﻿module Alea.cuExtension.CUB.Warp
-    
+﻿module Test.Alea.cuExtension.CUB.Warp
+
 module Reduce =
     let f() = "reduce"
 

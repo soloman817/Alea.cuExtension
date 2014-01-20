@@ -75,6 +75,13 @@
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Alea.cuExtension.MGPU\Alea.cuExtension.MGPU.fsproj">
+      <Name>Alea.cuExtension.MGPU</Name>
+      <Project>{70aa3888-6f72-4b18-af02-96e21ab4fdc7}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
   </PropertyGroup>

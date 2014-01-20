@@ -150,6 +150,12 @@ let kernelBulkRemove (plan:Plan) =
 //        NumPartitions : int
 //    }
 
+type API<'T> =
+    {
+        Run : int -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<'T> -> unit
+        NumPartitions : int
+    }
+
 
 // @COMMENTS@ : actrually, bulkRemove just need use a comp of int (for index), so you don't
 // need to input a indent, right? cause for index, we assumed it is always int. for user
@@ -162,12 +168,12 @@ let bulkRemove(plan:Plan) = cuda {
     let NV = plan.NT * plan.VT
     
     let! kernelBulkRemove = kernelBulkRemove plan |> Compiler.DefineKernel //"br"
-    let! bsp = Search.binarySearchPartitions MgpuBoundsLower (comp CompTypeLess 0)
+    let bsp = Search.binarySearchPartitions MgpuBoundsLower (comp CompTypeLess 0)
 
     return Entry(fun program ->
         let worker = program.Worker
         let kernelBulkRemove = program.Apply kernelBulkRemove
-        //let bsp = program.Apply bsp
+        let bsp = bsp |> Compiler.load worker
 
         // @COMMENTS@: you need understand why I need only sourceCount, but not indicesCount here.
         // because we need numBlocks, and to calculate numBlocks we only need sourceCount.
@@ -195,10 +201,10 @@ let bulkRemove(plan:Plan) = cuda {
                 // all do in one eval, ignore the switching.
                 fun () ->
                     
-                    let bsp = bsp sourceCount indicesCount NV
+                    let bsp = bsp.Run sourceCount indicesCount NV
                     let partitions = bsp indices_global parts
                     kernelBulkRemove.Launch lp source_global sourceCount indices_global indicesCount parts dest_global
                 |> worker.Eval
-
-            { NumPartitions = numBlocks + 1 } ) }
+            { Run = run; NumPartitions = numBlocks + 1 } ) }
+//            { NumPartitions = numBlocks + 1 } ) }
             

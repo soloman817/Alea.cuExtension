@@ -1,8 +1,8 @@
 ﻿module Alea.cuExtension.MGPU.Search
 
 // this file maps to search.cuh
-
 open System.Runtime.InteropServices
+open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Collections
 open Alea.CUDA
 open Alea.CUDA.Utilities
@@ -86,7 +86,10 @@ let kernelMergePartition (NT:int) (bounds:int) (compOp:IComp<'T>) =
             let mp = mergePath (a_global + a0) aCount (b_global + b0) bCount (min gid (aCount + bCount))
             mp_global.[partition] <- mp @>
 
-
+type API<'T> =
+    {
+        MergePartition : Resources.Kernel<deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> unit>
+    }
 //type IMergePathPartitions<'T> =
 //    {
 //        Action : ActionHint -> deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> unit                
