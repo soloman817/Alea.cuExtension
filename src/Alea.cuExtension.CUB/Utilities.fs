@@ -1,11 +1,54 @@
 [<AutoOpen>]
 module Alea.cuExtension.CUB.Utilities
 
-    module Allocator =
-        let f() = "allocator"
+open Alea.CUDA
+open Alea.CUDA.Utilities
 
-    module Arch =
-        let f() = "arch"
+
+module Allocator =
+    let f() = "allocator"
+
+module Arch =
+    
+    type Arch =
+        {
+            mutable CUDA_ARCH : DeviceArch
+            mutable CUB_PTX_VERSION : int
+            mutable CUB_LOG_WARP_THREADS : int
+            mutable CUB_LOG_SMEM_BANKS : int
+            mutable CUB_SMEM_BANK_BYTES : int
+            mutable CUB_SMEM_BYTES : int
+            mutable CUB_SMEM_ALLOC_UNIT : int
+            mutable CUB_REGS_BY_BLOCK : bool
+            mutable CUB_REG_ALLOC_UNIT : int
+            mutable CUB_WARP_ALLOC_UNIT : int
+            mutable CUB_MAX_SM_THREADS : int
+            mutable CUB_MAX_SM_BLOCKS : int
+            mutable CUB_MAX_BLOCK_THREADS : int
+            mutable CUB_MAX_SM_REGISTERS : int
+            mutable CUB_SUBSCRIPTION_FACTOR : int
+        }
+
+        [<ReflectedDefinition>]
+        static member Default =
+            let arch = Worker.Default.Device.Arch.Number
+            { CUDA_ARCH = Worker.Default.Device.Arch;
+              CUB_PTX_VERSION = arch;
+              CUB_LOG_WARP_THREADS = 5;
+              CUB_LOG_SMEM_BANKS = if arch >= 200 then 5 else 4;
+              CUB_SMEM_BANK_BYTES = 4;
+              CUB_SMEM_BYTES = if arch >= 200 then (48 * 1024) else (16 * 1024);
+              CUB_SMEM_ALLOC_UNIT = if arch >= 300 then 256 elif arch >= 200 then 128 else 512;
+              CUB_REGS_BY_BLOCK = if arch >= 200 then false else true;
+              CUB_REG_ALLOC_UNIT = if arch >= 300 then 256 elif arch >= 200 then 64 elif arch >= 120 then 512 else 256;
+              CUB_WARP_ALLOC_UNIT = if arch >= 300 then 4 else 2;
+              CUB_MAX_SM_THREADS = if arch >= 300 then 2048 elif arch >= 200 then 1536 elif arch >= 120 then 1024 else 786;
+              CUB_MAX_SM_BLOCKS = if arch >= 300 then 16 else 8;
+              CUB_MAX_BLOCK_THREADS = if arch >= 200 then 1024 else 512;
+              CUB_MAX_SM_REGISTERS = if arch >= 300 then (64 * 1024) elif arch >= 200 then (32 * 1024) elif arch >= 120 then (16 * 1024) else (8 * 1024);
+              CUB_SUBSCRIPTION_FACTOR = if arch >= 300 then 5 else 3 }
+
+        
 //        type ArchProps =
 //            {
 //                abstract member LOG_WARP_THREADS    : int  /// Log of the number of threads per warp
@@ -59,37 +102,37 @@ module Alea.cuExtension.CUB.Utilities
 //    };
 
 
-    module Debug =
-        let f() = "debug"
+module Debug =
+    let f() = "debug"
 
-    module Device = 
-        let f() = "device"
+module Device = 
+    let f() = "device"
 
-    module Iterator =
-        let f() = "iterator"
+module Iterator =
+    let f() = "iterator"
 
-    module Macro =
-        let f() = "macro"
+module Macro =
+    let f() = "macro"
 
-        let CUB_MAX a b = if a > b then a else b
-        let CUB_MIN a b = if a < b then a else b
-        let CUB_QUOTIENT_FLOOR x y = x / y
-        let CUB_QUOTIENT_CEILING x y = (x + y - 1) / y
-        let CUB_ROUND_UP_NEAREST x y = ((x + y - 1) / y) * y
-        let CUB_ROUND_DOWN_NEAREST x y = (x / y) * y
-        //let CUB_TYPE_STRING (x:'T) = typeof<x>
-        //#define CUB_CAT_(a, b) a ## b
-        //#define CUB_CAT(a, b) CUB_CAT_(a, b)
-        //#define CUB_STATIC_ASSERT(cond, msg) typedef int CUB_CAT(cub_static_assert, __LINE__)[(cond) ? 1 : -1]
+    let CUB_MAX a b = if a > b then a else b
+    let CUB_MIN a b = if a < b then a else b
+    let CUB_QUOTIENT_FLOOR x y = x / y
+    let CUB_QUOTIENT_CEILING x y = (x + y - 1) / y
+    let CUB_ROUND_UP_NEAREST x y = ((x + y - 1) / y) * y
+    let CUB_ROUND_DOWN_NEAREST x y = (x / y) * y
+    //let CUB_TYPE_STRING (x:'T) = typeof<x>
+    //#define CUB_CAT_(a, b) a ## b
+    //#define CUB_CAT(a, b) CUB_CAT_(a, b)
+    //#define CUB_STATIC_ASSERT(cond, msg) typedef int CUB_CAT(cub_static_assert, __LINE__)[(cond) ? 1 : -1]
 
-    module Namespace =
-        let f() = "namespace"
+module Namespace =
+    let f() = "namespace"
 
-    module Ptx =
-        let f() = "ptx"
+module Ptx =
+    let f() = "ptx"
 
-    module Type =
-        let f() = "type"
+module Type =
+    let f() = "type"
 
-    module Vector =
-        let f() = "vector"
+module Vector =
+    let f() = "vector"
