@@ -65,14 +65,57 @@ module Exchange =
 
     type TimeSlicing = | YES | NO
 
+    let inline privateStorage() = cuda { return! <@ fun (n:int) -> __shared__.Array<'T>(n) |> __array_to_ptr @> |> Compiler.DefineFunction }
 
-    type PrivateBlockExchange<'T> =
-        abstract BlockToStriped : deviceptr<'T> -> TimeSlicing -> unit
-        abstract BlockToWarpStriped : deviceptr<'T> -> TimeSlicing -> unit
-        abstract StripedToBlocked : deviceptr<'T> -> TimeSlicing -> unit
-        abstract WarpStripedToBlocked : deviceptr<'T> -> TimeSlicing -> unit
-        abstract ScatterToBlocked : deviceptr<'T> -> deviceptr<int> -> TimeSlicing -> unit
-        abstract ScatterToStriped : deviceptr<'T> -> deviceptr<int> -> TimeSlicing -> unit
+    [<Record>]
+    type BlockExchangePrivateVars<'T> =
+        {
+            temp_storage : Template<Function<(int -> deviceptr<'T>)>>
+            linear_tid : int
+            warp_id : int
+            warp_lane : int
+            warp_offset : int
+        }
+
+        [<ReflectedDefinition>]
+        static member Init(props:BlockExchangeProps) =
+            let linear_tid = threadIdx.x
+            let warp_id = linear_tid >>> props.LOG_WARP_THREADS
+            {   temp_storage = privateStorage()
+                linear_tid = linear_tid
+                warp_lane = linear_tid &&& (props.WARP_THREADS - 1)
+                warp_id = linear_tid >>> props.LOG_WARP_THREADS
+                warp_offset = warp_id * props.WARP_TIME_SLICED_ITEMS }
+
+        [<ReflectedDefinition>]
+        static member Init(props:BlockExchangeProps, temp_storage:Template<Function<(int -> deviceptr<'T>)>>) =
+            let linear_tid = threadIdx.x
+            let warp_id = linear_tid >>> props.LOG_WARP_THREADS
+            {   temp_storage = temp_storage
+                linear_tid = linear_tid
+                warp_lane = linear_tid &&& (props.WARP_THREADS - 1)
+                warp_id = linear_tid >>> props.LOG_WARP_THREADS
+                warp_offset = warp_id * props.WARP_TIME_SLICED_ITEMS }            
+        
+        [<ReflectedDefinition>]
+        static member Init(props:BlockExchangeProps, linear_tid:int) =
+            let warp_id = linear_tid >>> props.LOG_WARP_THREADS
+            {   temp_storage = privateStorage()
+                linear_tid = linear_tid
+                warp_lane = linear_tid &&& (props.WARP_THREADS - 1)
+                warp_id = linear_tid >>> props.LOG_WARP_THREADS
+                warp_offset = warp_id * props.WARP_TIME_SLICED_ITEMS }
+
+        [<ReflectedDefinition>]
+        static member Init(props:BlockExchangeProps, temp_storage:Template<Function<int->deviceptr<'T>>>, linear_tid:int) =
+            let warp_id = linear_tid >>> props.LOG_WARP_THREADS
+            {   temp_storage = temp_storage
+                linear_tid = linear_tid
+                warp_lane = linear_tid &&& (props.WARP_THREADS - 1)
+                warp_id = linear_tid >>> props.LOG_WARP_THREADS
+                warp_offset = warp_id * props.WARP_TIME_SLICED_ITEMS }    
+
+   
 
     [<Record>]
     type BlockExchange<'T> =
@@ -80,13 +123,17 @@ module Exchange =
             BLOCK_THREADS : int
             ITEMS_PER_THREAD : int
             WARP_TIME_SLICING : bool
-            //props : BlockExchangeProps
+//            Private : BlockExchangePrivateVars<'T>
         }
 
         
-        member this.BlockToStriped(items:deviceptr<'T>, linear_tid:int, warp_id:int, warp_lane:int) =
+        member this.BlockToStriped(items:deviceptr<'T>) = //, linear_tid:int, warp_id:int, warp_lane:int) =
             let props = BlockExchangeProps.Init(this.BLOCK_THREADS,this.ITEMS_PER_THREAD,this.WARP_TIME_SLICING)
-            
+            let pvars = BlockExchangePrivateVars<'T>.Init(props)
+            let linear_tid = pvars.linear_tid
+            let warp_id = pvars.warp_id
+            let warp_lane = pvars.warp_lane
+
             match this.WARP_TIME_SLICING with
             | false ->
                 fun (temp_storage:deviceptr<'T>) ->
@@ -132,8 +179,13 @@ module Exchange =
                     for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
                         items.[ITEM] <- temp_items.[ITEM]
 
-        member this.BlockTOWarpStriped(items:deviceptr<'T>, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
+        member this.BlockTOWarpStriped(items:deviceptr<'T>) = //, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
             let props = BlockExchangeProps.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+            let pvars = BlockExchangePrivateVars<'T>.Init(props)
+            let warp_lane = pvars.warp_lane
+            let warp_offset = pvars.warp_offset
+            let warp_id = pvars.warp_id
+                        
             match this.WARP_TIME_SLICING with
             | false ->
                 fun (temp_storage:deviceptr<'T>) ->
@@ -163,8 +215,13 @@ module Exchange =
                                 if props.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> props.LOG_SMEM_BANKS)
                                 items.[ITEM] <- temp_storage.[item_offset]
 
-        member this.StripedToBlocked(items:deviceptr<'T>, linear_tid:int, warp_id:int, warp_lane:int) =
+        member this.StripedToBlocked(items:deviceptr<'T>) = //, linear_tid:int, warp_id:int, warp_lane:int) =
             let props = BlockExchangeProps.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+            let pvars = BlockExchangePrivateVars<'T>.Init(props)
+            let linear_tid = pvars.linear_tid
+            let warp_id = pvars.warp_id
+            let warp_lane = pvars.warp_lane
+
             match this.WARP_TIME_SLICING with
             | false ->
                 fun (temp_storage:deviceptr<'T>) ->
@@ -212,8 +269,13 @@ module Exchange =
                     for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
                         items.[ITEM] <- temp_items.[ITEM]
 
-        member this.WarpStripedToBlocked(items:deviceptr<'T>, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
+        member this.WarpStripedToBlocked(items:deviceptr<'T>) = //, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
             let props = BlockExchangeProps.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+            let pvars = BlockExchangePrivateVars<'T>.Init(props)
+            let warp_offset = pvars.warp_offset
+            let warp_lane = pvars.warp_lane
+            let warp_id = pvars.warp_id
+
             match this.WARP_TIME_SLICING with
             | false ->
                 fun (temp_storage:deviceptr<'T>) ->
@@ -284,8 +346,11 @@ module Exchange =
                     for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
                         items.[ITEM] <- temp_items.[ITEM]
 
-        member this.ScatterToStriped(items:deviceptr<'T>, ranks:deviceptr<int>, linear_tid:int) =
+        member this.ScatterToStriped(items:deviceptr<'T>, ranks:deviceptr<int>) = //, linear_tid:int) =
             let props = BlockExchangeProps.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+            let pvars = BlockExchangePrivateVars<'T>.Init(props)
+            let linear_tid = pvars.linear_tid
+
             match this.WARP_TIME_SLICING with
             | false ->
                 fun (temp_storage:deviceptr<'T>) ->
@@ -331,10 +396,6 @@ module Exchange =
 
                     for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
                         items.[ITEM] <- temp_items.[ITEM]
-
-        ///////////////
-//        static member BlockExchange() =
-//            let temp_storage = 
 
         
 module Histogram =
