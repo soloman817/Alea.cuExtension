@@ -129,10 +129,69 @@ module Namespace =
     let f() = "namespace"
 
 module Ptx =
-    let f() = "ptx"
+    let [<ReflectedDefinition>] SHR_ADD (x:uint32) (shift:int) (addend:uint32) = (x >>> shift) + addend
 
 module Type =
     let f() = "type"
 
 module Vector =
-    let f() = "vector"
+    
+    
+    let mutable MAX_VEC_ELEMENTS = 4
+
+    [<Record>]
+    type CubVector<'T> = 
+        {   
+            mutable Ptr : deviceptr<'T>
+            VEC_ELEMENTS : int                        
+        }
+
+        member this.Item
+            with [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx]
+            and  [<ReflectedDefinition>] set (idx:int) (v:'T) = if idx <= (this.VEC_ELEMENTS - 1) then this.Ptr.[idx] <- v
+
+        member this.W
+            with [<ReflectedDefinition>] get () = this.Ptr.[0]
+            and  [<ReflectedDefinition>] set (w:'T) = this.Ptr.[0] <- w
+
+        member this.X
+            with [<ReflectedDefinition>] get () = this.Ptr.[1]
+            and  [<ReflectedDefinition>] set (x:'T) = this.Ptr.[1] <- x
+
+        member this.Y
+            with [<ReflectedDefinition>] get () = this.Ptr.[2]
+            and  [<ReflectedDefinition>] set (y:'T) = this.Ptr.[2] <- y
+
+        member this.Z
+            with [<ReflectedDefinition>] get () = this.Ptr.[3]
+            and  [<ReflectedDefinition>] set (z:'T) = this.Ptr.[3] <- z
+    
+        static member Null() =
+            {
+                Ptr = __null()
+                VEC_ELEMENTS = 0
+            }
+
+        static member Vector1(dptr:deviceptr<'T>) =
+            {
+                Ptr = dptr
+                VEC_ELEMENTS = 1
+            }
+
+        static member Vector2(dptr:deviceptr<'T>) =
+            {
+                Ptr = dptr
+                VEC_ELEMENTS = 2
+            }
+
+        static member Vector3(dptr:deviceptr<'T>) =
+            {
+                Ptr = dptr
+                VEC_ELEMENTS = 3
+            }
+
+        static member Vector4(dptr:deviceptr<'T>) =
+            {
+                Ptr = dptr
+                VEC_ELEMENTS = 4 
+            }

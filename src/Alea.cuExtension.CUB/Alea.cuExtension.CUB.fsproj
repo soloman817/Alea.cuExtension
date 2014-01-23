@@ -48,7 +48,6 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Script.fsx" />
     <Compile Include="Common.fs" />
     <Compile Include="Utilities.fs" />
     <Compile Include="Block.fs" />
@@ -59,6 +58,7 @@
     <Compile Include="Thread.fs" />
     <Compile Include="Warp.fs" />
     <None Include="packages.config" />
+    <None Include="Script.fsx" />
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
