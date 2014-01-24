@@ -168,6 +168,24 @@ type BlockLoadVars<'T> =
             linear_tid = linear_tid
         }
 
+let blockLoadVars (temp_storage:deviceptr<'T> option) (linear_tid:int option) =
+    match temp_storage, linear_tid with
+    | Some temp_storage, Some linear_tid ->
+        fun _ _ ->
+            temp_storage, linear_tid
+    | None, Some linear_tid ->
+        fun _ _ ->
+            privateStorage(), linear_tid
+    | Some temp_storage, None ->
+        fun _ tidx ->
+            temp_storage, tidx
+    | None, None ->
+        fun _ tidx ->
+            privateStorage(), tidx
+    | _, _ ->
+        fun _ _ ->
+            failwith "wrong init"
+
 [<Record>]
 type BlockLoad<'T> =
     {
@@ -184,10 +202,25 @@ type BlockLoad<'T> =
             <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
             <||     (None, None)
             <|||    (vars.linear_tid, block_itr, items)
-            //>> (None, None) //<|| (None, None)
-        //let internalLoad = internalLoad this.ITEMS_PER_THREAD this.BLOCK_THREADS
         internalLoad()
 
+    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>, valid_items:int) =
+        let vars = BlockLoadVars<'T>.Init()
+        let internalLoad() = 
+            this.ALGORITHM |> loadInternal 
+            <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
+            <||     (valid_items |> Some, None)
+            <|||    (vars.linear_tid, block_itr, items)
+        internalLoad()
+
+    member inline this.Load(block_itr:deviceptr<_>, items:deviceptr<_>, valid_items:int, oob_default:int) =
+        let vars = BlockLoadVars<'T>.Init()
+        let internalLoad() = 
+            this.ALGORITHM |> loadInternal 
+            <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
+            <||     (valid_items |> Some, oob_default |> Some)
+            <|||    (vars.linear_tid, block_itr, items)
+        internalLoad()
 
 //    [<Record>]
 //    type LoadInternal<'T> =
