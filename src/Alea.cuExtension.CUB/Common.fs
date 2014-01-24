@@ -4,7 +4,11 @@ module Alea.cuExtension.CUB.Common
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
+
+
 type InputIterator<'T> = deviceptr<'T>
+
+
 
 type Arch =
     {
@@ -74,3 +78,6 @@ let [<ReflectedDefinition>] CUB_PTX_MAX_SM_THREADS = CUB_MAX_SM_THREADS
 let [<ReflectedDefinition>] CUB_PTX_MAX_SM_BLOCKS = CUB_MAX_SM_BLOCKS
 let [<ReflectedDefinition>] CUB_PTX_MAX_BLOCK_THREADS = CUB_MAX_BLOCK_THREADS
 let [<ReflectedDefinition>] CUB_PTX_MAX_SM_REGISTERS = CUB_MAX_SM_REGISTERS
+
+
+let privateStorage() = __null()

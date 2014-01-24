@@ -3,6 +3,7 @@
 open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
+open Alea.cuExtension.CUB.Utilities
 
 open Macro
 open Ptx
