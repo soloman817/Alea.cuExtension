@@ -116,10 +116,10 @@ let loadDirectWarpStriped (items_per_thread:int) (block_threads:int) =
 let loadInternal (_ALGORITHM:BlockLoadAlgorithm) =
     fun (items_per_thread:int) (block_threads:int) ->
         match _ALGORITHM with
-        | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT -> loadDirectBlocked items_per_thread block_threads          
-        | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE -> loadDirectBlockedVectorized items_per_thread block_threads
-        | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE -> loadDirectStriped items_per_thread block_threads
-        | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE -> loadDirectWarpStriped items_per_thread block_threads
+        | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->           (items_per_thread, block_threads) ||> loadDirectBlocked
+        | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->        (items_per_thread, block_threads) ||> loadDirectBlockedVectorized
+        | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->        (items_per_thread, block_threads) ||> loadDirectStriped
+        | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->   (items_per_thread, block_threads) ||> loadDirectWarpStriped
 
 
 [<Record>]
@@ -168,23 +168,23 @@ type BlockLoadVars<'T> =
             linear_tid = linear_tid
         }
 
-let blockLoadVars (temp_storage:deviceptr<'T> option) (linear_tid:int option) =
+let vars (temp_storage:deviceptr<'T> option) (linear_tid:int option) =
     match temp_storage, linear_tid with
-    | Some temp_storage, Some linear_tid ->
-        fun _ _ ->
-            temp_storage, linear_tid
-    | None, Some linear_tid ->
-        fun _ _ ->
-            privateStorage(), linear_tid
-    | Some temp_storage, None ->
-        fun _ tidx ->
-            temp_storage, tidx
-    | None, None ->
-        fun _ tidx ->
-            privateStorage(), tidx
-    | _, _ ->
-        fun _ _ ->
-            failwith "wrong init"
+    | Some temp_storage, Some linear_tid -> temp_storage,       linear_tid
+    | None,              Some linear_tid -> privateStorage(),   linear_tid
+    | Some temp_storage, None ->            temp_storage,       threadIdx.x
+    | None,              None ->            privateStorage(),   threadIdx.x
+
+
+let blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) =
+    fun (temp_storage:deviceptr<'T> option) (linear_tid:int option) ->
+        let temp_storage, linear_tid = (temp_storage, linear_tid) ||> vars
+        
+        fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
+            algorithm |> loadInternal 
+            <||     (items_per_thread, block_threads)
+            <||     (valid_items, oob_default)
+            <|||    (linear_tid, block_itr, items)    
 
 [<Record>]
 type BlockLoad<'T> =
@@ -195,15 +195,9 @@ type BlockLoad<'T> =
         WARP_TIME_SLICING : bool
     }
 
-    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>) =
-        let vars = BlockLoadVars<'T>.Init()
-        let internalLoad() = 
-            this.ALGORITHM |> loadInternal 
-            <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
-            <||     (None, None)
-            <|||    (vars.linear_tid, block_itr, items)
-        internalLoad()
-
+    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>) = 
+        let blockLoad 
+        
     member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>, valid_items:int) =
         let vars = BlockLoadVars<'T>.Init()
         let internalLoad() = 
@@ -221,6 +215,7 @@ type BlockLoad<'T> =
             <||     (valid_items |> Some, oob_default |> Some)
             <|||    (vars.linear_tid, block_itr, items)
         internalLoad()
+
 
 //    [<Record>]
 //    type LoadInternal<'T> =
