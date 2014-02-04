@@ -437,11 +437,6 @@ let baseTraits (category:Category) (primitive:bool) (null_type:bool) (unsignedBi
     | _,_,_ ->
         None
 
-[<Record>]
-type KeyValuePair<'K, 'V> =
-    {
-        value : 'V
-        key : 'K
-    }
+type KeyValuePair<'K, 'V> = System.Collections.Generic.KeyValuePair<'K,'V>
 
-    static member (!=) ()
+
