@@ -57,7 +57,8 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Utilities.fs" />
+    <Compile Include="Utilities.Util.fs" />
+    <Compile Include="Utilities.Test.fs" />
     <Compile Include="Iterator.fs" />
     <Compile Include="Block.Discontinuity.fs" />
     <Compile Include="Block.Exchange.fs" />
@@ -71,7 +72,6 @@
     <Compile Include="Block.Shift.fs" />
     <Compile Include="Block.Specializations.fs" />
     <Compile Include="Block.Store.fs" />
-    <Compile Include="Common.fs" />
     <Compile Include="Device.Histogram.fs" />
     <Compile Include="Device.Partition.fs" />
     <Compile Include="Device.RadixSort.fs" />

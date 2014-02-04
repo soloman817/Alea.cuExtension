@@ -1,4 +1,5 @@
-﻿module Alea.cuExtension.CUB.Grid.Mapping
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Grid.Mapping
 
 open Alea.CUDA
 open Alea.CUDA.Utilities

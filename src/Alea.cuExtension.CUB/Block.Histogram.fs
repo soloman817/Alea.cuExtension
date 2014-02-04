@@ -1,1 +1,2 @@
-﻿module Alea.cuExtension.CUB.Block.Histogram
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Block.Histogram

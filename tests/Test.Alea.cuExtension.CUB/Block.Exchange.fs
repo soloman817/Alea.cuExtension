@@ -5,3 +5,9 @@ open Alea.CUDA.Utilities
 open NUnit.Framework
 
 open Alea.cuExtension.CUB.Block.Exchange
+
+
+[<Test>]
+let ``block exchange test`` () =
+    let x = 0
+    ()

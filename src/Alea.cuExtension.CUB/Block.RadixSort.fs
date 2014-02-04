@@ -1,4 +1,5 @@
-﻿module Alea.cuExtension.CUB.Block.RadixSort
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Block.RadixSort
 
 
 open Alea.CUDA

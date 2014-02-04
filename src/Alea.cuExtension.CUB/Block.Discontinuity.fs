@@ -1,2 +1,3 @@
-﻿module Alea.cuExtension.CUB.Block.Discontinuity
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Block.Discontinuity
 

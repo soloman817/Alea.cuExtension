@@ -1,4 +1,5 @@
-﻿module Alea.cuExtension.CUB.Thread.Store
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Thread.Store
 
 open Alea.CUDA
 open Alea.CUDA.Utilities

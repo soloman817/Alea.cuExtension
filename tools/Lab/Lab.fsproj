@@ -59,7 +59,10 @@
   <ItemGroup>
     <Compile Include="WorkflowBuilder.fs" />
     <Compile Include="Workflow.fs" />
+    <Compile Include="Lab.fs" />
     <Compile Include="Program.fs" />
+    <None Include="Lab.cu" />
+    <None Include="Lab.ptx" />
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>

@@ -1,0 +1,78 @@
+	.version 1.4
+	.target sm_10, map_f64_to_f32
+	// compiled with C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../open64/lib//be.exe
+	// nvopencc 4.1 built on 2013-10-17
+
+	//-----------------------------------------------------------
+	// Compiling C:/Users/Aaron/AppData/Local/Temp/tmpxft_00003674_00000000-15_Lab.cpp3.i (C:/Users/Aaron/AppData/Local/Temp/ccBI#.a17060)
+	//-----------------------------------------------------------
+
+	//-----------------------------------------------------------
+	// Options:
+	//-----------------------------------------------------------
+	//  Target:ptx, ISA:sm_10, Endian:little, Pointer Size:64
+	//  -O3	(Optimization level)
+	//  -g0	(Debug level)
+	//  -m2	(Report advisories)
+	//-----------------------------------------------------------
+
+	.file	1	"C:/Users/Aaron/AppData/Local/Temp/tmpxft_00003674_00000000-14_Lab.cudafe2.gpu"
+	.file	2	"C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\BIN/../../VC/INCLUDE\crtdefs.h"
+	.file	3	"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../include\crt/device_runtime.h"
+	.file	4	"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../include\host_defines.h"
+	.file	5	"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../include\builtin_types.h"
+	.file	6	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\device_types.h"
+	.file	7	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\host_defines.h"
+	.file	8	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\driver_types.h"
+	.file	9	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\surface_types.h"
+	.file	10	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\texture_types.h"
+	.file	11	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\vector_types.h"
+	.file	12	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\builtin_types.h"
+	.file	13	"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../include\device_launch_parameters.h"
+	.file	14	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\crt\storage_class.h"
+	.file	15	"Lab.cu"
+	.file	16	"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.5\bin/../include\common_functions.h"
+	.file	17	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\math_functions.h"
+	.file	18	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\math_constants.h"
+	.file	19	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\device_functions.h"
+	.file	20	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_11_atomic_functions.h"
+	.file	21	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_12_atomic_functions.h"
+	.file	22	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_13_double_functions.h"
+	.file	23	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_20_atomic_functions.h"
+	.file	24	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_32_atomic_functions.h"
+	.file	25	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_35_atomic_functions.h"
+	.file	26	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_20_intrinsics.h"
+	.file	27	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_30_intrinsics.h"
+	.file	28	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_32_intrinsics.h"
+	.file	29	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\sm_35_intrinsics.h"
+	.file	30	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\surface_functions.h"
+	.file	31	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\texture_fetch_functions.h"
+	.file	32	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\texture_indirect_functions.h"
+	.file	33	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\surface_indirect_functions.h"
+	.file	34	"c:\program files\nvidia gpu computing toolkit\cuda\v5.5\include\math_functions_dbl_ptx1.h"
+
+
+	.entry _Z7kernel0P5uint4S0_ (
+		.param .u64 __cudaparm__Z7kernel0P5uint4S0__input,
+		.param .u64 __cudaparm__Z7kernel0P5uint4S0__output)
+	{
+	.reg .u32 %r<7>;
+	.reg .u64 %rd<8>;
+	.loc	15	18	0
+$LDWbegin__Z7kernel0P5uint4S0_:
+	.loc	15	12	0
+	cvt.s32.u16 	%r1, %tid.x;
+	cvt.s64.s32 	%rd1, %r1;
+	mul.wide.s32 	%rd2, %r1, 16;
+	ld.param.u64 	%rd3, [__cudaparm__Z7kernel0P5uint4S0__input];
+	add.u64 	%rd4, %rd3, %rd2;
+	ld.global.v4.u32 	{%r2,%r3,%r4,%r5}, [%rd4+0];
+	.loc	15	20	0
+	ld.param.u64 	%rd5, [__cudaparm__Z7kernel0P5uint4S0__output];
+	add.u64 	%rd6, %rd5, %rd2;
+	st.global.v4.u32 	[%rd6+0], {%r2,%r3,%r4,%r5};
+	.loc	15	21	0
+	exit;
+$LDWend__Z7kernel0P5uint4S0_:
+	} // _Z7kernel0P5uint4S0_
+

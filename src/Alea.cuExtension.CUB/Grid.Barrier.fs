@@ -1,4 +1,5 @@
-﻿module Alea.cuExtension.CUB.Grid.Barrier
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Grid.Barrier
 
 open Alea.CUDA
 open Alea.CUDA.Utilities

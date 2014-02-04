@@ -1,4 +1,5 @@
-﻿module Alea.cuExtension.CUB.Block.Load
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Block.Load
     
 open Microsoft.FSharp.Quotations
 
@@ -113,6 +114,7 @@ let loadDirectWarpStriped (items_per_thread:int) (block_threads:int) =
         | _, _ ->
             fun (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) -> ()
 
+
 let loadInternal (_ALGORITHM:BlockLoadAlgorithm) =
     fun (items_per_thread:int) (block_threads:int) ->
         match _ALGORITHM with
@@ -122,29 +124,60 @@ let loadInternal (_ALGORITHM:BlockLoadAlgorithm) =
         | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->   (items_per_thread, block_threads) ||> loadDirectWarpStriped
 
 
-[<Record>]
-type LoadInternalVars<'T> =
-    {
-        temp_storage : deviceptr<'T>
-        linear_tid : int
-    }
+let blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) =
+    match algorithm with
+    | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->
+        fun _ linear_tid ->
+            fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
+                algorithm |> loadInternal 
+                <||     (items_per_thread, block_threads)
+                <||     (valid_items, oob_default)
+                <|||    (linear_tid, block_itr, items)
 
-[<Record>]
-type LoadInternal<'T> = 
-    {
-        x : int
-    }
+    | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->
+        fun _ linear_tid ->    
+            fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
+                algorithm |> loadInternal 
+                <||     (items_per_thread, block_threads)
+                <||     (valid_items, oob_default)
+                <|||    (linear_tid, block_itr, items)
+
+    | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->
+        let stripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.stripedToBlocked
+        
+        fun temp_storage linear_tid ->
+            let stripedToBlocked = (temp_storage, linear_tid) ||> stripedToBlocked
+            fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
+                algorithm |> loadInternal 
+                <||     (items_per_thread, block_threads)
+                <||     (valid_items, oob_default)
+                <|||    (linear_tid, block_itr, items)
+                items |> stripedToBlocked
+
+    | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->
+        let warpStripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.warpStripedToBlocked
+        
+        fun temp_storage linear_tid ->
+            let warpStripedToBlocked = (temp_storage, linear_tid) ||> warpStripedToBlocked
+            fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
+                algorithm |> loadInternal 
+                <||     (items_per_thread, block_threads)
+                <||     (valid_items, oob_default)
+                <|||    (linear_tid, block_itr, items)
+                items |> warpStripedToBlocked
+
+
     
 [<Record>]
-type BlockLoadVars<'T> =
+type ThreadFields<'T> =
     {
-        //InternalLoad : LoadInternal<'T>
-        //InternalLoad : BlockLoadAlgorithm -> int -> int option -> int option -> int option -> int -> deviceptr<'T> -> deviceptr<'T> -> unit
         temp_storage : deviceptr<'T>
         linear_tid : int
     }
 
-    static member Init() =
+    member this.Get() = (this.temp_storage, this.linear_tid)
+
+    static member Init() =        
         {
             temp_storage = privateStorage()
             linear_tid = threadIdx.x
@@ -168,53 +201,63 @@ type BlockLoadVars<'T> =
             linear_tid = linear_tid
         }
 
-let vars (temp_storage:deviceptr<'T> option) (linear_tid:int option) =
-    match temp_storage, linear_tid with
-    | Some temp_storage, Some linear_tid -> temp_storage,       linear_tid
-    | None,              Some linear_tid -> privateStorage(),   linear_tid
-    | Some temp_storage, None ->            temp_storage,       threadIdx.x
-    | None,              None ->            privateStorage(),   threadIdx.x
-
-
-let blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) =
-    fun (temp_storage:deviceptr<'T> option) (linear_tid:int option) ->
-        let temp_storage, linear_tid = (temp_storage, linear_tid) ||> vars
-        
-        fun (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int option) (oob_default:'T option) ->
-            algorithm |> loadInternal 
-            <||     (items_per_thread, block_threads)
-            <||     (valid_items, oob_default)
-            <|||    (linear_tid, block_itr, items)    
 
 [<Record>]
 type BlockLoad<'T> =
     {
+        ThreadFields : ThreadFields<'T>
         BLOCK_THREADS : int
         ITEMS_PER_THREAD : int
         ALGORITHM : BlockLoadAlgorithm
         WARP_TIME_SLICING : bool
     }
 
-    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>) = 
-        let blockLoad 
-        
-    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>, valid_items:int) =
-        let vars = BlockLoadVars<'T>.Init()
-        let internalLoad() = 
-            this.ALGORITHM |> loadInternal 
-            <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
-            <||     (valid_items |> Some, None)
-            <|||    (vars.linear_tid, block_itr, items)
-        internalLoad()
 
-    member inline this.Load(block_itr:deviceptr<_>, items:deviceptr<_>, valid_items:int, oob_default:int) =
-        let vars = BlockLoadVars<'T>.Init()
-        let internalLoad() = 
-            this.ALGORITHM |> loadInternal 
-            <||     (this.ITEMS_PER_THREAD, this.BLOCK_THREADS)
-            <||     (valid_items |> Some, oob_default |> Some)
-            <|||    (vars.linear_tid, block_itr, items)
-        internalLoad()
+    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>) = 
+        (blockLoad this.BLOCK_THREADS this.ITEMS_PER_THREAD this.ALGORITHM this.WARP_TIME_SLICING)
+            <|| this.ThreadFields.Get()
+            <|| (block_itr, items) 
+            <|| (None, None)
+
+    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>, valid_items:int) =
+        (blockLoad this.BLOCK_THREADS this.ITEMS_PER_THREAD this.ALGORITHM this.WARP_TIME_SLICING)
+            <|| this.ThreadFields.Get()
+            <|| (block_itr, items) 
+            <|| (valid_items |> Some, None)
+
+    member inline this.Load(block_itr:deviceptr<_>, items:deviceptr<_>, valid_items:int, oob_default:'T) =
+        (blockLoad this.BLOCK_THREADS this.ITEMS_PER_THREAD this.ALGORITHM this.WARP_TIME_SLICING)
+            <|| this.ThreadFields.Get()
+            <|| (block_itr, items)
+            <|| (valid_items |> Some, oob_default |> Some)
+
+    static member Init(threadFields, block_threads, items_per_thread, algorithm, warp_time_slicing) =
+        {
+            ThreadFields        = threadFields
+            BLOCK_THREADS       = block_threads
+            ITEMS_PER_THREAD    = items_per_thread
+            ALGORITHM           = algorithm
+            WARP_TIME_SLICING   = warp_time_slicing
+        }
+
+    static member Init(threadFields, block_threads, items_per_thread) = 
+        {
+            ThreadFields        = threadFields
+            BLOCK_THREADS       = block_threads
+            ITEMS_PER_THREAD    = items_per_thread
+            ALGORITHM           = BlockLoadAlgorithm.BLOCK_LOAD_DIRECT
+            WARP_TIME_SLICING   = false
+        }
+
+
+
+//let vars (temp_storage:deviceptr<'T> option) (linear_tid:int option) =
+//    match temp_storage, linear_tid with
+//    | Some temp_storage, Some linear_tid -> temp_storage,       linear_tid
+//    | None,              Some linear_tid -> privateStorage(),   linear_tid
+//    | Some temp_storage, None ->            temp_storage,       threadIdx.x
+//    | None,              None ->            privateStorage(),   threadIdx.x
+
 
 
 //    [<Record>]
