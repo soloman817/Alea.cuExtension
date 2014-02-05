@@ -74,9 +74,9 @@ type ShuffleBroadcastAttribute() =
              | _ -> None
 
 let [<ShuffleBroadcast>] shuffleBroadcast (shuffle_word:uint32) (src_lane:int) (logcal_warp_threads_minus1:int) : uint32 = failwith ""
-
-let inline ShuffleBroadcast<'T>() =
-    let ShuffleWord = 
+//
+//let inline ShuffleBroadcast<'T>() =
+//    let ShuffleWord = Type.UnitWord.ShuffleWord
 
 
 

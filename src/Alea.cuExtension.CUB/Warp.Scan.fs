@@ -6,6 +6,8 @@ open Alea.CUDA.Common
 open Alea.cuExtension.CUB.Common
 open Alea.cuExtension.CUB.Utilities
 
+open Specializations.ScanShfl
+
 
 
 
@@ -14,9 +16,9 @@ let POW_OF_TWO =
         ((logical_warp_threads &&& (logical_warp_threads - 1)) = 0)
 
 let InternalWarpScan =
-    fun logical_warps ->
+    fun logical_warps logical_warp_threads ->
         if (CUB_PTX_VERSION >= 300) && ((logical_warps = 1) || (logical_warps |> POW_OF_TWO)) then
-            WarpScanShfl
+            (logical_warps, logical_warp_threads) |> WarpScanShfl.Create
         else
             WarpScanSmem
 
