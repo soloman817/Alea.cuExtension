@@ -52,6 +52,7 @@
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
     <Compile Include="Util.fs" />
+    <Compile Include="DataStructures.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
   </ItemGroup>

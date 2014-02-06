@@ -43,16 +43,16 @@ let loadDirectBlocked (items_per_thread:int) (block_threads:int) =
 
 let loadDirectBlockedVectorized (items_per_thread:int) (block_threads:int) =
     fun _ _ ->
-        fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) ->
+        fun (linear_tid:int) (block_ptr:deviceptr<'Vector>) (items:deviceptr<'Vector>) ->
             let MAX_VEC_SIZE = CUB_MIN 4 items_per_thread
             let VEC_SIZE = if (((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((items_per_thread % MAX_VEC_SIZE) = 0) then MAX_VEC_SIZE else 1
             let VECTORS_PER_THREAD = items_per_thread / VEC_SIZE
             let ptr = (block_ptr + (linear_tid * VEC_SIZE * VECTORS_PER_THREAD)) |> __ptr_reinterpret
 
-            let vec_items = __local__.Array<CubVector<'T>>(VECTORS_PER_THREAD) |> __array_to_ptr
+            let vec_items = __local__.Array<'Vector>(VECTORS_PER_THREAD) |> __array_to_ptr
 
             for ITEM = 0 to (VECTORS_PER_THREAD - 1) do vec_items.[ITEM] <- ptr.[ITEM]
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- vec_items.[ITEM].Ptr |> __ptr_to_obj
+            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- vec_items.[ITEM] //|> __ptr_to_obj
 
 
 let loadDirectStriped (items_per_thread:int) (block_threads:int) = 
@@ -213,13 +213,13 @@ type BlockLoad<'T> =
     }
 
 
-    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>) = 
+    member this.Load(block_itr:deviceptr<_>, items:deviceptr<_>) = 
         (blockLoad this.BLOCK_THREADS this.ITEMS_PER_THREAD this.ALGORITHM this.WARP_TIME_SLICING)
             <|| this.ThreadFields.Get()
             <|| (block_itr, items) 
             <|| (None, None)
 
-    member this.Load(block_itr:deviceptr<'T>, items:deviceptr<'T>, valid_items:int) =
+    member this.Load(block_itr:deviceptr<_>, items:deviceptr<_>, valid_items:int) =
         (blockLoad this.BLOCK_THREADS this.ITEMS_PER_THREAD this.ALGORITHM this.WARP_TIME_SLICING)
             <|| this.ThreadFields.Get()
             <|| (block_itr, items) 

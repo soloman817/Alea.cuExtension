@@ -20,7 +20,7 @@ let InternalWarpScan =
         if (CUB_PTX_VERSION >= 300) && ((logical_warps = 1) || (logical_warps |> POW_OF_TWO)) then
             (logical_warps, logical_warp_threads) |> WarpScanShfl.Create
         else
-            WarpScanSmem
+            (logical_warps, logical_warp_threads) |> WarpScanShfl.Create //WarpScanSmem
 
 let privateStorage() = __shared__.Extern<'T>() 
 

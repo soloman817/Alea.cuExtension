@@ -47,5 +47,5 @@ let SAFE_ALGORITHM =
 let InternalBlockScan =
     fun block_threads algorithm ->
         match (block_threads, algorithm) ||> SAFE_ALGORITHM with
-        | BLOCK_SCAN_WARP_SCANS -> BlockScanWarpScans()
-        | _ -> BlockScanRaking()
+        | BLOCK_SCAN_WARP_SCANS -> () //BlockScanWarpScans()
+        | _ -> () //BlockScanRaking()

@@ -4,7 +4,7 @@ module Alea.cuExtension.CUB.Utilities.Type
 open System
 open Alea.CUDA
 open Alea.CUDA.Utilities
-
+open Alea.cuExtension
 open Alea.cuExtension.CUB.Common
 
 

@@ -51,6 +51,13 @@ and [<Record>] Vector<'T> =
     static member _3 (x:'T, y:'T, z:'T) = Vector3._3(x,y,z)
     static member _4 (x:'T, y:'T, z:'T, w:'T) = Vector4._4(x,y,z,w)
 
+type CubVector<'T> =
+    | Vector1 of 'T
+    | Vector2 of 'T*'T
+    | Vector3 of 'T*'T*'T
+    | Vector4 of 'T*'T*'T*'T
+
+
 
 //type Vector1<'T>(_x:'T) =
 //    inherit Vector<'T>(_x)

@@ -94,6 +94,13 @@
     <None Include="packages.config" />
     <None Include="Script.fsx" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Alea.cuExtension\Alea.cuExtension.fsproj">
+      <Name>Alea.cuExtension</Name>
+      <Project>{9cb83079-3c79-4aab-b18f-bea24d68b41c}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
   </PropertyGroup>

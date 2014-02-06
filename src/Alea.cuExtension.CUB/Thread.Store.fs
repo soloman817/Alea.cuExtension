@@ -14,24 +14,6 @@ type CacheStoreModifier =
     | STORE_VOLATILE
 
 
-//let f (x:'T) (y:'T option) (z:'T option) (w:'T option) =
-
-//let inline storeType<'T>() =
-//    match typeof<'T> with
-//    | ty when ty = typeof<uint4> ->
-//        fun (ptr:deviceptr<uint4>) (vals:uint4) ->
-//             ptr.[0].x <- vals.x
-//             ptr.[0].y <- vals.y
-//             ptr.[0].z <- vals.z
-//             ptr.[0].w <- vals.w
-//    | ty when ty = typeof<ulonglong2> -> fun (ptr:deviceptr<ulonglong2>) (vals:ulonglong2) -> ()
-//    | ty when ty = typeof<ushort4> -> ()
-//    | ty when ty = typeof<uint2> -> ()
-//    | ty when ty = typeof<ulonglong> -> ()
-//    | ty when ty = typeof<uint32> -> ()
-//    | ty when ty = typeof<byte> -> ()
-//    | _ -> ()
-
 let inline threadStore<'T>() =
     fun modifier ->
         match modifier with
@@ -48,6 +30,131 @@ let iterateThreadStore count max =
         fun (ptr:deviceptr<'T>) (value:'T) ->
             for i = count to (max - 1) do
                 (ptr + i, value) ||> store
+
+
+///**
+// * ThreadStore definition for STORE_DEFAULT modifier on iterator types
+// */
+//template <typename OutputIterator, typename T>
+//__device__ __forceinline__ void ThreadStore(
+//    OutputIterator              itr,
+//    T                           val,
+//    Int2Type<STORE_DEFAULT>     modifier,
+//    Int2Type<false>             is_pointer)
+//{
+//    *itr = val;
+//}
+//
+//
+///**
+// * ThreadStore definition for STORE_DEFAULT modifier on pointer types
+// */
+//template <typename T>
+//__device__ __forceinline__ void ThreadStore(
+//    T                           *ptr,
+//    T                           val,
+//    Int2Type<STORE_DEFAULT>     modifier,
+//    Int2Type<true>              is_pointer)
+//{
+//    *ptr = val;
+//}
+//
+//
+///**
+// * ThreadStore definition for STORE_VOLATILE modifier on primitive pointer types
+// */
+//template <typename T>
+//__device__ __forceinline__ void ThreadStoreVolatilePtr(
+//    T                           *ptr,
+//    T                           val,
+//    Int2Type<true>              is_primitive)
+//{
+//    *reinterpret_cast<volatile T*>(ptr) = val;
+//}
+//
+//
+///**
+// * ThreadStore definition for STORE_VOLATILE modifier on non-primitive pointer types
+// */
+//template <typename T>
+//__device__ __forceinline__ void ThreadStoreVolatilePtr(
+//    T                           *ptr,
+//    T                           val,
+//    Int2Type<false>             is_primitive)
+//{
+//#if CUB_PTX_VERSION <= 130
+//
+//    *ptr = val;
+//    __threadfence_block();
+//
+//#else
+//
+//    typedef typename UnitWord<T>::VolatileWord VolatileWord;   // Word type for memcopying
+//
+//    const int VOLATILE_MULTIPLE = sizeof(T) / sizeof(VolatileWord);
+//
+//    VolatileWord words[VOLATILE_MULTIPLE];
+//    *reinterpret_cast<T*>(words) = val;
+//
+//    IterateThreadStore<0, VOLATILE_MULTIPLE>::template Dereference(
+//        reinterpret_cast<volatile VolatileWord*>(ptr),
+//        words);
+//
+//#endif  // CUB_PTX_VERSION <= 130
+//
+//}
+//
+//
+///**
+// * ThreadStore definition for STORE_VOLATILE modifier on pointer types
+// */
+//template <typename T>
+//__device__ __forceinline__ void ThreadStore(
+//    T                           *ptr,
+//    T                           val,
+//    Int2Type<STORE_VOLATILE>    modifier,
+//    Int2Type<true>              is_pointer)
+//{
+//    ThreadStoreVolatilePtr(ptr, val, Int2Type<Traits<T>::PRIMITIVE>());
+//}
+//
+//
+///**
+// * ThreadStore definition for generic modifiers on pointer types
+// */
+//template <typename T, int MODIFIER>
+//__device__ __forceinline__ void ThreadStore(
+//    T                           *ptr,
+//    T                           val,
+//    Int2Type<MODIFIER>          modifier,
+//    Int2Type<true>              is_pointer)
+//{
+//    typedef typename UnitWord<T>::DeviceWord DeviceWord;   // Word type for memcopying
+//
+//    const int DEVICE_MULTIPLE = sizeof(T) / sizeof(DeviceWord);
+//
+//    DeviceWord words[DEVICE_MULTIPLE];
+//
+//    *reinterpret_cast<T*>(words) = val;
+//
+//    IterateThreadStore<0, DEVICE_MULTIPLE>::template Store<CacheStoreModifier(MODIFIER)>(
+//        reinterpret_cast<DeviceWord*>(ptr),
+//        words);
+//}
+//
+//
+///**
+// * ThreadStore definition for generic modifiers
+// */
+//template <CacheStoreModifier MODIFIER, typename OutputIterator, typename T>
+//__device__ __forceinline__ void ThreadStore(OutputIterator itr, T val)
+//{
+//    ThreadStore(
+//        itr,
+//        val,
+//        Int2Type<MODIFIER>(),
+//        Int2Type<IsPointer<OutputIterator>::VALUE>());
+//}
 
 
 [<Record>]

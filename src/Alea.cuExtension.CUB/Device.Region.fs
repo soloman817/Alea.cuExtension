@@ -57,7 +57,7 @@ module BlockScanRegion =
     // Block scan utility methods (first tile)
     //
      
-    let scanBlock (scan_op:IScanOp<'T> option) (identity:'T option) (prefixCallback:'PrefixCallback option) =
+    let scanBlock (scan_op:('T -> 'T -> 'T) option) (identity:'T option) (prefixCallback:'PrefixCallback option) =
         match scan_op, identity, prefixCallback with
         | Some scan_op, Some identity, None -> ()
 //            fun (items:deviceptr<'T>) (block_aggregate:'T ref) ->

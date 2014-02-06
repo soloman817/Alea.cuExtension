@@ -99,7 +99,7 @@ module ScanRaking =
         fun block_threads raking_threads ->
             block_threads = raking_threads
 
-    let WarpScan = 
+    let WarpScan = ()
 
 
     [<Record>]
@@ -124,19 +124,20 @@ module ScanRaking =
                 fun linear_tid ->
                     fun warps raking_threads segment_length warp_synchronous ->
                         fun iteration ->
-                            fun (raking_ptr:deviceptr<'T>) (scan_op:IScanOp<'T>) (raking_partial:'T) ->
+                            fun (raking_ptr:deviceptr<'T>) (scan_op:('T -> 'T -> 'T)) (raking_partial:'T) ->
                                 let mutable raking_partial = raking_partial
                                 if unguarded || (((linear_tid * segment_length) + iteration) < block_threads) then
                                     let addend = raking_ptr.[iteration]
-                                    raking_partial <- (raking_partial, addend) ||> scan_op.Sum
+                                    raking_partial <- (raking_partial, addend) ||> scan_op
 
     let upsweep =
-        fun (scan_op:IScanOp<'T>) ->
-            let smem_raking_ptr = 
+        fun (scan_op:('T -> 'T -> 'T)) ->
+            let smem_raking_ptr = ()
+            ()
         
 
     let blockScanRaking block_threads memoize =
-        let BlockRakingLayout = block_threads |> BlockRakingLayout.Init
+        let BlockRakingLayout = block_threads |> BlockRakingLayout
         ()
     
 
@@ -216,7 +217,7 @@ module ScanWarpScans =
 
     let applyWarpAggregates block_threads = 
         let WARPS = block_threads |> WARPS
-        fun (partial:Ref<'T>) (scan_op:IScanOp<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool option) ->
+        fun (partial:Ref<'T>) (scan_op:('T -> 'T -> 'T)) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool option) ->
             let lane_valid = if lane_valid.IsSome then lane_valid.Value else true
             fun temp_storage warp_id ->
                 temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
@@ -227,8 +228,8 @@ module ScanWarpScans =
 
                 for WARP = 1 to WARPS - 1 do
                     if warp_id = WARP then
-                        partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op.Sum else !block_aggregate
-                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op.Sum
+                        partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
+                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
 
      
     [<Record>]
