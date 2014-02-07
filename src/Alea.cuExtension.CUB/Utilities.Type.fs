@@ -103,6 +103,52 @@ type UnitWord<'T> =
         }
 
 module UnitWord =
+    type ShuffleWordAttribute() =
+        inherit Attribute()
+
+        interface ICustomCallBuilder with
+            member this.Build(ctx, irObject, info, irParams) =
+                match irObject, info.Name, irParams with
+                | Some(_), "Of", irValue :: [] ->
+                    let clrParamType = info.GetParameters().[0].ParameterType
+                    let irParamType = IRTypeBuilder.Instance.Build(ctx, clrParamType)
+                    let clrRealType = info.ReturnType
+                    let irRealType = IRTypeBuilder.Instance.Build(ctx, clrRealType)
+                    irRealType |> function
+                    | irRealType when irRealType.IsFloatingPoint -> irRealType.FloatingPoint.Kind |> function
+                        | FloatingPointKind.Double -> irParamType |> function
+                            | irParamType when irParamType.IsInteger -> (irParamType.Integer.Bits, irParamType.Integer.Signed) |> function
+                                |  8,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : int8) @@>) |> Some
+                                |  8, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : uint8) @@>) |> Some
+                                | 16,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : int16) @@>) |> Some
+                                | 16, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : uint16) @@>) |> Some
+                                | 32,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : int) @@>) |> Some
+                                | 32, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : uint32) @@>) |> Some
+                                | 64,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : int64) @@>) |> Some
+                                | 64, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : uint64) @@>) |> Some
+                                | _ -> None
+                            | irParamType when irParamType.IsFloatingPoint -> irParamType.FloatingPoint.Kind |> function
+                                | FloatingPointKind.Double -> irValue |> Some
+                                | FloatingPointKind.Single -> IRInstructionBuilder.Instance.Build(ctx, <@@ float(%%irValue.Expr : float32) @@>) |> Some
+                            | _ -> None
+                        | FloatingPointKind.Single -> irParamType |> function
+                            | irParamType when irParamType.IsInteger -> (irParamType.Integer.Bits, irParamType.Integer.Signed) |> function
+                                |  8,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : int8) @@>) |> Some
+                                |  8, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : uint8) @@>) |> Some
+                                | 16,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : int16) @@>) |> Some
+                                | 16, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : uint16) @@>) |> Some
+                                | 32,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : int) @@>) |> Some
+                                | 32, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : uint32) @@>) |> Some
+                                | 64,  true -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : int64) @@>) |> Some
+                                | 64, false -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : uint64) @@>) |> Some
+                                | _ -> None
+                            | irParamType when irParamType.IsFloatingPoint -> irParamType.FloatingPoint.Kind |> function
+                                | FloatingPointKind.Double -> IRInstructionBuilder.Instance.Build(ctx, <@@ float32(%%irValue.Expr : float) @@>) |> Some
+                                | FloatingPointKind.Single -> irValue |> Some
+                            | _ -> None
+                    | _ -> None
+                | _ -> None
+
     type ShuffleWord = int
     type VolatileWord = int
     type DeviceWord = int

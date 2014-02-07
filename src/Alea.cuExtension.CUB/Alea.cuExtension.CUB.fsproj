@@ -63,6 +63,9 @@
     <Compile Include="Thread.Reduce.fs" />
     <Compile Include="Thread.Scan.fs" />
     <Compile Include="Thread.Store.fs" />
+    <Compile Include="Warp.Specializations.fs" />
+    <Compile Include="Warp.Scan.fs" />
+    <Compile Include="Warp.Reduce.fs" />
     <Compile Include="Block.Discontinuity.fs" />
     <Compile Include="Block.Histogram.fs" />
     <Compile Include="Block.Exchange.fs" />
@@ -88,9 +91,6 @@
     <Compile Include="Device.Select.fs" />
     <Compile Include="Host.Spinlock.fs" />
     <Compile Include="Iterator.fs" />
-    <Compile Include="Warp.Reduce.fs" />
-    <Compile Include="Warp.Specializations.fs" />
-    <Compile Include="Warp.Scan.fs" />
     <None Include="packages.config" />
     <None Include="Script.fsx" />
   </ItemGroup>

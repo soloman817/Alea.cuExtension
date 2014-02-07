@@ -4,6 +4,9 @@ module Alea.cuExtension.CUB.Utilities.Ptx
 open System
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.cuExtension.CUB.Utilities
+
+open UnitWord
 
 
 //let [<ReflectedDefinition>] SHR_ADD (x:uint32) (shift:int) (addend:uint32) = (x >>> shift) + addend
@@ -66,14 +69,30 @@ type ShuffleBroadcastAttribute() =
     interface ICustomCallBuilder with
         member this.Build(ctx, irObject, info, irParams) =
             match irObject, irParams with
-            | None, [] ->
-                 let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint32 -> int -> int-> uint32>)
-                 let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
-                 IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
-                    "shfl.idx.b32 \t$0, $1, $2, $3;", "=r", []) |> Some
-             | _ -> None
+            | None, shuffle_word :: src_lane :: logical_warp_threads :: [] ->
+                let clrType = info.GetGenericArguments().[0]
+                let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
+                let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint32 -> int -> int-> uint32>)
+                let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                    "shfl.idx.b32 \t$0, $1, $2, $3;", "=r", shuffle_word :: src_lane :: logical_warp_threads :: []) |> Some
+            | _ -> None
 
-let [<ShuffleBroadcast>] shuffleBroadcast (shuffle_word:uint32) (src_lane:int) (logcal_warp_threads_minus1:int) : uint32 = failwith ""
+let [<ShuffleBroadcast>] shuffleBroadcast (shuffle_word:uint32) (src_lane:int) (logical_warp_threads:int) : uint32 = failwith ""
+let inline ShuffleBroadcast<'T> (input:'T) (src_lane:int) (logical_warp_threads:int) =
+    let WORDS = (sizeof<'T> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+    
+    let output = __local__.Variable<'T>()
+
+    let input_alias : deviceptr<ShuffleWord> = input |> __obj_to_ref |> __ref_reinterpret |> __ref_to_ptr
+    let output_alias : deviceptr<ShuffleWord> = output |> __ref_reinterpret |> __ref_to_ptr
+
+    for WORD = 0 to (WORDS - 1) do
+        let shuffle_word = (input_alias.[WORD] |> uint32, src_lane, (logical_warp_threads - 1)) |||> shuffleBroadcast
+        
+        output_alias.[WORD] <- shuffle_word |> __obj_reinterpret
+
+    output |> __ref_to_obj
 //
 //let inline ShuffleBroadcast<'T>() =
 //    let ShuffleWord = Type.UnitWord.ShuffleWord

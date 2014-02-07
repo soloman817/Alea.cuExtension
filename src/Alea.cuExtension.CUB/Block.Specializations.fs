@@ -5,13 +5,15 @@ open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 open Alea.cuExtension.CUB.Utilities
 
+open Alea.cuExtension.CUB.Warp
+
 module HistogramAtomic =
     let f() = "histogram atomic"
 
 module HistogramSort =
     let f() = "histogram sort"
 
-module ReduceRaking =
+module BlockReduceRaking =
 
     let RAKING_THREADS =
         fun block_threads ->
@@ -75,10 +77,10 @@ module ReduceRaking =
             BLOCK_THREADS : int
         }
 
-module ReduceWarpReduction =
+module BlockReduceWarpReduction =
     let f() = "reduce warp reduction"
 
-module ScanRaking =
+module BlockScanRaking =
     open RakingLayout
 
     let BlockRakingLayout = 
@@ -174,7 +176,7 @@ module ScanRaking =
 
 
 
-module ScanWarpScans =
+module BlockScanWarpScans =
 
     let WARPS =
         fun block_threads ->
@@ -185,7 +187,7 @@ module ScanWarpScans =
         {
             warp_scan : deviceptr<'T>
             warp_aggregates : deviceptr<'T>
-            block_prefix : 'T
+            mutable block_prefix : 'T
         }
 
         static member Create(warp_scan, warp_aggregates, block_prefix) =
@@ -231,13 +233,55 @@ module ScanWarpScans =
                         partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
                     block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
 
+    
+            
      
     [<Record>]
     type BlockScanWarpScans<'T> =
         {
-            BLOCK_THREADS : int
-            ThreadFields : ThreadFields<'T>
+            WarpScan        : WarpScan<'T>
+            TempStorage    : TempStorage<'T>
+            ThreadFields    : ThreadFields<'T>
         }
+
+        member this.ApplyWarpAggregates(partial:Ref<'T>, scan_op:('T -> 'T -> 'T), warp_aggregate:'T, block_aggregate:Ref<'T>, ?lane_valid:bool) = ()
+        
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) = 
+            let warp_aggregate = __null() |> __ptr_to_ref
+            let temp_storage = this.TempStorage.warp_scan
+            WarpScan<'T>.Create(temp_storage |> __ptr_to_ref, this.warp_id, this.lane_id).ExclusiveScan(input, output, !identity, scan_op, warp_aggregate)
+            this.ApplyWarpAggregates(output, scan_op, !warp_aggregate, block_aggregate)
+
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:'T, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'BlockPrefixCallbackOp>) = 
+            let warp_id = this.ThreadFields.warp_id
+            let lane_id = this.ThreadFields.lane_id
+            let temp_storage = this.ThreadFields.temp_storage
+            let identity = identity |> __obj_to_ref
+            
+            this.ExclusiveScan(input, output, identity, scan_op, block_aggregate)
+            if warp_id = 0 then
+                let block_prefix = !block_aggregate |> !block_prefix_callback_op 
+                if lane_id = 0 then temp_storage.block_prefix <- block_prefix
+
+            __syncthreads()
+
+            output := (temp_storage.block_prefix, !output) ||> scan_op
+
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) = 
+            let warp_aggregate = __null() |> __ptr_to_ref
+            this.WarpScan
+        
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'BlockPrefixCallbackOp>) = ()
+
+        member this.ExclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) = ()
+        member this.ExclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'BlockPrefixCallbackOp>) = ()
+
+        member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) = ()
+        member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'BlockPrefixCallbackOp>) = ()
+
+        member this.InclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) = ()
+        member this.InclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'BlockPrefixCallbackOp>) = ()
+
 
 //        static member Create(temp_storage, linear_tid) =
 //            {

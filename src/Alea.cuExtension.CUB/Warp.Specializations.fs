@@ -1,5 +1,7 @@
-﻿module Alea.cuExtension.CUB.Warp.Specializations
+﻿[<AutoOpen>]
+module Alea.cuExtension.CUB.Warp.Specializations
 
+open System
 open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.CUDA.Common
@@ -25,10 +27,56 @@ module ScanShfl =
             let STEPS = logical_warp_threads |> STEPS
             ((-1 <<< STEPS) &&& 31) <<< 8
 
-    let broadCast =
+    let broadcast =
         fun logical_warp_threads ->
             fun input src_lane ->
-                ()//(input, src_lane, logical_warp_threads) |||> ShuffleBroadcast
+                (input, src_lane, logical_warp_threads) |||> ShuffleBroadcast
+
+    
+    let inclusiveScan w x y z = ()
+
+    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+    type InclusiveSumPtxAttribute() =
+        inherit Attribute()
+
+        interface ICustomCallBuilder with
+            member this.Build(ctx, irObject, info, irParams) =
+                match irObject, irParams with
+                | None, temp :: shlStep :: shfl_c :: [] ->
+                    let clrType = info.GetGenericArguments().[0]
+                    let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
+                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint32 -> int -> int-> uint32>)
+                    let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                    IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                        "{
+                            .reg .u32 r0;
+                            .reg .pred p;
+                            shfl.up.b32 r0|p, $1, $2, $3;
+                            @p add.u32 r0, r0, %4;
+                            mov.u32 %0, r0;
+                        }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
+                | _ -> None
+
+    let [<InclusiveSumPtx>] inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
+    let inclusiveSum logical_warps logical_warp_threads =
+        let STEPS = logical_warp_threads |> STEPS
+        let SHFL_C = logical_warp_threads |> SHFL_C
+        let broadcast = logical_warp_threads |> broadcast
+
+        fun (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) (single_shfl:bool option) ->
+            match single_shfl with
+            | Some single_shfl ->
+                if single_shfl then
+                    let temp = ref input
+                    for STEP = 0 to (STEPS - 1) do
+                        temp := (!temp, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx
+                    output := !temp
+
+                    warp_aggregate := (!output, (logical_warp_threads - 1)) ||> broadcast
+//                else
+//                    (input, output, ( + ), warp_aggregate) |||> inclusiveScan
+            
+
 
     [<Record>]
     type ThreadFields<'T> =
