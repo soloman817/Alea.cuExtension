@@ -345,13 +345,27 @@ module ScanSmem =
     [<Record>]
     type WarpScanSmem<'T> =
         {
-            ThreadFields : ThreadFields<'T>
+            temp_storage : Ref<'T>
+            warp_id : uint32
+            lane_id : uint32
         }
 
-        static member Create(temp_storage, warp_id, lane_id) =
-            {
-                ThreadFields = ThreadFields<'T>.Init(temp_storage, warp_id, lane_id)
-            }
+        
+        member this.ScanStep(partial:Ref<'T>) =
+            fun has_identity step -> ()
 
-        member this.ScanStep(partial, scan_op, step) = ()
-        member this.ScanStep() = ()
+        member this.ScanStep(partial:Ref<'T>, scan_op:('T -> 'T -> 'T), step:bool) = 
+            fun has_identity step -> ()
+
+        member this.Broadcast(input:'T, src_lane:uint32) = ()
+        
+        member this.BasicScan(partial:'T, scan_op:('T -> 'T -> 'T)) = ()
+
+        member this.InclusiveSum(input:'T, output:Ref<'T>) = ()
+        member this.InclusiveSum(input:'T, output:Ref<'T>, warp_aggregate:Ref<'T>) = ()
+
+        member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), warp_aggregate:Ref<'T>) =
+        member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T)) = () ()
+
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:'T, scan_op:('T -> 'T -> 'T)) = ()
+        member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:'T, scan_op:('T -> 'T -> 'T), warp_aggregate:Ref<'T>) = ()

@@ -35,6 +35,11 @@ let lane_id =
 
 let [<ReflectedDefinition>] privateStorage<'T>() = __shared__.Extern<'T>()
 
+
+type [<RequireQualifiedAccess>] ITempStorage<'T> = abstract temp_storage : deviceptr<'T>
+let tempStorage<'T>(grid_elements:int)() = { new ITempStorage<'T> with member this.temp_storage = __shared__.Array<'T>(grid_elements) |> __array_to_ptr }
+
+
 type WarpScanAPI<'T> =
     abstract POW_OF_TWO : bool
     abstract InternalScan : int

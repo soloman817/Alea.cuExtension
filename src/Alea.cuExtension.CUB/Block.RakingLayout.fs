@@ -89,10 +89,19 @@ type Constants =
             UNGUARDED           = (block_threads, block_strips) ||> UNGUARDED
         }
 
+type ITempStorage<'T> = abstract temp_storage : deviceptr<'T>
+let tempStorage<'T>(grid_elements:int)() = { new ITempStorage<'T> with member this.temp_storage = __shared__.Array<'T>(grid_elements) |> __array_to_ptr }
+
+//let tempStorage<'T>() = 
+//    fun grid_elements -> 
+//        cuda { return! <@ fun _ -> __shared__.
+
+
 
 [<Record>]
 type BlockRakingLayout =
     {
+        
         BLOCK_THREADS : int
         BLOCK_STRIPS : int
         Constants : Constants
@@ -114,3 +123,4 @@ type BlockRakingLayout =
             BLOCK_STRIPS = 1
             Constants = (block_threads, 1) |> Constants.Init
         }
+
