@@ -9,9 +9,17 @@ type Locale =
     | Host
     | Device
 
-let privateStorage() = __null()
+//let privateStorage() = __null()
 
 type Offset = int
+
+type IScanOp<'T> =
+    abstract op : ('T -> 'T -> 'T)
+
+
+let inline scan_op (op:'T -> 'T -> 'T) = 
+    { new IScanOp<'T> with
+        member this.op = op }
 
 //
 //type long = nativeint

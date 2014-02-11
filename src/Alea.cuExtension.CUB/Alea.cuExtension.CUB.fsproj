@@ -91,6 +91,7 @@
     <Compile Include="Device.Select.fs" />
     <Compile Include="Host.Spinlock.fs" />
     <Compile Include="Iterator.fs" />
+    <Compile Include="AssemblyInfo.fs" />
     <None Include="packages.config" />
     <None Include="Script.fsx" />
   </ItemGroup>

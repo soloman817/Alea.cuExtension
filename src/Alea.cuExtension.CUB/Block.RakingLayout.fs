@@ -48,7 +48,7 @@ let UNGUARDED =
         (SHARED_ELEMENTS % RAKING_THREADS = 0)
 
 
-let placementPtr (block_threads:int) (block_strips:int) =
+let inline placementPtr<'T> (block_threads:int) (block_strips:int) =
     fun (temp_storage:deviceptr<'T>) (linear_tid:int) (block_strip:int option) ->
         let block_strip = if block_strip.IsSome then block_strip.Value else 0
         let mutable offset = (block_strip * block_threads) + linear_tid
@@ -58,7 +58,7 @@ let placementPtr (block_threads:int) (block_strips:int) =
             offset <- offset + offset / SEGMENT_LENGTH
         temp_storage + offset
 
-let rakingPtr (block_threads:int) (block_strips:int) =
+let inline rakingPtr<'T> (block_threads:int) (block_strips:int) =
     fun (temp_storage:deviceptr<'T>) (linear_tid:int) ->
         let SEGMENT_LENGTH = (block_threads, block_strips) ||> SEGMENT_LENGTH
         let SEGMENT_PADDING = (block_threads, block_strips) ||> SEGMENT_PADDING
@@ -99,7 +99,7 @@ let tempStorage<'T>(grid_elements:int)() = { new ITempStorage<'T> with member th
 
 
 [<Record>]
-type BlockRakingLayout =
+type BlockRakingLayout<'T> =
     {
         
         BLOCK_THREADS : int
@@ -107,8 +107,8 @@ type BlockRakingLayout =
         Constants : Constants
     }
 
-    member this.PlacementPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> placementPtr
-    member this.RakingPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> rakingPtr    
+    member this.PlacementPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> placementPtr<'T>
+    member this.RakingPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> rakingPtr<'T>    
 
     static member Init(block_threads, block_strips) =
         {
