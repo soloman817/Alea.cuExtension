@@ -154,26 +154,26 @@ module UnitWord =
     type DeviceWord = int
     type TextureWord = int
 
-module ScanOperators =
-    type ScanOpKind =
-        | Add
-        | Mul
-        | Min
-        | Max
-
-    type IScanOp<'T> =
-        abstract Identity : 'T
-        abstract Op : ('T -> 'T -> 'T)
-
-    let inline scanOp (opKind:ScanOpKind) (identity:'T) =
-        { new IScanOp<'T> with
-            member this.Identity = identity
-            member this.Op =
-                match opKind with
-                | Add -> ( + )
-                | Mul -> ( * )
-                | Min -> min
-                | Max -> max }
+//module ScanOperators =
+//    type ScanOpKind =
+//        | Add
+//        | Mul
+//        | Min
+//        | Max
+//
+//    type IScanOp<'T> =
+//        abstract Identity : 'T
+//        abstract Op : Expr<'T -> 'T -> 'T>
+//
+//    let inline scanOp (opKind:ScanOpKind) (identity:'T) =
+//        { new IScanOp<'T> with
+//            member this.Identity = identity
+//            member this.Op =
+//                match opKind with
+//                | Add -> ( + )
+//                | Mul -> ( * )
+//                | Min -> min
+//                | Max -> max }
 
     
 
@@ -503,7 +503,7 @@ let baseTraits (category:Category) (primitive:bool) (null_type:bool) (unsignedBi
         None
 
 type KeyValuePair<'K, 'V> = System.Collections.Generic.KeyValuePair<'K,'V>
-let keyValueOp(op:ScanOperators.IScanOp<'V>) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyValuePair<'K,'V>) -> (kvp1.Value,kvp2.Value) ||> op.Op
+let keyValueOp(op:('V -> 'V -> 'V)) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyValuePair<'K,'V>) -> (kvp1.Value,kvp2.Value) ||> op
 
 
 let inline ZeroInitialize<'T>() =

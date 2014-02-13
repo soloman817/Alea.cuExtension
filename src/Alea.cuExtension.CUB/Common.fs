@@ -13,13 +13,13 @@ type Locale =
 
 type Offset = int
 
-type IScanOp<'T> =
-    abstract op : ('T -> 'T -> 'T)
-
-
-let inline scan_op (op:'T -> 'T -> 'T) = 
-    { new IScanOp<'T> with
-        member this.op = op }
+//type IScanOp<'T> =
+//    abstract op : Expr<'T -> 'T -> 'T>
+//
+//
+//let inline scan_op (op:'T -> 'T -> 'T) = 
+//    { new IScanOp<'T> with
+//        member this.op = op }
 
 //
 //type long = nativeint

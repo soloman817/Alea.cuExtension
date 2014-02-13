@@ -24,8 +24,8 @@ open Alea.CUDA
 
 //type STMD<'T, 'BlockPrefixCallbackOp> =
 //    abstract ExclusiveSum : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
-//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> -> ('T -> 'T -> 'T) -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
-//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> ('T -> 'T -> 'T) -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
+//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> -> Expr<'T -> 'T -> 'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
+//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> Expr<'T -> 'T -> 'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
 
 //type STMD<'T, 'BlockPrefixCallbackOp> =
 //    abstract Sum : (deviceptr<'T> * deviceptr<'T>) -> unit
@@ -44,11 +44,11 @@ open Alea.CUDA
 
 //type ISTMD<'T, 'BlockPrefixCallbackOp> =
 //    abstract ExclusiveSum : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
-//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> option -> ('T -> 'T -> 'T) -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
+//    abstract ExclusiveScan : deviceptr<'T> -> deviceptr<'T> -> Ref<'T> option -> Expr<'T -> 'T -> 'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
 //
 //type ISTSD<'T, 'BlockPrefixCallbackOp> =
 //    abstract ExclusiveSum : 'T -> Ref<'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
-//    abstract ExclusiveScan : 'T -> Ref<'T> -> Ref<'T> option -> ('T -> 'T -> 'T) -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
+//    abstract ExclusiveScan : 'T -> Ref<'T> -> Ref<'T> option -> Expr<'T -> 'T -> 'T> -> Ref<'T> option -> Ref<'BlockPrefixCallbackOp> option -> unit
 //
 //
 //
