@@ -14,20 +14,20 @@ type CacheStoreModifier =
     | STORE_VOLATILE
 
 
-let inline threadStore<'T>() =
+let inline threadStore() =
     fun modifier ->
         match modifier with
-        | STORE_DEFAULT -> fun (ptr:deviceptr<'T>) (value:'T) ->  ptr.[0] <- value
-        | STORE_WB -> fun (ptr:deviceptr<'T>) (value:'T) -> ptr.[0] <- value
-        | STORE_CG -> fun (ptr:deviceptr<'T>) (value:'T) -> ptr.[0] <- value
-        | STORE_CS -> fun (ptr:deviceptr<'T>) (value:'T) -> ptr.[0] <- value
-        | STORE_WT -> fun (ptr:deviceptr<'T>) (value:'T) -> ptr.[0] <- value
-        | STORE_VOLATILE -> fun (ptr:deviceptr<'T>) (value:'T) -> ptr.[0] <- value
+        | STORE_DEFAULT -> fun (ptr:deviceptr<int>) (value:int) ->  ptr.[0] <- value
+        | STORE_WB -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+        | STORE_CG -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+        | STORE_CS -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+        | STORE_WT -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+        | STORE_VOLATILE -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
 
 let iterateThreadStore count max =
     fun modifier ->
-        let store = modifier |> threadStore<'T>()
-        fun (ptr:deviceptr<'T>) (value:'T) ->
+        let store = modifier |> threadStore()
+        fun (ptr:deviceptr<int>) (value:int) ->
             for i = count to (max - 1) do
                 (ptr + i, value) ||> store
 
@@ -158,7 +158,7 @@ let iterateThreadStore count max =
 
 
 [<Record>]
-type ThreadStore<'T> =
+type ThreadStore =
     {
         COUNT : int
         MAX : int
@@ -183,5 +183,5 @@ type ThreadStore<'T> =
 
 
 //        let Store =
-//            fun (ptr:deviceptr<'T>) (vals:deivceptr<'T>) ->
+//            fun (ptr:deviceptr<int>) (vals:deivceptr<int>) ->
 //                

@@ -12,9 +12,9 @@ open Alea.cuExtension.CUB.Common
 //
 //
 //[<Record>]
-//type ThreadFields<'T> =
+//type ThreadFields =
 //    {
-//        temp_storage : deviceptr<'T>
+//        temp_storage : deviceptr<int>
 //        linear_tid : int
 //    }
 //
@@ -26,7 +26,7 @@ open Alea.cuExtension.CUB.Common
 //            linear_tid = threadIdx.x
 //        }
 //
-//    static member inline Init(temp_storage:deviceptr<_>) =
+//    static member inline Init(temp_storage:deviceptr<int>) =
 //        {
 //            temp_storage = temp_storage
 //            linear_tid = threadIdx.x
@@ -38,7 +38,7 @@ open Alea.cuExtension.CUB.Common
 //            linear_tid = linear_tid
 //        }
 //
-//    static member inline Init(temp_storage:deviceptr<_>, linear_tid:int) =
+//    static member inline Init(temp_storage:deviceptr<int>, linear_tid:int) =
 //        {
 //            temp_storage = temp_storage
 //            linear_tid = linear_tid
@@ -49,9 +49,9 @@ open Alea.cuExtension.CUB.Common
 //
 //
 //[<Record>]
-//type BlockReduce<'T> =
+//type BlockReduce =
 //    {
-//        ThreadFields : ThreadFields<'T>
+//        ThreadFields : ThreadFields<int>
 //        BLOCK_THREADS : int
 //        ALGORITHM : BlockReduceAlgorithm
 //    }

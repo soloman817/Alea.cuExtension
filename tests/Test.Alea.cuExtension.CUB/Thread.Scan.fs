@@ -14,7 +14,7 @@ let ``thread scan : verification`` () =
     let inline template() = cuda {
         //let scan_op = scan_op 0
         let! kernel = 
-            <@ fun (scan:ThreadScan<int>) ->
+            <@ fun (scan:ThreadScan) ->
                 let s = scan
                 ()
             @> |> Compiler.DefineKernel
@@ -24,7 +24,7 @@ let ``thread scan : verification`` () =
             let kernel = program.Apply kernel
 
             fun _ ->
-                let scan = ThreadScan<int>.Create(1)
+                let scan = ThreadScan.Create(1)
                 kernel.Launch (LaunchParam(1,1)) scan )}
 
     let program = template() |> Compiler.load Worker.Default
@@ -40,7 +40,7 @@ let ``thread scan : inclusive : int`` () =
     let inline template() = cuda {
         //let op = <@ op @>
         let! kernel = 
-            <@ fun (scan:ThreadScan<int>) (input:deviceptr<int>) (output:deviceptr<int>) ->
+            <@ fun (scan:ThreadScan) (input:deviceptr<int>) (output:deviceptr<int>) ->
                 //let op = scan_op.plus
                (scan.Inclusive(input, output,(+)))
             @> |> Compiler.DefineKernel
@@ -51,7 +51,7 @@ let ``thread scan : inclusive : int`` () =
             let kernel = program.Apply kernel
 
             let run (input:int[]) =
-                let scan = ThreadScan<int>.Create(input.Length)
+                let scan = ThreadScan.Create(input.Length)
                 use d_in = worker.Malloc(input)
                 use d_out = worker.Malloc<int>(input.Length + 1)
                 use d_out2 = worker.Malloc<int>(input.Length + 1)

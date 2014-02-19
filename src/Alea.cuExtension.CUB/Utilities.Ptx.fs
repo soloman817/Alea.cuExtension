@@ -79,10 +79,10 @@ type ShuffleBroadcastAttribute() =
             | _ -> None
 
 let [<ShuffleBroadcast>] shuffleBroadcast (shuffle_word:uint32) (src_lane:int) (logical_warp_threads:int) : uint32 = failwith ""
-let inline ShuffleBroadcast<'T> (input:'T) (src_lane:int) (logical_warp_threads:int) =
-    let WORDS = (sizeof<'T> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+let inline ShuffleBroadcast (input:int) (src_lane:int) (logical_warp_threads:int) =
+    let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
     
-    let output = __local__.Variable<'T>()
+    let output = __local__.Variable()
 
     let input_alias : deviceptr<ShuffleWord> = input |> __obj_to_ref |> __ref_reinterpret |> __ref_to_ptr
     let output_alias : deviceptr<ShuffleWord> = output |> __ref_reinterpret |> __ref_to_ptr
@@ -94,10 +94,23 @@ let inline ShuffleBroadcast<'T> (input:'T) (src_lane:int) (logical_warp_threads:
 
     output |> __ref_to_obj
 //
-//let inline ShuffleBroadcast<'T>() =
+//let inline ShuffleBroadcast() =
 //    let ShuffleWord = Type.UnitWord.ShuffleWord
 
+[<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+type ShuffleUpAttribute() =
+    inherit Attribute()
 
+    interface ICustomCallBuilder with
+        member this.Build(ctx, irObject, info, irParams) =
+            match irObject, irParams with
+            | None, shuffle_word :: src_offset :: shfl_c :: [] ->
+                 let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<int -> int -> int -> int -> int>)
+                 let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                 IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                    "shfl.up.b32 \t$0, $1, $2, $3;", "=r,r,r,r", shuffle_word :: src_offset :: shfl_c :: []) |> Some
+             | _ -> None
+let [<ShuffleUp>] shuffleUp (shuffle_word:uint32) (src_offset:int) (shfl_c:int) : uint32 = failwith ""
 
 
 
@@ -106,6 +119,22 @@ let inline ShuffleBroadcast<'T> (input:'T) (src_lane:int) (logical_warp_threads:
 type __ptx__ private () =
     
     [<BFI>]     static member BFI(x,y,bit,numBits) = bfi x y bit numBits
+    [<ShuffleUp>] 
+    static member ShuffleUp(input:int, src_offset:int) =
+        let SHFL_C = 0
+         
+        let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+        let output = __local__.Variable()
+        let output_alias : deviceptr<ShuffleWord> = output |> __ref_to_ptr
+        let input_alias : deviceptr<ShuffleWord> = input |> __obj_reinterpret
+
+        for WORD = 0 to WORDS - 1 do
+            let mutable shuffle_word : uint32 = input_alias.[WORD] |> __obj_reinterpret
+            shuffle_word <- shuffleUp shuffle_word src_offset SHFL_C
+            output_alias.[WORD] <- shuffle_word |> __obj_reinterpret
+
+        !output
+
     [<SHR_ADD>] static member SHR_ADD(x,shift,addend) = shr_add x shift addend
     [<LaneID>]  static member LaneId() = laneId()
 

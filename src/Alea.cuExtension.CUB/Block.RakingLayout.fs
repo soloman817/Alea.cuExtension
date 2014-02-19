@@ -48,8 +48,8 @@ let UNGUARDED =
         (SHARED_ELEMENTS % RAKING_THREADS = 0)
 
 
-let inline placementPtr<'T> (block_threads:int) (block_strips:int) =
-    fun (temp_storage:deviceptr<'T>) (linear_tid:int) (block_strip:int option) ->
+let inline placementPtr (block_threads:int) (block_strips:int) =
+    fun (temp_storage:deviceptr<int>) (linear_tid:int) (block_strip:int option) ->
         let block_strip = if block_strip.IsSome then block_strip.Value else 0
         let mutable offset = (block_strip * block_threads) + linear_tid
         let SEGMENT_PADDING = (block_threads, block_strips) ||> SEGMENT_PADDING
@@ -58,8 +58,8 @@ let inline placementPtr<'T> (block_threads:int) (block_strips:int) =
             offset <- offset + offset / SEGMENT_LENGTH
         temp_storage + offset
 
-let inline rakingPtr<'T> (block_threads:int) (block_strips:int) =
-    fun (temp_storage:deviceptr<'T>) (linear_tid:int) ->
+let inline rakingPtr (block_threads:int) (block_strips:int) =
+    fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
         let SEGMENT_LENGTH = (block_threads, block_strips) ||> SEGMENT_LENGTH
         let SEGMENT_PADDING = (block_threads, block_strips) ||> SEGMENT_PADDING
         temp_storage + (linear_tid * (SEGMENT_LENGTH + SEGMENT_PADDING))
@@ -89,17 +89,18 @@ type Constants =
             UNGUARDED           = (block_threads, block_strips) ||> UNGUARDED
         }
 
-type ITempStorage<'T> = abstract temp_storage : deviceptr<'T>
-let tempStorage<'T>(grid_elements:int)() = { new ITempStorage<'T> with member this.temp_storage = __shared__.Array<'T>(grid_elements) |> __array_to_ptr }
+type ITempStorage = abstract temp_storage : deviceptr<int>
+//let tempStorage(grid_elements:int)() = { new ITempStorage<int> with member this.temp_storage = __shared__.Array(grid_elements) |> __array_to_ptr }
+let tempStorage(grid_elements:int)() = __shared__.Array(grid_elements) |> __array_to_ptr
 
-//let tempStorage<'T>() = 
+//let tempStorage() = 
 //    fun grid_elements -> 
 //        cuda { return! <@ fun _ -> __shared__.
 
 
 
 [<Record>]
-type BlockRakingLayout<'T> =
+type BlockRakingLayout =
     {
         
         BLOCK_THREADS : int
@@ -107,8 +108,8 @@ type BlockRakingLayout<'T> =
         Constants : Constants
     }
 
-    member this.PlacementPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> placementPtr<'T>
-    member this.RakingPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> rakingPtr<'T>    
+    member this.PlacementPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> placementPtr
+    member this.RakingPtr = (this.BLOCK_THREADS, this.BLOCK_STRIPS) ||> rakingPtr   
 
     static member Init(block_threads, block_strips) =
         {

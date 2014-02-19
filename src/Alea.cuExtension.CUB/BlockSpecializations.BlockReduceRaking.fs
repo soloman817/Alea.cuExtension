@@ -31,17 +31,17 @@ open Alea.CUDA.Utilities
 
 
 [<Record>]
-type TempStorage<'T> =
+type TempStorage =
     {
-        warp_scan : deviceptr<'T>
-        raking_grid : deviceptr<'T>
+        warp_scan : deviceptr<int>
+        raking_grid : deviceptr<int>
     }
 
 
 [<Record>]
-type ThreadFields<'T> =
+type ThreadFields =
     {
-        temp_storage : deviceptr<'T>
+        temp_storage : deviceptr<int>
         linear_tid : int
     }
 
@@ -56,7 +56,7 @@ type ThreadFields<'T> =
 //        let RAKING_UNGUARDED = block_threads |> RAKING_UNGUARDED
 //
 //        fun (full_tile:bool) (iteration:int) ->
-//            fun (reductionOp:'T -> 'T -> 'R) (raking_segment:deviceptr<'T>) (partial:'T) (num_valid:int) ->
+//            fun (reductionOp:int -> 'T -> 'R) (raking_segment:deviceptr<int>) (partial:int) (num_valid:int) ->
 //                
 //                if (full_tile && RAKING_UNGUARDED) || ((linear_tid * SEGMENT_LENGTH) + iteration < num_valid) then
 //                    let addend = raking_segment.[iteration]
@@ -64,7 +64,7 @@ type ThreadFields<'T> =
 
 
 [<Record>]
-type BlockReduceRaking<'T> =
+type BlockReduceRaking =
     {
         BLOCK_THREADS : int
     }

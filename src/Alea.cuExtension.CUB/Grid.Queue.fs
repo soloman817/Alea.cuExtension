@@ -70,7 +70,7 @@ type GridQueue =
             d_counters = __null()
         }
 
-    static member Create(d_storage:deviceptr<_>) = 
+    static member Create(d_storage:deviceptr<int>) = 
         {
             d_counters = d_storage
         } 

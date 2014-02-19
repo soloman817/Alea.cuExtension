@@ -8,43 +8,43 @@ open Alea.cuExtension
 open Alea.cuExtension.CUB.Common
 
 
-type InputIterator<'T> = deviceptr<'T>
-type OutputIterator<'T> = deviceptr<'T>
+type InputIterator = deviceptr<int>
+type OutputIterator = deviceptr<int>
 
 
 //[<Record>]
-//type NullType<'T> =
+//type NullType =
 //    {
-//        NULL : deviceptr<'T>
+//        NULL : deviceptr<int>
 //    }
 //
-//    static member (=) (_null:NullType<'T>, b:'T) = __null()
-//    static member (==) (_null:NullType<'T>, b:NullType<'T>)
+//    static member (=) (_null:NullType<int>, b:int) = __null()
+//    static member (==) (_null:NullType<int>, b:NullType<int>)
 
-type Pad<'T> =
+type Pad =
     {
-        v : 'T
+        v : int
         b : byte
     }
 
-    static member Init(value:'T) =
+    static member Init(value:int) =
         {
             v = value
             b = 0uy
         }
 
-type AlignBytes<'T> =
+type AlignBytes =
     {
         ALIGN_BYTES : int
     }
 
-    static member Init(value:'T) =
+    static member Init(value:int) =
         {
-            ALIGN_BYTES = sizeof<Pad<'T>> - sizeof<'T>
+            ALIGN_BYTES = sizeof<Pad> - sizeof<int>
         }
 
-let alignBytes<'T>() : AlignBytes<'T> =
-    typeof<'T> |> function 
+let alignBytes() : AlignBytes =
+    typeof<int> |> function 
         | ty when ty = typeof<short4>       -> { ALIGN_BYTES = 8 }
         | ty when ty = typeof<ushort4>      -> { ALIGN_BYTES = 8 }
         | ty when ty = typeof<int2>         -> { ALIGN_BYTES = 8 }
@@ -74,32 +74,32 @@ let alignBytes<'T>() : AlignBytes<'T> =
         | _ -> { ALIGN_BYTES = 8 }
 
 [<Struct>]
-type IsMultiple<'T> =
+type IsMultiple =
     val UNIT_ALIGN_BYTES : int
     val IS_MULTIPLE : bool
     new (align_bytes) =
-        let unit_align_bytes = AlignBytes.Init(()).ALIGN_BYTES
+        let unit_align_bytes = AlignBytes.Init(align_bytes).ALIGN_BYTES
         {
             UNIT_ALIGN_BYTES = unit_align_bytes
-            IS_MULTIPLE = ((sizeof<'T> % sizeof<unit>) = 0) && ((align_bytes % unit_align_bytes) = 0)
+            IS_MULTIPLE = ((sizeof<int> % sizeof<unit>) = 0) && ((align_bytes % unit_align_bytes) = 0)
         }
 
 [<Struct>]
-type UnitWord<'T> =
+type UnitWordStr =
     val ALIGN_BYTES : int
 //        
 //        ShuffleWord : 'ShuffleWord
 //        VolatileWord : 'VolatileWord
 //        DeviceWord : 'DeviceWord
-//        TextureWord : 'TextureWord
+//        TextureWord : intextureWord
     val IS_MULTIPLE : bool
 
     [<ReflectedDefinition>]
     new (_) = 
-        let align_bytes = alignBytes<'T>().ALIGN_BYTES
+        let align_bytes = alignBytes().ALIGN_BYTES
         {
             ALIGN_BYTES = align_bytes
-            IS_MULTIPLE = IsMultiple<'T>(align_bytes).IS_MULTIPLE
+            IS_MULTIPLE = IsMultiple(align_bytes).IS_MULTIPLE
         }
 
 module UnitWord =
@@ -161,12 +161,12 @@ module UnitWord =
 //        | Min
 //        | Max
 //
-//    type IScanOp<'T> =
-//        abstract Identity : 'T
+//    type IScanOp =
+//        abstract Identity : int
 //        abstract Op : Expr<'T -> 'T -> 'T>
 //
-//    let inline scanOp (opKind:ScanOpKind) (identity:'T) =
-//        { new IScanOp<'T> with
+//    let inline scanOp (opKind:ScanOpKind) (identity:int) =
+//        { new IScanOp<int> with
 //            member this.Identity = identity
 //            member this.Op =
 //                match opKind with
@@ -435,7 +435,7 @@ let key<'K>() : KeyTraits<'K> =
 //            member this.MAX_KEY = (1 |> int8) <<< (1 |> int8 |> HIGH_BIT)            
 //        } |> box |> unbox
 
-       | _ -> failwith "unsupported type for KeyTraits<'T>"
+       | _ -> failwith "unsupported type for KeyTraits<int>"
 
 type IBaseTraits<'_UnsignedBits> =
     abstract CATEGORY : Category
@@ -506,7 +506,7 @@ type KeyValuePair<'K, 'V> = System.Collections.Generic.KeyValuePair<'K,'V>
 let keyValueOp(op:('V -> 'V -> 'V)) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyValuePair<'K,'V>) -> (kvp1.Value,kvp2.Value) ||> op
 
 
-let inline ZeroInitialize<'T>() =
-    let MULTIPLE = sizeof<'T> / sizeof<UnitWord.ShuffleWord>
-    let words = __local__.Array<'T>(MULTIPLE)
+let inline ZeroInitialize() =
+    let MULTIPLE = sizeof<int> / sizeof<UnitWord.ShuffleWord>
+    let words = __local__.Array(MULTIPLE)
     words |> __array_to_ptr

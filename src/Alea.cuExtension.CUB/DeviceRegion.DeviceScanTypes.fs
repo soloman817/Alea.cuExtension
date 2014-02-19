@@ -10,8 +10,8 @@ type LookbackTileStatus =
     | LOOKBACK_TILE_PARTIAL
     | LOOKBACK_TILE_PREFIX
 
-//    let lookbackTileDescriptor<'T> (single_word:bool) =
-//        if single_word = ((powerOfTwo sizeof<'T>) && (sizeof<'T> <= 8)) then
+//    let lookbackTileDescriptor<int> (single_word:bool) =
+//        if single_word = ((powerOfTwo sizeof<int>) && (sizeof<int> <= 8)) then
 //            let SetPrefix =
 //                fun ptr prefix ->
 //                    let tile_descriptor = (LookbackTileStatus.LOOKBACK_TILE_PREFIX, prefix)
@@ -19,10 +19,10 @@ type LookbackTileStatus =
 //        else
 
 [<Record>]
-type LookbackTileDescriptor<'T> =
+type LookbackTileDescriptor =
     {
         mutable status : LookbackTileStatus
     }
-    static member inline SetPrefix(ptr:deviceptr<LookbackTileDescriptor<'T>>, prefix:'T) = ()
-    static member inline SetPartial(ptr:deviceptr<LookbackTileDescriptor<'T>>, partial:'T) = ()
-    static member inline WaitForValid(ptr:deviceptr<LookbackTileDescriptor<'T>>, status:int, value:'T) = ()
+    static member inline SetPrefix(ptr:deviceptr<LookbackTileDescriptor>, prefix:int) = ()
+    static member inline SetPartial(ptr:deviceptr<LookbackTileDescriptor>, partial:int) = ()
+    static member inline WaitForValid(ptr:deviceptr<LookbackTileDescriptor>, status:int, value:int) = ()

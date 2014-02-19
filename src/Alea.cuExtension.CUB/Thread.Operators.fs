@@ -9,7 +9,7 @@ open Alea.cuExtension.CUB.Common
 
 let [<ReflectedDefinition>] inequality = (<>)
 let [<ReflectedDefinition>] equality = (=)
-let [<ReflectedDefinition>] sum = (+)
+let [<ReflectedDefinition>] inline sum() x y = x + y
 let [<ReflectedDefinition>] max = max
 let [<ReflectedDefinition>] min = min
 
@@ -17,8 +17,8 @@ let [<ReflectedDefinition>] min = min
 //[<Record>]
 //type Equality<'T when 'T : equality> =
 //    {
-//        a : 'T
-//        b : 'T
+//        a : int
+//        b : int
 //    }
 //
 //    member this.Op = this.a = this.b
@@ -27,29 +27,29 @@ let [<ReflectedDefinition>] min = min
 //[<Record>]
 //type Inequality<'T when 'T : equality> =
 //    {
-//        a : 'T
-//        b : 'T
+//        a : int
+//        b : int
 //    }
 //
 //    member this.Op = this.a = this.b
 //    member this.Init(a,b) = {a = a; b = b} 
 //
-//type EqualityOp<'T> =
+//type EqualityOp =
 //    | Equality of 'T * 'T
 //    | Inequality of 'T * 'T
 //
 //[<Record>]
-//type InequalityWrapper<'T> =
+//type InequalityWrapper =
 //    {
-//        op : EqualityOp<'T>
+//        op : EqualityOp<int>
 //    }
 
 
 
 //type ThreadOperators<'T when 'T : equality> =
 //    {
-//        a : 'T
-//        b : 'T
+//        a : int
+//        b : int
 //    }
 //
 //    member this.Equality : bool = this.a = this.b

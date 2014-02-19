@@ -13,20 +13,20 @@ type Locale =
 
 type Offset = int
 
-//type IScanOp<'T> =
+//type IScanOp =
 //    abstract op : Expr<'T -> 'T -> 'T>
 //
 //
-//let inline scan_op (op:'T -> 'T -> 'T) = 
-//    { new IScanOp<'T> with
+//let inline scan_op (op:int -> 'T -> 'T) = 
+//    { new IScanOp<int> with
 //        member this.op = op }
 
-//
-//type long = nativeint
-//type ulong = unativeint
-//type double = float
-//type longlong = int64
-//type ulonglong = uint64
+
+type long = nativeint
+type ulong = unativeint
+type double = float
+type longlong = int64
+type ulonglong = uint64
 //
 //
 //[<Struct>]
@@ -212,8 +212,8 @@ type Offset = int
 //    override this.ToString() = sprintf "(%f,%f,%f,%f)" this.x this.y this.z this.w
 
 
-//type InputIterator<'T> = deviceptr<'T>
-//type OutputIterator<'T> = deviceptr<'T>
+//type InputIterator = deviceptr<int>
+//type OutputIterator = deviceptr<int>
 //
 //
 //

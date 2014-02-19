@@ -6,79 +6,79 @@ open Alea.CUDA.Utilities
 
 
 
-type [<Record>] Vector1<'T> = 
+type [<Record>] Vector1 = 
     {
-        x : 'T
+        x : int
     }
 
-    static member internal _1 (x:'T) = { x = x }
+    static member internal _1 (x:int) = { x = x }
 
-and [<Record>] Vector2<'T> =
+and [<Record>] Vector2 =
     {
-        x : 'T
-        y : 'T
+        x : int
+        y : int
     }
 
-    static member _2 (x:'T, y:'T) = { x = x; y = y}
+    static member _2 (x:int, y:int) = { x = x; y = y}
 
-and [<Record>] Vector3<'T> =
+and [<Record>] Vector3 =
     {
-        x : 'T
-        y : 'T
-        z : 'T
+        x : int
+        y : int
+        z : int
     }
 
-    static member _3 (x:'T, y:'T, z:'T) = { x = x; y = y; z = z}
+    static member _3 (x:int, y:int, z:int) = { x = x; y = y; z = z}
 
-and [<Record>] Vector4<'T> =
+and [<Record>] Vector4 =
     {
-        x : 'T
-        y : 'T
-        z : 'T
-        w : 'T
+        x : int
+        y : int
+        z : int
+        w : int
     }
 
-    static member _4 (x:'T, y:'T, z:'T, w:'T) = { x = x; y = y; z = z; w = w}
+    static member _4 (x:int, y:int, z:int, w:int) = { x = x; y = y; z = z; w = w}
 
-and [<Record>] Vector<'T> =
+and [<Record>] Vector =
     {
-        d : deviceptr<'T>
-        h : 'T[]
+        d : deviceptr<int>
+        h : int[]
     }
 
-    static member _1 (x:'T) = Vector1._1(x)
-    static member _2 (x:'T, y:'T) = Vector2._2(x,y)
-    static member _3 (x:'T, y:'T, z:'T) = Vector3._3(x,y,z)
-    static member _4 (x:'T, y:'T, z:'T, w:'T) = Vector4._4(x,y,z,w)
+    static member _1 (x:int) = Vector1._1(x)
+    static member _2 (x:int, y:int) = Vector2._2(x,y)
+    static member _3 (x:int, y:int, z:int) = Vector3._3(x,y,z)
+    static member _4 (x:int, y:int, z:int, w:int) = Vector4._4(x,y,z,w)
 
-type CubVector<'T> =
-    | Vector1 of 'T
-    | Vector2 of 'T*'T
-    | Vector3 of 'T*'T*'T
-    | Vector4 of 'T*'T*'T*'T
+//type CubVector =
+//    | Vector1 of 'T
+//    | Vector2 of 'T*'T
+//    | Vector3 of 'T*'T*'T
+//    | Vector4 of 'T*'T*'T*'T
 
 
 
-//type Vector1<'T>(_x:'T) =
-//    inherit Vector<'T>(_x)
+//type Vector1(_x:int) =
+//    inherit Vector(_x)
 //    let mutable _x = _x
 //    member this.X with get () = _x and set(v) = _x <- v
 //
-//and Vector2<'T>(_x:'T, _y:'T) =
-//    inherit Vector<'T>(_x, _y)
+//and Vector2(_x:int, _y:int) =
+//    inherit Vector(_x, _y)
 //    member this.X = _x
 //    member this.Y = _y
 
-//type Vector<'T> (?x:'T,?y:'T) =
-//    abstract x : 'T option
-//    abstract y : 'T option
+//type Vector<int> (?x:int,?y:int) =
+//    abstract x : int option
+//    abstract y : int option
 //
 //    default this.x = None
 //    default this.y = None
 
-    //new (x,?y) =  if y.IsNone then Vector<'T>(x) else Vector<'T>(x,y.Value)
+    //new (x,?y) =  if y.IsNone then Vector(x) else Vector(x,y.Value)
 //
-//type Vector<'T> (?_x:'T, ?_y:'T, ?_z:'T) =
+//type Vector<int> (?_x:int, ?_y:int, ?_z:int) =
 //    let mutable x = _x 
 //    let mutable y = _y
 //    let mutable z = _z
@@ -87,10 +87,10 @@ type CubVector<'T> =
 //                    and set(v) = x <- v
 //    member this.Y with get() = if y.IsSome then y.Value else None
 //
-//let f (v:Vector<'T>) = ()
+//let f (v:Vector<int>) = ()
 //
-//let v2 (x:'T) (y:'T) =
-//    { new Vector<'T>() with
+//let v2 (x:int) (y:int) =
+//    { new Vector() with
 //        member this.x = x |> Some
 //        member this.y = y |> Some }
 //
@@ -99,14 +99,14 @@ type CubVector<'T> =
 //printfn "%d" zz.x
 
 //
-//type [<AbstractClass>] IVector<'T> =
-//    abstract x : 'T
-//    abstract y : 'T
-//    abstract z : 'T
-//    abstract w : 'T
+//type [<AbstractClass>] IVector =
+//    abstract x : int
+//    abstract y : int
+//    abstract z : int
+//    abstract w : int
 //    
-//    static member (+) (v1:IVector<'T>, v2:IVector<'T>) =
-//        {new IVector<'T> with
+//    static member (+) (v1:IVector<int>, v2:IVector<int>) =
+//        {new IVector<int> with
 //            member this.x = v1.x + v2.x
 //            member this.y = v1.y + v2.y
 //            member this.z = v1.z + v2.z
@@ -117,31 +117,31 @@ type CubVector<'T> =
 //let mutable MAX_VEC_ELEMENTS = 4
 //
 //[<Record>]
-//type CubVector<'T> = 
+//type CubVector = 
 //    {   
-//        mutable Ptr : deviceptr<'T>
+//        mutable Ptr : deviceptr<int>
 //        VEC_ELEMENTS : int                        
 //    }
 //
 //    member this.Item
 //        with [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx]
-//        and  [<ReflectedDefinition>] set (idx:int) (v:'T) = if idx <= (this.VEC_ELEMENTS - 1) then this.Ptr.[idx] <- v
+//        and  [<ReflectedDefinition>] set (idx:int) (v:int) = if idx <= (this.VEC_ELEMENTS - 1) then this.Ptr.[idx] <- v
 //
 //    member this.W
 //        with [<ReflectedDefinition>] get () = this.Ptr.[0]
-//        and  [<ReflectedDefinition>] set (w:'T) = this.Ptr.[0] <- w
+//        and  [<ReflectedDefinition>] set (w:int) = this.Ptr.[0] <- w
 //
 //    member this.X
 //        with [<ReflectedDefinition>] get () = this.Ptr.[1]
-//        and  [<ReflectedDefinition>] set (x:'T) = this.Ptr.[1] <- x
+//        and  [<ReflectedDefinition>] set (x:int) = this.Ptr.[1] <- x
 //
 //    member this.Y
 //        with [<ReflectedDefinition>] get () = this.Ptr.[2]
-//        and  [<ReflectedDefinition>] set (y:'T) = this.Ptr.[2] <- y
+//        and  [<ReflectedDefinition>] set (y:int) = this.Ptr.[2] <- y
 //
 //    member this.Z
 //        with [<ReflectedDefinition>] get () = this.Ptr.[3]
-//        and  [<ReflectedDefinition>] set (z:'T) = this.Ptr.[3] <- z
+//        and  [<ReflectedDefinition>] set (z:int) = this.Ptr.[3] <- z
 //    
 //    static member Null() =
 //        {
@@ -149,25 +149,25 @@ type CubVector<'T> =
 //            VEC_ELEMENTS = 0
 //        }
 //
-//    static member Vector1(dptr:deviceptr<'T>) =
+//    static member Vector1(dptr:deviceptr<int>) =
 //        {
 //            Ptr = dptr
 //            VEC_ELEMENTS = 1
 //        }
 //
-//    static member Vector2(dptr:deviceptr<'T>) =
+//    static member Vector2(dptr:deviceptr<int>) =
 //        {
 //            Ptr = dptr
 //            VEC_ELEMENTS = 2
 //        }
 //
-//    static member Vector3(dptr:deviceptr<'T>) =
+//    static member Vector3(dptr:deviceptr<int>) =
 //        {
 //            Ptr = dptr
 //            VEC_ELEMENTS = 3
 //        }
 //
-//    static member Vector4(dptr:deviceptr<'T>) =
+//    static member Vector4(dptr:deviceptr<int>) =
 //        {
 //            Ptr = dptr
 //            VEC_ELEMENTS = 4 

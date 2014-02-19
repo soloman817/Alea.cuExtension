@@ -15,11 +15,11 @@ type CacheLoadModifier =
     | LOAD_LDG
     | LOAD_VOLATILE
 
-let dereference (ptr:deviceptr<'T>) = ptr |> __ptr_to_obj
+let dereference (ptr:deviceptr<int>) = ptr |> __ptr_to_obj
 
-let inline threadLoad<'T>() =
+let inline threadLoad() =
     fun modifier ->
-        fun (ptr:deviceptr<'T>) (vals:deviceptr<'T> option) ->
+        fun (ptr:deviceptr<int>) (vals:deviceptr<int> option) ->
             match vals with
             | Some vals ->
                 match modifier with
@@ -48,8 +48,8 @@ let inline threadLoad<'T>() =
 
 let inline iterateThreadLoad count max =
     fun modifier ->
-        let load = modifier |> threadLoad<'T>()
-        fun (ptr:deviceptr<'T>) (vals:deviceptr<'T>) ->
+        let load = modifier |> threadLoad()
+        fun (ptr:deviceptr<int>) (vals:deviceptr<int>) ->
             for i = count to (max - 1) do
                 (ptr + i, (vals + i) |> Some) 
                 ||> load 

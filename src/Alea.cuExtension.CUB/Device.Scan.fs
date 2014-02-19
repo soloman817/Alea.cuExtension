@@ -15,9 +15,9 @@ open Alea.cuExtension.CUB.Grid
 
 //
 //
-//let ScanInitKernel<'T>() =
+//let ScanInitKernel() =
 //    let TILE_STATUS_PADDING = CUB_PTX_WARP_THREADS
-//    <@ fun (grid_queue:GridQueue) (d_tile_status:deviceptr<LookbackTileDescriptor<'T>>) (num_tiles:int) ->
+//    <@ fun (grid_queue:GridQueue) (d_tile_status:deviceptr<LookbackTileDescriptor<int>>) (num_tiles:int) ->
 //        // Reset queue descriptor
 //        if (blockIdx.x = 0) && (threadIdx.x = 0) then grid_queue.FillAndResetDrain(num_tiles) <| Locale.Device
 //
@@ -30,10 +30,10 @@ open Alea.cuExtension.CUB.Grid
 //    @>
 //
 //
-//let ScanRegionKernel<'T>() =
+//let ScanRegionKernel() =
 //    let TILE_STATUS_PADDING = CUB_PTX_WARP_THREADS
 //    fun (blockScanRegionT:BlockScanRegionPolicy) ->
-//        <@ fun (d_in:InputIterator<'T>) (d_out:OutputIterator<'T>) (d_tile_status:deviceptr<LookbackTileDescriptor<'T>>) (scan_op:IScanOp<'T>) (identity:'T) (num_items:Offset) (queue:GridQueue) ->
+//        <@ fun (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (d_tile_status:deviceptr<LookbackTileDescriptor<int>>) (scan_op:IScanOp<int>) (identity:int) (num_items:Offset) (queue:GridQueue) ->
 //            // Shared memory for BlockScanRegion
 //            let temp_storage = ()
 //            ()
@@ -49,7 +49,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //
 //
-//type Policy350<'T> =
+//type Policy350 =
 //    {
 //        NOMINAL_4B_ITEMS_PER_THREAD : int
 //        ITEMS_PER_THREAD : int
@@ -58,7 +58,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 16
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<'T>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -75,7 +75,7 @@ open Alea.cuExtension.CUB.Grid
 //        }
 //
 //
-//type Policy300<'T> =
+//type Policy300 =
 //    {
 //        NOMINAL_4B_ITEMS_PER_THREAD : int
 //        ITEMS_PER_THREAD : int
@@ -84,7 +84,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 9
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<'T>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -101,7 +101,7 @@ open Alea.cuExtension.CUB.Grid
 //        }
 //
 //
-//type Policy200<'T> =
+//type Policy200 =
 //    {
 //        NOMINAL_4B_ITEMS_PER_THREAD : int
 //        ITEMS_PER_THREAD : int
@@ -110,7 +110,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 15
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<'T>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -127,7 +127,7 @@ open Alea.cuExtension.CUB.Grid
 //        }
 //
 //
-//type Policy130<'T> =
+//type Policy130 =
 //    {
 //        NOMINAL_4B_ITEMS_PER_THREAD : int
 //        ITEMS_PER_THREAD : int
@@ -136,7 +136,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 19
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<'T>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -153,7 +153,7 @@ open Alea.cuExtension.CUB.Grid
 //        }
 //
 //
-//type Policy100<'T> =
+//type Policy100 =
 //    {
 //        NOMINAL_4B_ITEMS_PER_THREAD : int
 //        ITEMS_PER_THREAD : int
@@ -162,7 +162,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 19
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<'T>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -179,12 +179,12 @@ open Alea.cuExtension.CUB.Grid
 //        }
 //
 //
-//type PtxPolicy<'T> =
-//    | Policy350 of Policy350<'T>
-//    | Policy300 of Policy300<'T>
-//    | Policy200 of Policy200<'T>
-//    | Policy130 of Policy130<'T>
-//    | Policy100 of Policy100<'T>
+//type PtxPolicy =
+//    | Policy350 of Policy350<int>
+//    | Policy300 of Policy300<int>
+//    | Policy200 of Policy200<int>
+//    | Policy130 of Policy130<int>
+//    | Policy100 of Policy100<int>
 //
 //
 //type KernelConfig =
@@ -215,7 +215,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //
 //
-//let dispatch (d_temp_storage:deviceptr<'T>) (temp_storage_bytes:int) (d_in:InputIterator<'T>) (d_out:OutputIterator<'T>) (scan_op:IScanOp<'T>) (identity:'T) (num_items:int) (stream:CUstream) (debug_synchronous:bool) = 
+//let dispatch (d_temp_storage:deviceptr<int>) (temp_storage_bytes:int) (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (scan_op:IScanOp<int>) (identity:int) (num_items:int) (stream:CUstream) (debug_synchronous:bool) = 
 //    //scan_region_kernel scan_grid_size scan_region_config.block_threads 0 stream
 //    // -> d_in, d_out, d_tile_status, scan_op, identity, num_items, queue
 //    ()
@@ -224,7 +224,7 @@ open Alea.cuExtension.CUB.Grid
 //    
 //
 //let inline exclusiveSum() =
-//    fun (d_temp_storage:deviceptr<'T>) (temp_storage_bytes:int) (d_in:InputIterator<'T>) (d_out:OutputIterator<'T>) (num_items:int) (stream:CUstream option) (debug_synchronous:bool option) ->
+//    fun (d_temp_storage:deviceptr<int>) (temp_storage_bytes:int) (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (num_items:int) (stream:CUstream option) (debug_synchronous:bool option) ->
 //        let stream = if stream.IsNone then 0n else stream.Value
 //        let debug_synchronous = if debug_synchronous.IsNone then false else debug_synchronous.Value
 //        dispatch
@@ -240,10 +240,10 @@ open Alea.cuExtension.CUB.Grid
 //
 //
 //
-//type DeviceScanDispatch<'T> =
+//type DeviceScanDispatch =
 //    {
 //        TILE_STATUS_PADDING : int
 //        INIT_KERNEL_THREADS : int
-//        PtxPolicy : PtxPolicy<'T>
+//        PtxPolicy : PtxPolicy<int>
 //        scan_region_config : KernelConfig
 //    }

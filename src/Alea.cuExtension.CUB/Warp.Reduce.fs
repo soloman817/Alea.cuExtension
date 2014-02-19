@@ -4,7 +4,7 @@ open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.CUDA.Common
 
-let privateStorage() = __null()
+let PrivateStorage() = __null()
 
 let POW_OF_TWO =
     fun logical_warp_threads ->
@@ -12,9 +12,9 @@ let POW_OF_TWO =
 
 
 [<Record>]
-type ThreadFields<'T> =
+type ThreadFields =
     {
-        temp_storage : deviceptr<'T>
+        temp_storage : deviceptr<int>
         warp_id : int
         lane_id : int
     }
@@ -28,9 +28,9 @@ type ThreadFields<'T> =
 
 
 //[<Record>]
-//type WarpReduce<'T> =
+//type WarpReduce =
 //    {
-//        ThreadFields : ThreadFields<'T>
+//        ThreadFields : ThreadFields<int>
 //        LOGICAL_WARPS : int
 //        LOGICAL_WARP_THREADS : int
 //    }

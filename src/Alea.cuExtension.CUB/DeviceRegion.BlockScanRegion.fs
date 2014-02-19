@@ -4,6 +4,8 @@ module Alea.cuExtension.CUB.Device.DeviceRegion.BlockScanRegion
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
+open Alea.cuExtension.CUB.Thread
+open Alea.cuExtension.CUB.Block
 
 type BlockScanRegionPolicy =
     {
@@ -40,10 +42,10 @@ type BlockScanRegionPolicy =
 // Block scan utility methods (first tile)
 //
      
-let scanBlock (scan_op:IScanOp<'T> option) (identity:'T option) (prefixCallback:'PrefixCallback option) =
+let scanBlock (scan_op:(int -> int -> int) option) (identity:int option) (prefixCallback:'PrefixCallback option) =
     match scan_op, identity, prefixCallback with
     | Some scan_op, Some identity, None -> ()
-//            fun (items:deviceptr<'T>) (block_aggregate:'T ref) ->
+//            fun (items:deviceptr<int>) (block_aggregate:int ref) ->
             //BlockScanT(temp_storage.scan).ExclusiveScan(items, items, identity, scan_op, block_aggregate);
     | None, Some identity, None -> ()
     | Some scan_op, None, None -> ()

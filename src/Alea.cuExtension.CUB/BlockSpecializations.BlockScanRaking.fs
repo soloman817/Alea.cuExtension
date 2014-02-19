@@ -21,11 +21,11 @@ let WARPS =
 
 let RAKING_THREADS = 
     fun block_threads ->
-        (block_threads |> BlockRakingLayout<'T>.Init).Constants.RAKING_THREADS
+        (block_threads |> BlockRakingLayout.Init).Constants.RAKING_THREADS
             
 let SEGMENT_LENGTH = 
     fun block_threads ->
-        (block_threads |> BlockRakingLayout<'T>.Init).Constants.RAKING_THREADS
+        (block_threads |> BlockRakingLayout.Init).Constants.RAKING_THREADS
 
 let WARP_SYNCHRONOUS = 
     fun block_threads raking_threads ->
@@ -45,7 +45,7 @@ type TemplateParameters =
         }
 
 
-type Constants<'T> =
+type Constants =
     {
         WARPS : int
         RAKING_THREADS : int
@@ -54,7 +54,7 @@ type Constants<'T> =
     }
     
     static member Init(block_threads) =
-        let BlockRakingLayout = block_threads |> BlockRakingLayout<'T>.Init 
+        let BlockRakingLayout = block_threads |> BlockRakingLayout.Init 
         let raking_threads, segment_length =  BlockRakingLayout.Constants.RAKING_THREADS, BlockRakingLayout.Constants.SEGMENT_LENGTH
         {
             WARPS               = block_threads |> WARPS
@@ -64,51 +64,74 @@ type Constants<'T> =
         }
 
 
-[<Record>]
-type TempStorage<'T> =
+[<Record>] [<RequireQualifiedAccess>]
+type TempStorage =
     {
-        warp_scan : Alea.cuExtension.CUB.Warp.Scan.TempStorage<'T> //deviceptr<'T> //Alea.cuExtension.CUB.Warp.Scan.ITempStorage<'T>
-        raking_grid : Alea.cuExtension.CUB.Block.RakingLayout.TempStorage<'T> //deviceptr<'T> //Alea.cuExtension.CUB.Block.RakingLayout.ITempStorage<'T>
-        block_aggregate : 'T
-    }
-    
-[<Record>]
-type ThreadFields<'T> =
-    {
-        temp_storage : TempStorage<'T>
-        linear_tid : int
-        cached_segment : 'T[]
+        mutable warp_scan : deviceptr<int> //Alea.cuExtension.CUB.Warp.Scan.TempStorage //deviceptr<int> //Alea.cuExtension.CUB.Warp.Scan.ITempStorage
+        mutable raking_grid : deviceptr<int> //Alea.cuExtension.CUB.Block.RakingLayout.ITempStorage //deviceptr<int> //Alea.cuExtension.CUB.Block.RakingLayout.ITempStorage
+        mutable block_aggregate : int
     }
 
-    static member Create(c:Constants<'T>, temp_storage:TempStorage<'T>, linear_tid) =
+    static member Init(grid_elements:int) =
+        {
+            warp_scan = __null()
+            raking_grid = grid_elements |> RakingLayout.tempStorage <| ()
+            block_aggregate = __null() |> __ptr_to_obj
+        }
+
+    
+[<Record>]
+type ThreadFields =
+    {
+        mutable temp_storage : Ref<TempStorage>
+        //mutable temp_storage : deviceptr<int>
+        mutable linear_tid : int
+        mutable cached_segment : int[]
+    }
+
+    static member Init(c:Constants, temp_storage:Ref<TempStorage>, linear_tid) =
+//    static member Create(c:Constants, temp_storage:deviceptr<int>, linear_tid) =
         {
             temp_storage = temp_storage
             linear_tid = linear_tid
-            cached_segment = __local__.Array<'T>(c.SEGMENT_LENGTH)
+            cached_segment = __local__.Array(c.SEGMENT_LENGTH)
+        }
+
+    static member Init(c:Constants) =
+        {
+            temp_storage = ref (0 |> TempStorage.Init)
+            linear_tid = 0
+            cached_segment = __local__.Array(c.SEGMENT_LENGTH)
         }
     
         
 [<Record>]
-type BlockScanRaking<'T> =
+type BlockScanRaking =
     {
         TemplateParameters  : TemplateParameters
-        BlockRakingLayout   : BlockRakingLayout<'T>
-        Constants           : Constants<'T>
-        ThreadScan          : ThreadScan<'T>
-        WarpScan            : WarpScan<'T>
-        TempStorage         : TempStorage<'T>
-        ThreadFields        : ThreadFields<'T>
+        BlockRakingLayout   : BlockRakingLayout //<int>
+        Constants           : Constants //<int>
+        ThreadScan          : ThreadScan //<int>
+        WarpScan            : WarpScan //<int>
+        //TempStorage         : TempStorage
+        ThreadFields        : ThreadFields //<int>
     }
 
 
-    member this.Initialize(temp_storage:TempStorage<'T>, linear_tid) =
+    member this.Initialize(temp_storage:Ref<TempStorage>, linear_tid) =
+    //member this.Initialize(temp_storage:deviceptr<int>, linear_tid) =
         this.ThreadFields.temp_storage <- temp_storage
+        this.ThreadFields.linear_tid <- linear_tid
+        this
+
+    member this.Initialize(temp_storage:deviceptr<int>, linear_tid) =
+        this.ThreadFields.temp_storage.contents.warp_scan <- temp_storage
         this.ThreadFields.linear_tid <- linear_tid
         this
 
     /// Templated reduction
     //template <int ITERATION, typename ScanOp>
-    member this.GuardedReduce(raking_ptr:deviceptr<'T>, scan_op:('T -> 'T -> 'T), raking_partial:'T) = //, iteration:bool) =    
+    member this.GuardedReduce(raking_ptr:deviceptr<int>, scan_op:(int -> int -> int), raking_partial:int) = //, iteration:bool) =    
         // localize template params & constants
         let UNGUARDED       = this.BlockRakingLayout.Constants.UNGUARDED
         let SEGMENT_LENGTH  = this.BlockRakingLayout.Constants.SEGMENT_LENGTH
@@ -127,17 +150,14 @@ type BlockScanRaking<'T> =
     
     /// Performs upsweep raking reduction, returning the aggregate
     //template <typename ScanOp>
-    member inline this.Upsweep(scan_op:('T -> 'T -> 'T)) =
+    member inline this.Upsweep(scan_op:(int -> int -> int)) =
         // localize template params & constants
         let SEGMENT_LENGTH = this.Constants.SEGMENT_LENGTH
         let MEMOIZE = this.TemplateParameters.MEMOIZE
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
         let cached_segment = this.ThreadFields.cached_segment
-//
-//            let rakingPtr() = 
-//                this.BlockRakingLayout.RakingPtr <|| (temp_storage.raking_grid, linear_tid)
 
         let smem_raking_ptr = this.BlockRakingLayout.RakingPtr <|| (temp_storage.raking_grid, linear_tid) //rakingPtr()
         let mutable raking_ptr = __null()
@@ -161,14 +181,14 @@ type BlockScanRaking<'T> =
 
     /// Performs exclusive downsweep raking scan
     //template <typename ScanOp>
-    member inline this.ExclusiveDownsweep(scan_op:('T -> 'T -> 'T), raking_partial:'T, ?apply_prefix:bool) =
+    member inline this.ExclusiveDownsweep(scan_op:(int -> int -> int), raking_partial:int, ?apply_prefix:bool) =
         let apply_prefix = if apply_prefix.IsSome then apply_prefix.Value else true
 
         // localize template params & constants
         let MEMOIZE = this.TemplateParameters.MEMOIZE
         let SEGMENT_LENGTH = this.Constants.SEGMENT_LENGTH
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
         let cached_segment = this.ThreadFields.cached_segment
 
@@ -176,7 +196,7 @@ type BlockScanRaking<'T> =
 
         let raking_ptr = if (MEMOIZE) then cached_segment |> __array_to_ptr else smem_raking_ptr
 
-        //SEGMENT_LENGTH |> ThreadScanExclusive<'T> <| raking_ptr <| raking_ptr <| scan_op <| raking_partial <| apply_prefix
+        //SEGMENT_LENGTH |> ThreadScanExclusive<int> <| raking_ptr <| raking_ptr <| scan_op <| raking_partial <| apply_prefix
         this.ThreadScan.Initialize(SEGMENT_LENGTH).Exclusive(raking_ptr, raking_ptr, scan_op, raking_partial, apply_prefix)
 
         if (MEMOIZE) then
@@ -186,20 +206,20 @@ type BlockScanRaking<'T> =
 
     /// Performs inclusive downsweep raking scan
     //template <typename ScanOp>
-    member this.InclusiveDownsweep(scan_op:('T -> 'T -> 'T), raking_partial:'T, ?apply_prefix:bool) =
+    member this.InclusiveDownsweep(scan_op:(int -> int -> int), raking_partial:int, ?apply_prefix:bool) =
         // localize template params & constants
         let MEMOIZE = this.TemplateParameters.MEMOIZE
         let SEGMENT_LENGTH = this.Constants.SEGMENT_LENGTH
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
         let cached_segment = this.ThreadFields.cached_segment
                         
-        let smem_raking_ptr = this.BlockRakingLayout.RakingPtr <|| (temp_storage.raking_grid, linear_tid)
+        let smem_raking_ptr = this.BlockRakingLayout.RakingPtr <|| (temp_storage.raking_grid, linear_tid) //(temp_storage.raking_grid.temp_storage, linear_tid)
 
-        let raking_ptr = if (MEMOIZE) then cached_segment else smem_raking_ptr
+        let raking_ptr = if (MEMOIZE) then cached_segment |> __array_to_ptr else smem_raking_ptr
 
-        this.ThreadScan.Initialize(SEGMENT_LENGTH).Inclusive(raking_ptr, raking_ptr, scan_op, raking_partial, apply_prefix)
+        this.ThreadScan.Initialize(SEGMENT_LENGTH).Inclusive(raking_ptr, raking_ptr, scan_op, raking_partial, apply_prefix.Value)
 
         if (MEMOIZE) then
             // Copy data back to smem
@@ -208,12 +228,12 @@ type BlockScanRaking<'T> =
 
     /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
     //template <typename ScanOp>
-    member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) =
+    member this.ExclusiveScan(input:int, output:Ref<int>, identity:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) =
         // localize template params & constants
         let RAKING_THREADS = this.Constants.RAKING_THREADS
         let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
             
 
@@ -261,12 +281,12 @@ type BlockScanRaking<'T> =
     //template <
     //    typename        ScanOp,
     //    typename        BlockPrefixCallbackOp>
-    member this.ExclusiveScan(input:'T, output:Ref<'T>, identity:'T, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'T>) =
+    member this.ExclusiveScan(input:int, output:Ref<int>, identity:int, scan_op:(int -> int -> int), block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
         // localize template params & constants
         let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
         let RAKING_THREADS = this.Constants.RAKING_THREADS
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
 
 
@@ -314,12 +334,12 @@ type BlockScanRaking<'T> =
 
     /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.  With no identity value, the output computed for <em>thread</em><sub>0</sub> is undefined.
     //template <typename ScanOp>
-    member this.ExclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) =
+    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) =
         // localize template params & constants
         let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
         let RAKING_THREADS = this.Constants.RAKING_THREADS
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
 
         if (WARP_SYNCHRONOUS) then
@@ -365,12 +385,12 @@ type BlockScanRaking<'T> =
     //template <
     //    typename ScanOp,
     //    typename BlockPrefixCallbackOp>
-    member this.ExclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'T>) =
+    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
         // localize template params & constants
         let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
         let RAKING_THREADS = this.Constants.RAKING_THREADS
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
             
         if (WARP_SYNCHRONOUS) then
@@ -415,12 +435,12 @@ type BlockScanRaking<'T> =
         
     
     /// Computes an exclusive threadblock-wide prefix scan using addition (+) as the scan operator.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
-    member this.ExclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) =
+    member this.ExclusiveSum(input:int, output:Ref<int>, block_aggregate:Ref<int>) =
         // localize template params & constants
         let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
         let RAKING_THREADS = this.Constants.RAKING_THREADS
         // localize thread fields
-        let temp_storage = this.ThreadFields.temp_storage
+        let temp_storage = !(this.ThreadFields.temp_storage)
         let linear_tid = this.ThreadFields.linear_tid
             
         if (WARP_SYNCHRONOUS) then
@@ -432,7 +452,7 @@ type BlockScanRaking<'T> =
         
         else        
             // Raking scan
-            let inline sum_op x y = (^T : (static member (+):^T * ^T -> ^T) (x,y))
+            //let inline sum_op x y = (^T : (static member (+):^T * ^T -> ^T) (x,y))
 
             // Place thread partial into shared memory raking grid
             let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
@@ -443,7 +463,7 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then            
                 // Raking upsweep reduction in grid
-                let raking_partial = this.Upsweep(sum_op)
+                let raking_partial = this.Upsweep((+))
 
                 // Exclusive warp synchronous scan
                 this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
@@ -452,7 +472,7 @@ type BlockScanRaking<'T> =
                     temp_storage.block_aggregate |> __obj_to_ref)
 
                 // Exclusive raking downsweep scan
-                this.ExclusiveDownsweep(sum_op, raking_partial)
+                this.ExclusiveDownsweep((+), raking_partial)
             
             __syncthreads()
 
@@ -465,10 +485,17 @@ type BlockScanRaking<'T> =
     
     /// Computes an exclusive threadblock-wide prefix scan using addition (+) as the scan operator.  Each thread contributes one input element.  Instead of using 0 as the threadblock-wide prefix, the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
     //template <typename BlockPrefixCallbackOp>
-    member this.ExclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'T>) =
+    member this.ExclusiveSum(input:int, output:Ref<int>, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
+        // localize template params & constants
+        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+        let RAKING_THREADS = this.Constants.RAKING_THREADS
+        // localize thread fields
+        let temp_storage = !(this.ThreadFields.temp_storage)
+        let linear_tid = this.ThreadFields.linear_tid        
+        
         if (WARP_SYNCHRONOUS) then
             // Short-circuit directly to warp scan
-            WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
+            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
                 input,
                 output,
                 block_aggregate,
@@ -478,7 +505,7 @@ type BlockScanRaking<'T> =
             let scan_op = (+)
 
             // Place thread partial into shared memory raking grid
-            let placement_ptr = BlockRakingLayout::PlacementPtr(temp_storage.raking_grid, linear_tid)
+            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
             placement_ptr.[0] <- input
 
             __syncthreads()
@@ -486,13 +513,13 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then
                 // Raking upsweep reduction in grid
-                let raking_partial = Upsweep(scan_op)
+                let raking_partial = this.Upsweep(scan_op)
 
                 // Exclusive warp synchronous scan
-                WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
+                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
                     raking_partial,
-                    raking_partial,
-                    temp_storage.block_aggregate,
+                    raking_partial |> __obj_to_ref,
+                    temp_storage.block_aggregate |> __obj_to_ref,
                     block_prefix_callback_op)
 
                 // Exclusive raking downsweep scan
@@ -504,22 +531,29 @@ type BlockScanRaking<'T> =
             output := placement_ptr.[0]
 
             // Retrieve block aggregate
-            block_aggregate := !temp_storage.block_aggregate
+            block_aggregate := temp_storage.block_aggregate
     
 
     /// Computes an inclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
     //template <typename ScanOp>
-    member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>) =
+    member this.InclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) =
+        // localize template params & constants
+        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+        let RAKING_THREADS = this.Constants.RAKING_THREADS
+        // localize thread fields
+        let temp_storage = !(this.ThreadFields.temp_storage)
+        let linear_tid = this.ThreadFields.linear_tid 
+
         if (WARP_SYNCHRONOUS) then        
             // Short-circuit directly to warp scan
-            WarpScan(temp_storage.warp_scan, 0, linear_tid).InclusiveScan(
+            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).InclusiveScan(
                 input,
                 output,
                 scan_op,
                 block_aggregate)        
         else        
             // Place thread partial into shared memory raking grid
-            let placement_ptr = BlockRakingLayout::PlacementPtr(temp_storage.raking_grid, linear_tid)
+            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
             placement_ptr.[0] <- input
 
             __syncthreads()
@@ -527,17 +561,17 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then            
                 // Raking upsweep reduction in grid
-                let raking_partial = Upsweep(scan_op)
+                let raking_partial = this.Upsweep(scan_op)
 
                 // Exclusive warp synchronous scan
-                WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
                     raking_partial,
-                    raking_partial,
+                    raking_partial |> __obj_to_ref,
                     scan_op,
-                    temp_storage.block_aggregate)
+                    temp_storage.block_aggregate |> __obj_to_ref)
 
                 // Inclusive raking downsweep scan
-                this.InclusiveDownsweep(scan_op, raking_partial, (linear_tid != 0))
+                this.InclusiveDownsweep(scan_op, raking_partial, (linear_tid <> 0))
 
             __syncthreads()
 
@@ -545,17 +579,24 @@ type BlockScanRaking<'T> =
             output := placement_ptr.[0]
 
             // Retrieve block aggregate
-            block_aggregate := !temp_storage.block_aggregate
+            block_aggregate := temp_storage.block_aggregate
         
 
     /// Computes an inclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
     //template <
     //    typename ScanOp,
     //    typename BlockPrefixCallbackOp>
-    member this.InclusiveScan(input:'T, output:Ref<'T>, scan_op:('T -> 'T -> 'T), block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'T>) = 
+    member this.InclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) = 
+        // localize template params & constants
+        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+        let RAKING_THREADS = this.Constants.RAKING_THREADS
+        // localize thread fields
+        let temp_storage = !(this.ThreadFields.temp_storage)
+        let linear_tid = this.ThreadFields.linear_tid 
+
         if (WARP_SYNCHRONOUS) then
             // Short-circuit directly to warp scan
-            WarpScan(temp_storage.warp_scan, 0, linear_tid).InclusiveScan(
+            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).InclusiveScan(
                 input,
                 output,
                 scan_op,
@@ -563,7 +604,7 @@ type BlockScanRaking<'T> =
                 block_prefix_callback_op)
         else        
             // Place thread partial into shared memory raking grid
-            let placement_ptr = BlockRakingLayout::PlacementPtr(temp_storage.raking_grid, linear_tid)
+            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
             placement_ptr.[0] <- input
 
             __syncthreads()
@@ -571,14 +612,14 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then
                 // Raking upsweep reduction in grid
-                let raking_partial = Upsweep(scan_op)
+                let raking_partial = this.Upsweep(scan_op)
 
                 // Warp synchronous scan
-                WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
                     raking_partial,
-                    raking_partial,
+                    raking_partial |> __obj_to_ref,
                     scan_op,
-                    temp_storage.block_aggregate,
+                    temp_storage.block_aggregate |> __obj_to_ref,
                     block_prefix_callback_op)
 
                 // Inclusive raking downsweep scan
@@ -590,14 +631,21 @@ type BlockScanRaking<'T> =
             output := placement_ptr.[0]
 
             // Retrieve block aggregate
-            block_aggregate := !temp_storage.block_aggregate
+            block_aggregate := temp_storage.block_aggregate
         
     
     /// Computes an inclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
-    member this.InclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) =
+    member this.InclusiveSum(input:int, output:Ref<int>, block_aggregate:Ref<int>) =
+        // localize template params & constants
+        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+        let RAKING_THREADS = this.Constants.RAKING_THREADS
+        // localize thread fields
+        let temp_storage = !(this.ThreadFields.temp_storage)
+        let linear_tid = this.ThreadFields.linear_tid 
+        
         if (WARP_SYNCHRONOUS) then
             // Short-circuit directly to warp scan
-            WarpScan(temp_storage.warp_scan, 0, linear_tid).InclusiveSum(
+            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).InclusiveSum(
                 input,
                 output,
                 block_aggregate)
@@ -606,7 +654,7 @@ type BlockScanRaking<'T> =
             let scan_op = (+)
 
             // Place thread partial into shared memory raking grid
-            let placement_ptr = BlockRakingLayout::PlacementPtr(temp_storage.raking_grid, linear_tid)
+            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
             placement_ptr.[0] <- input
 
             __syncthreads()
@@ -614,16 +662,16 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then
                 // Raking upsweep reduction in grid
-                let raking_partial = Upsweep(scan_op)
+                let raking_partial = this.Upsweep(scan_op)
 
                 // Exclusive warp synchronous scan
-                WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
+                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
                     raking_partial,
-                    raking_partial,
-                    temp_storage.block_aggregate)
+                    raking_partial |> __obj_to_ref,
+                    temp_storage.block_aggregate |> __obj_to_ref)
 
                 // Inclusive raking downsweep scan
-                this.InclusiveDownsweep(scan_op, raking_partial, (linear_tid != 0))
+                this.InclusiveDownsweep(scan_op, raking_partial, (linear_tid <> 0))
             
             __syncthreads()
 
@@ -631,15 +679,22 @@ type BlockScanRaking<'T> =
             output := placement_ptr.[0]
 
             // Retrieve block aggregate
-            block_aggregate := !temp_storage.block_aggregate
+            block_aggregate := temp_storage.block_aggregate
         
     
     /// Computes an inclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Instead of using 0 as the threadblock-wide prefix, the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
     //template <typename BlockPrefixCallbackOp>
-    member this.InclusiveSum(input:'T, output:Ref<'T>, block_aggregate:Ref<'T>, block_prefix_callback_op:Ref<'T>) =
+    member this.InclusiveSum(input:int, output:Ref<int>, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
+        // localize template params & constants
+        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+        let RAKING_THREADS = this.Constants.RAKING_THREADS
+        // localize thread fields
+        let temp_storage = !(this.ThreadFields.temp_storage)
+        let linear_tid = this.ThreadFields.linear_tid 
+
         if (WARP_SYNCHRONOUS) then
             // Short-circuit directly to warp scan
-            WarpScan(temp_storage.warp_scan, 0, linear_tid).InclusiveSum(
+            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).InclusiveSum(
                 input,
                 output,
                 block_aggregate,
@@ -649,7 +704,7 @@ type BlockScanRaking<'T> =
             let scan_op = (+)
 
             // Place thread partial into shared memory raking grid
-            let placement_ptr = BlockRakingLayout::PlacementPtr(temp_storage.raking_grid, linear_tid)
+            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
             placement_ptr.[0] <- input
 
             __syncthreads()
@@ -657,13 +712,13 @@ type BlockScanRaking<'T> =
             // Reduce parallelism down to just raking threads
             if (linear_tid < RAKING_THREADS) then
                 // Raking upsweep reduction in grid
-                let raking_partial = Upsweep(scan_op)
+                let raking_partial = this.Upsweep(scan_op)
 
                 // Warp synchronous scan
-                WarpScan(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
+                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveSum(
                     raking_partial,
-                    raking_partial,
-                    temp_storage.block_aggregate,
+                    raking_partial |> __obj_to_ref,
+                    temp_storage.block_aggregate |> __obj_to_ref,
                     block_prefix_callback_op)
 
                 // Inclusive raking downsweep scan
@@ -675,7 +730,7 @@ type BlockScanRaking<'T> =
             output := placement_ptr.[0]
 
             // Retrieve block aggregate
-            block_aggregate := !temp_storage.block_aggregate
+            block_aggregate := temp_storage.block_aggregate
         
 
     static member Create(block_threads:int, memoize:bool) =
@@ -683,12 +738,12 @@ type BlockScanRaking<'T> =
         let c = block_threads |> Constants.Init
         {
             TemplateParameters = tp
-            BlockRakingLayout  = block_threads |> BlockRakingLayout<'T>.Init
+            BlockRakingLayout  = block_threads |> BlockRakingLayout.Init
             Constants          = c
-            ThreadScan         = c.SEGMENT_LENGTH |> ThreadScan<'T>.Create
-            WarpScan           = (1, RAKING_THREADS) |> WarpScan<'T>.Create
-            TempStorage        = TempStorage<'T>.Init
-            ThreadFields       = ThreadFields<'T>.Init      
+            ThreadScan         = c.SEGMENT_LENGTH |> ThreadScan.Create
+            WarpScan           = WarpScan.Create(1, c.RAKING_THREADS) //(Some 1, Some c.RAKING_THREADS) |> WarpScan.Create
+            //TempStorage        = TempStorage.Init 0 //???? grid elements?
+            ThreadFields       = ThreadFields.Init(c)
         }
     
 
@@ -696,11 +751,11 @@ type BlockScanRaking<'T> =
 //
 //
 //    [<Record>]
-//    type TempStorage<'T> =
+//    type TempStorage =
 //        
-//            warp_scan : deviceptr<'T>
-//            raking_grid : deviceptr<'T>
-//            block_aggregate : 'T
+//            warp_scan : deviceptr<int>
+//            raking_grid : deviceptr<int>
+//            block_aggregate : int
 //        
 //
 //        static member Create(warp_scan, raking_grid, block_aggregate) =
@@ -717,14 +772,14 @@ type BlockScanRaking<'T> =
 //                fun linear_tid ->
 //                    fun warps raking_threads segment_length warp_synchronous ->
 //                        fun iteration ->
-//                            fun (raking_ptr:deviceptr<'T>) (scan_op:('T -> 'T -> 'T)) (raking_partial:'T) ->
+//                            fun (raking_ptr:deviceptr<int>) (scan_op:(int -> int -> int)) (raking_partial:int) ->
 //                                let mutable raking_partial = raking_partial
 //                                if unguarded || (((linear_tid * segment_length) + iteration) < block_threads) then
 //                                    let addend = raking_ptr.[iteration]
 //                                    raking_partial <- (raking_partial, addend) ||> scan_op
 //
 //    let upsweep =
-//        fun (scan_op:('T -> 'T -> 'T)) ->
+//        fun (scan_op:(int -> int -> int)) ->
 //            let smem_raking_ptr = ()
 //            ()
 //        
@@ -738,11 +793,11 @@ type BlockScanRaking<'T> =
 //
 //
 //    [<Record>]
-//    type ThreadFields<'T> =
+//    type ThreadFields =
 //        
-//            temp_storage    : TempStorage<'T>
+//            temp_storage    : TempStorage
 //            linear_tid      : int
-//            cached_segment  : deviceptr<'T>
+//            cached_segment  : deviceptr<int>
 //        
 //
 //        static member Create(temp_storage, linear_tid) =
