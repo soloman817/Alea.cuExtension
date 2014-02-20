@@ -1,9 +1,126 @@
 ﻿[<AutoOpen>]
 module Alea.cuExtension.CUB.Thread.Store
 
+open System
+
+open Microsoft.FSharp.Quotations
+
 open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
+
+module internal ThreadStore =
+    let buildThreadStore (modifier:string) (ctx:IRModuleBuildingContext) (irPointer:IRValue) (irVal:IRValue) =
+        let irPointerType = irVal.Type
+        let irPointeeType = irPointer.Type
+
+        // ptx inline cannot accept pointer, must convert to integer
+        // I got this by print out the link result and the error of nvvm compiler told me that
+        // and here we also need to handle the size of the integer, 32 or 64
+        let irPointerInt, ptrstr = ctx.CompileOptions.AddressSize |> function
+            | AddressSize.Address32 -> IRCommonInstructionBuilder.Instance.BuildPtrToInt(ctx, irPointer, IRTypeBuilder.Instance.Build(ctx, typeof<uint32>)), "r"
+            | AddressSize.Address64 -> IRCommonInstructionBuilder.Instance.BuildPtrToInt(ctx, irPointer, IRTypeBuilder.Instance.Build(ctx, typeof<uint64>)), "l"
+
+        let llvmFunctionType = LLVMFunctionTypeEx(irPointeeType.LLVM, [| irPointerInt.Type.LLVM |], 0)
+
+        let isUInt (bits:int) (irType:IRType) = 
+            irType.IsInteger &&
+            irType.Integer.Bits = bits &&
+            not irType.Integer.Signed
+
+        let isUIntVector (bits:int) (dims:int) (irType:IRType) =
+            irType.IsValStruct &&
+            irType.Struct.FieldInfos.Length = dims &&
+            Array.forall (fun (info:IRStructFieldInfo) -> isUInt bits info.FieldType) irType.Struct.FieldInfos
+
+
+        let cmdstr, argstr = irPointeeType |> function
+            | irPointeeType when isUInt  8 irPointeeType -> sprintf "st.%s.u8 [$0], $1;" modifier, sprintf "c,%s" ptrstr
+            | irPointeeType when isUInt 16 irPointeeType -> sprintf "st.%s.u16 [$0], $1;" modifier, sprintf "h,%s" ptrstr
+            | irPointeeType when isUInt 32 irPointeeType -> sprintf "st.%s.u32 [$0], $1;" modifier, sprintf "r,%s" ptrstr
+            | irPointeeType when isUInt 64 irPointeeType -> sprintf "st.%s.u64 [$0], $1;" modifier, sprintf "l,%s" ptrstr
+            | irPointeeType when isUIntVector 32 4 irPointeeType -> sprintf "st.%s.v4.u32 [$0], {$1, $2, $3, $4};" modifier, sprintf "r,r,r,r,%s" ptrstr
+            | irPointeeType when isUIntVector 64 2 irPointeeType -> sprintf "st.%s.v2.u64 [$0], {$1, $2};" modifier, sprintf "l,l,%s" ptrstr
+            | irPointeeType when isUIntVector 16 4 irPointeeType -> sprintf "st.%s.v4.u16 [$0], {$1, $2, $3, $4};" modifier, sprintf "h,h,h,h,%s" ptrstr
+            | irPointeeType when isUIntVector 32 2 irPointeeType -> sprintf "st.%s.v2.u32 [$0], {$1, $2};" modifier, sprintf "r,r,%s" ptrstr
+            | _ -> failwithf "CUBLOAD: %A doesn't support." irPointeeType
+
+        let llvmFunction = LLVMConstInlineAsm(llvmFunctionType, cmdstr, argstr, 0, 0)
+        let llvmCall = LLVMBuildCallEx(ctx.IRBuilder.LLVM, llvmFunction, [| irPointerInt.LLVM |], "")
+        //IRValue()
+        IRValue(llvmCall, irPointerType)
+
+    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+    type ThreadStoreAttribute(modifier:string) =
+        inherit Attribute()
+
+        interface ICustomCallBuilder with
+            member this.Build(ctx, irObject, info, irParams) =
+                match irObject, irParams with
+                | None, irPointer :: irVal :: [] -> buildThreadStore modifier ctx irPointer irVal |> Some
+                | _ -> None
+
+    let [<ThreadStore("wb")>] ThreadStore_WB (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("cg")>] ThreadStore_CG (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("cs")>] ThreadStore_CS (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("wt")>] ThreadStore_WT (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+
+
+    type IterateThreadStoreAttribute(modifier:string) =
+        inherit Attribute()
+
+        interface ICustomCallBuilder with
+            member this.Build(ctx, irObject, info, irParams) =
+                match irObject, irParams with
+                | None, irMax :: irPtr :: irVals :: [] ->
+                    let max = irMax.HasObject |> function
+                        | true -> irMax.Object :?> int
+                        | false -> failwith "max must be constant"
+
+                    // if we do the loop here, it is unrolled by compiler, not kernel runtime
+                    // think of this job as the C++ template expanding job, same thing!
+                    for i = 0 to max - 1 do
+                        let irIndex = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, i)
+                        let irVal = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
+                        let irPtr = buildThreadStore modifier ctx irVal
+                    
+                        let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
+
+                    IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
+
+                | _ -> None
+
+    let [<IterateThreadStore("wb")>] IterateThreadStore_WB (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("cg")>] IterateThreadStore_CG (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("cs")>] IterateThreadStore_CS (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("wt")>] IterateThreadStore_WT (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+
+
+    type IterateThreadDereferenceAttribute() =
+        inherit Attribute()
+
+        interface ICustomCallBuilder with
+            member this.Build(ctx, irObject, info, irParams) =
+                match irObject, irParams with
+                | None, irMax :: irPtr :: irVals :: [] ->
+                    let max = irMax.HasObject |> function
+                        | true -> irMax.Object :?> int
+                        | false -> failwith "max must be constant"
+
+                    for i = 0 to max - 1 do
+                        let irIndex = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, i)
+                        let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
+                        let irVal = IRCommonInstructionBuilder.Instance.BuildLoad(ctx, irPtr)
+                        let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
+
+                    IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
+
+                | _ -> None
+
+
+
 
 type CacheStoreModifier =
     | STORE_DEFAULT
@@ -14,22 +131,39 @@ type CacheStoreModifier =
     | STORE_VOLATILE
 
 
-let inline threadStore() =
-    fun modifier ->
-        match modifier with
-        | STORE_DEFAULT -> fun (ptr:deviceptr<int>) (value:int) ->  ptr.[0] <- value
-        | STORE_WB -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
-        | STORE_CG -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
-        | STORE_CS -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
-        | STORE_WT -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
-        | STORE_VOLATILE -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+[<ReflectedDefinition>]
+let DefaultStore (ptr:deviceptr<'T>) (value:'T) = ptr.[0] <- value
 
-let iterateThreadStore count max =
-    fun modifier ->
-        let store = modifier |> threadStore()
-        fun (ptr:deviceptr<int>) (value:int) ->
-            for i = count to (max - 1) do
-                (ptr + i, value) ||> store
+let inline ThreadStore<'T> modifier : Expr<deviceptr<'T> -> 'T -> unit> =
+    let store = 
+        modifier |> function
+        | STORE_DEFAULT ->      DefaultStore
+        | STORE_WB ->           ThreadStore.ThreadStore_WB
+        | STORE_CG ->           ThreadStore.ThreadStore_CG
+        | STORE_CS ->           ThreadStore.ThreadStore_CS
+        | STORE_WT ->           ThreadStore.ThreadStore_WT
+        | STORE_VOLATILE ->     DefaultStore
+    <@ store @>
+
+
+
+
+//let inline threadStore() =
+//    fun modifier ->
+//        match modifier with
+//        | STORE_DEFAULT -> fun (ptr:deviceptr<int>) (value:int) ->  ptr.[0] <- value
+//        | STORE_WB -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+//        | STORE_CG -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+//        | STORE_CS -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+//        | STORE_WT -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+//        | STORE_VOLATILE -> fun (ptr:deviceptr<int>) (value:int) -> ptr.[0] <- value
+//
+//let iterateThreadStore count max =
+//    fun modifier ->
+//        let store = modifier |> threadStore()
+//        fun (ptr:deviceptr<int>) (value:int) ->
+//            for i = count to (max - 1) do
+//                (ptr + i, value) ||> store
 
 
 ///**
