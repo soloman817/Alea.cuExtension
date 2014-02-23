@@ -193,7 +193,7 @@
 ////                                                                                                              //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-//let benchmarkSortedSearch (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+//let benchmarkSortedSearch (count:int) (aData:int[]) (aCount:int) (bData:int[]) (bCount:int) (compOp:IComp<int>) (numIt:int) (testIdx:int) =
 //    let search = worker.LoadPModule(pSortedSearch.SortedSearch(MgpuBoundsLower, compOp)).Invoke
 //    let aData = aData |> Array.sort
 //    let bData = bData |> Array.sort
@@ -220,7 +220,7 @@
 //
 //    let hResults, timing' = calc |> PCalc.run
 //    let timing = timing' / 1000.0
-//    let bytes = (sizeof<'T> * count + sizeof<int> * aCount) |> float
+//    let bytes = (sizeof<int> * count + sizeof<int> * aCount) |> float
 //    let bandwidth = bytes * (float numIt) / timing
 //    let throughput = (float count) * (float numIt) / timing
 //    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -231,7 +231,7 @@
 //        numIt
 //        timing'
 //
-//    match typeof<'T> with
+//    match typeof<int> with
 //    | x when x = typeof<int> -> ss1BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
 //    | x when x = typeof<int64> -> ss1BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
 //    | x when x = typeof<float32> -> ss1BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
@@ -340,7 +340,7 @@
 ////                                                                                                              //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-//let benchmarkSortedSearch2 (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+//let benchmarkSortedSearch2 (count:int) (aData:int[]) (aCount:int) (bData:int[]) (bCount:int) (compOp:IComp<int>) (numIt:int) (testIdx:int) =
 //    let search = worker.LoadPModule(pSortedSearch.SortedSearch(MgpuBoundsLower, MgpuSearchTypeIndexMatch, MgpuSearchTypeIndexMatch, compOp)).Invoke
 //    let aData = aData |> Array.sort
 //    let bData = bData |> Array.sort
@@ -367,7 +367,7 @@
 //
 //    let hResults, timing' = calc |> PCalc.runInWorker worker
 //    let timing = timing' / 1000.0
-//    let bytes = ( sizeof<'T> * count + sizeof<int> * aCount ) |> float
+//    let bytes = ( sizeof<int> * count + sizeof<int> * aCount ) |> float
 //    let bandwidth = bytes * (float numIt) / timing
 //    let throughput = (float count) * (float numIt) / timing
 //    printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -378,7 +378,7 @@
 //        numIt
 //        timing'
 //
-//    match typeof<'T> with
+//    match typeof<int> with
 //    | x when x = typeof<int> -> ss2BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
 //    | x when x = typeof<int64> -> ss2BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
 //    | x when x = typeof<float32> -> ss2BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'

@@ -20,7 +20,7 @@
 //
 //
 //let hostScan (mgpuScanType:int) (n:int) =
-//    fun (scannedData:'TI[]) ->
+//    fun (scannedData:intI[]) ->
 //        if mgpuScanType = ExclusiveScan then
 //            Array.sub scannedData 0 n
 //        else

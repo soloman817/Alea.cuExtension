@@ -55,7 +55,7 @@ let workingPath = (getWorkingOutputPaths deviceFolderName algName).CSV          
 //  SCAN BENCHMARKING                                                                                                //
 //                                                                                                              //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:'TI[]) (testIdx:int) =
+let benchmarkScan (mgpuScanType:int) (op:IScanOp<'TI, 'TV, 'TR>) (totalAtEnd:int) (numIt:int) (data:intI[]) (testIdx:int) =
     let scanner = worker.LoadPModule(pScanner.ScanFunc(mgpuScanType, op, totalAtEnd)).Invoke
     let count = data.Length
     

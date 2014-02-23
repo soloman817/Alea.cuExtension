@@ -60,10 +60,10 @@ module internal ThreadStore =
                 | None, irPointer :: irVal :: [] -> buildThreadStore modifier ctx irPointer irVal |> Some
                 | _ -> None
 
-    let [<ThreadStore("wb")>] ThreadStore_WB (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
-    let [<ThreadStore("cg")>] ThreadStore_CG (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
-    let [<ThreadStore("cs")>] ThreadStore_CS (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
-    let [<ThreadStore("wt")>] ThreadStore_WT (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("wb")>] ThreadStore_WB (ptr:deviceptr<int>) (value:int) : unit = failwith ""
+    let [<ThreadStore("cg")>] ThreadStore_CG (ptr:deviceptr<int>) (value:int) : unit = failwith ""
+    let [<ThreadStore("cs")>] ThreadStore_CS (ptr:deviceptr<int>) (value:int) : unit = failwith ""
+    let [<ThreadStore("wt")>] ThreadStore_WT (ptr:deviceptr<int>) (value:int) : unit = failwith ""
 
 
     type IterateThreadStoreAttribute(modifier:string) =
@@ -91,10 +91,10 @@ module internal ThreadStore =
 
                 | _ -> None
 
-    let [<IterateThreadStore("wb")>] IterateThreadStore_WB (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadStore("cg")>] IterateThreadStore_CG (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadStore("cs")>] IterateThreadStore_CS (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadStore("wt")>] IterateThreadStore_WT (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("wb")>] IterateThreadStore_WB (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadStore("cg")>] IterateThreadStore_CG (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadStore("cs")>] IterateThreadStore_CS (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadStore("wt")>] IterateThreadStore_WT (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
 
 
     type IterateThreadDereferenceAttribute() =
@@ -132,9 +132,9 @@ type CacheStoreModifier =
 
 
 [<ReflectedDefinition>]
-let DefaultStore (ptr:deviceptr<'T>) (value:'T) = ptr.[0] <- value
+let DefaultStore (ptr:deviceptr<int>) (value:int) = ptr.[0] <- value
 
-let inline ThreadStore<'T> modifier : Expr<deviceptr<'T> -> 'T -> unit> =
+let inline ThreadStore modifier : Expr<deviceptr<int> -> int -> unit> =
     let store = 
         modifier |> function
         | STORE_DEFAULT ->      DefaultStore
@@ -289,30 +289,30 @@ let inline ThreadStore<'T> modifier : Expr<deviceptr<'T> -> 'T -> unit> =
 //        Int2Type<MODIFIER>(),
 //        Int2Type<IsPointer<OutputIterator>::VALUE>());
 //}
-
-
-[<Record>]
-type ThreadStore =
-    {
-        COUNT : int
-        MAX : int
-    }
-
-    [<ReflectedDefinition>]
-    static member DefaultStore(length:int) = (0, length) ||> iterateThreadStore <| CacheStoreModifier.STORE_DEFAULT
-
-    [<ReflectedDefinition>]
-    member this.Store() = (this.COUNT, this.MAX) ||> iterateThreadStore <| CacheStoreModifier.STORE_DEFAULT
-
-    [<ReflectedDefinition>]
-    member this.Store(modifier) = (this.COUNT, this.MAX) ||> iterateThreadStore <| modifier
-
-    [<ReflectedDefinition>]
-    static member Create(count,max) =
-        {
-            COUNT = count
-            MAX = max
-        }
+//
+//
+//[<Record>]
+//type ThreadStore =
+//    {
+//        COUNT : int
+//        MAX : int
+//    }
+//
+//    [<ReflectedDefinition>]
+//    static member DefaultStore(length:int) = (0, length) ||> iterateThreadStore <| CacheStoreModifier.STORE_DEFAULT
+//
+//    [<ReflectedDefinition>]
+//    member this.Store() = (this.COUNT, this.MAX) ||> iterateThreadStore <| CacheStoreModifier.STORE_DEFAULT
+//
+//    [<ReflectedDefinition>]
+//    member this.Store(modifier) = (this.COUNT, this.MAX) ||> iterateThreadStore <| modifier
+//
+//    [<ReflectedDefinition>]
+//    static member Create(count,max) =
+//        {
+//            COUNT = count
+//            MAX = max
+//        }
 
 
 

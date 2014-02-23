@@ -42,7 +42,7 @@ module Alea.cuExtension.MGPU.PArray
 //                    let api = api aCount bCount                 
 //                    let! counter = DArray.scatterInBlob worker sequence
 //                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
-//                    let insert (data_A:DArray<'T>) (indices:DArray<int>) (data_B:DArray<'T>) (inserted:DArray<'T>) =    
+//                    let insert (data_A:DArray<int>) (indices:DArray<int>) (data_B:DArray<int>) (inserted:DArray<int>) =    
 //                        pcalc { do! PCalc (fun-> apidata_A.Ptr indices.Ptr counter.Ptr data_B.Ptr partition.Ptr inserted.Ptr) }
 //                    return insert } ) }
 //
@@ -91,7 +91,7 @@ module Alea.cuExtension.MGPU.PArray
 //                    // first, we need create partition memory for internal use
 //                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
 //                    // now we return a function, which is in-place remover
-//                    let remove (data:DArray<'T>) (indices:DArray<int>) (removed:DArray<'T>) =
+//                    let remove (data:DArray<int>) (indices:DArray<int>) (removed:DArray<int>) =
 //                        pcalc { do! PCalc (fun-> apiindices.Length partition.Ptr data.Ptr indices.Ptr removed.Ptr) }
 //                    return remove } ) }
 //
@@ -121,14 +121,14 @@ module Alea.cuExtension.MGPU.PArray
 //            return Entry(fun program ->
 //                let worker = program.Worker
 //                let api = api.Apply m
-//                fun (moveCount:int) (indices:DArray<int>) (values:DArray<'T>) ->
+//                fun (moveCount:int) (indices:DArray<int>) (values:DArray<int>) ->
 //                    let intervalCount = indices.Length
 //                    let api = api moveCount intervalCount
 //                    let itr = [|0..moveCount|]
 //                    pcalc {                    
 //                        let! partition = DArray.createInBlob<int> worker api.NumPartitions
 //                        let! countingItr_global = DArray.scatterInBlob worker itr
-//                        let! output = DArray.createInBlob<'T> worker moveCount
+//                        let! output = DArray.createInBlob<int> worker moveCount
 //                        do! PCalc (fun-> apiindices.Ptr values.Ptr countingItr_global.Ptr partition.Ptr output.Ptr)
 //                        return output } ) }
 //
@@ -143,7 +143,7 @@ module Alea.cuExtension.MGPU.PArray
 //                        let api = api moveCount intervalCount
 //                        let! partition = DArray.createInBlob<int> worker api.NumPartitions
 //                        let! countingItr_global = DArray.scatterInBlob worker itr
-//                        let expand (indices:DArray<int>) (values:DArray<'T>) (output:DArray<'T>) =
+//                        let expand (indices:DArray<int>) (values:DArray<int>) (output:DArray<int>) =
 //                            pcalc { do! PCalc (fun-> apiindices.Ptr values.Ptr countingItr_global.Ptr partition.Ptr output.Ptr) }
 //                        return expand } ) }
 //
@@ -155,14 +155,14 @@ module Alea.cuExtension.MGPU.PArray
 //        return Entry(fun program ->
 //            let worker = program.Worker
 //            let api = api.Apply m            
-//            fun (total:int) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (input:DArray<'T>) ->
+//            fun (total:int) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (input:DArray<int>) ->
 //                let numInputs = counts.Length
 //                let api = api total numInputs
 //                let sequence = Array.init total (fun i -> i)
 //                pcalc {                    
 //                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
 //                    let! countingItr = DArray.scatterInBlob worker sequence
-//                    let! output = DArray.createInBlob<'T> worker total
+//                    let! output = DArray.createInBlob<int> worker total
 //                    do! PCalc (fun-> apigather.Ptr scatter.Ptr counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr)
 //                    return output } ) }
 //
@@ -177,7 +177,7 @@ module Alea.cuExtension.MGPU.PArray
 //                pcalc {                    
 //                    let! partition = DArray.createInBlob<int> worker api.NumPartitions
 //                    let! countingItr = DArray.scatterInBlob worker sequence
-//                    let move (input:DArray<'T>) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (output:DArray<'T>) = 
+//                    let move (input:DArray<int>) (gather:DArray<int>) (scatter:DArray<int>) (counts:DArray<int>) (output:DArray<int>) = 
 //                        pcalc { do! PCalc (fun-> apigather.Ptr scatter.Ptr counts.Ptr input.Ptr countingItr.Ptr partition.Ptr output.Ptr) }
 //                    return move } ) }
 //
@@ -311,7 +311,7 @@ module Alea.cuExtension.MGPU.PArray
 //                        pcalc { do! PCalc (fun-> apisource.Ptr dest.Ptr partition.Ptr) }
 //                    return merger } ) }
 //
-//    member ms.MergesortPairs(keyType:'TV) = cuda {
+//    member ms.MergesortPairs(keyType:intV) = cuda {
 //        let! api = Mergesort.mergesortPairs (comp CompTypeLess keyType)
 //        return Entry(fun program ->
 //            let worker = program.Worker
@@ -589,5 +589,5 @@ module Alea.cuExtension.MGPU.PArray
 //                        pcalc { do! PCalc (fun-> apiaData.Ptr bData.Ptr partition.Ptr aIndices.Ptr (deviceptr<int>(0n)) ) }
 //                    return sortedSearch } ) } 
 //                     
-//    member pss.SortedSearch(bounds:int, ident:'TI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
+//    member pss.SortedSearch(bounds:int, ident:intI) = pss.SortedSearch(bounds, (comp CompTypeLess ident))
 //

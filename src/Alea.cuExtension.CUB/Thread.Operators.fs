@@ -1,18 +1,56 @@
 ﻿[<AutoOpen>]
 module Alea.cuExtension.CUB.Thread.Operators
 
+open Microsoft.FSharp.Quotations
+
 open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 
 
 
-let [<ReflectedDefinition>] inequality = (<>)
-let [<ReflectedDefinition>] equality = (=)
-let [<ReflectedDefinition>] inline sum() x y = x + y
-let [<ReflectedDefinition>] max = max
-let [<ReflectedDefinition>] min = min
 
+type Op = int -> int -> int
+//    
+type OpKind = 
+    | ADD
+    | SUB
+    | MUL
+    | DIV
+    | MIN
+    | MAX
+
+let Sum() = <@ fun a b -> a + b @>
+
+//type IScanOp<int> =
+//    abstract add : Op<int>
+//    abstract sub : Op<int>
+//    abstract mul : Op<int>
+//    abstract div : Op<int>
+//    abstract min : Op<int>
+//    abstract max : Op<int>
+type IScanOp =
+    abstract op : Expr<Op>
+    
+
+//let inline op (id:int) =
+//    { new IScanOp<int> with
+//        member this.add = <@ (+) @>
+//        member this.sub = <@ (-) @>
+//        member this.mul = <@ (*) @>
+//        member this.div = <@ (/) @>
+//        member this.min = <@ min @>
+//        member this.max = <@ max @>
+//    }
+
+let inline scan_op (opkind:OpKind) (id:int) =
+    opkind |> function
+    | ADD -> { new IScanOp with member this.op = <@ (+) @> }
+    | SUB -> { new IScanOp with member this.op = <@ (-) @> }
+    | MUL -> { new IScanOp with member this.op = <@ (*) @> }
+    | DIV -> { new IScanOp with member this.op = <@ (/) @> }
+    | MIN -> { new IScanOp with member this.op = <@ min @> }
+    | MAX -> { new IScanOp with member this.op = <@ max @> }
 
 //[<Record>]
 //type Equality<'T when 'T : equality> =

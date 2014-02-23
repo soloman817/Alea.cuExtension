@@ -68,11 +68,11 @@ module internal ThreadLoad =
                 | None, irPointer :: [] -> buildThreadLoad modifier ctx irPointer |> Some
                 | _ -> None
 
-    let [<ThreadLoad("ca")>] ThreadLoad_CA (ptr:deviceptr<'T>) : 'T = failwith ""
-    let [<ThreadLoad("cg")>] ThreadLoad_CG (ptr:deviceptr<'T>) : 'T = failwith ""
-    let [<ThreadLoad("cs")>] ThreadLoad_CS (ptr:deviceptr<'T>) : 'T = failwith ""
-    let [<ThreadLoad("cv")>] ThreadLoad_CV (ptr:deviceptr<'T>) : 'T = failwith ""
-    let [<ThreadLoad("ldg")>] ThreadLoad_LDG (ptr:deviceptr<'T>) : 'T = failwith ""
+    let [<ThreadLoad("ca")>] ThreadLoad_CA (ptr:deviceptr<int>) : 'T = failwith ""
+    let [<ThreadLoad("cg")>] ThreadLoad_CG (ptr:deviceptr<int>) : 'T = failwith ""
+    let [<ThreadLoad("cs")>] ThreadLoad_CS (ptr:deviceptr<int>) : 'T = failwith ""
+    let [<ThreadLoad("cv")>] ThreadLoad_CV (ptr:deviceptr<int>) : 'T = failwith ""
+    let [<ThreadLoad("ldg")>] ThreadLoad_LDG (ptr:deviceptr<int>) : 'T = failwith ""
 
     type IterateThreadLoadAttribute(modifier:string) =
         inherit Attribute()
@@ -98,11 +98,11 @@ module internal ThreadLoad =
 
                 | _ -> None
 
-    let [<IterateThreadLoad("ca")>] IterateThreadLoad_CA (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadLoad("cg")>] IterateThreadLoad_CG (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadLoad("cs")>] IterateThreadLoad_CS (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadLoad("cv")>] IterateThreadLoad_CV (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
-    let [<IterateThreadLoad("ldg")>] IterateThreadLoad_LDG (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadLoad("ca")>] IterateThreadLoad_CA (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadLoad("cg")>] IterateThreadLoad_CG (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadLoad("cs")>] IterateThreadLoad_CS (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadLoad("cv")>] IterateThreadLoad_CV (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadLoad("ldg")>] IterateThreadLoad_LDG (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
 
     type IterateThreadDereferenceAttribute() =
         inherit Attribute()
@@ -136,20 +136,22 @@ type CacheLoadModifier =
     | LOAD_LDG
     | LOAD_VOLATILE
 
-[<ReflectedDefinition>]
-let DefaultLoad (ptr:deviceptr<'T>) = ptr.[0]
 
-let inline ThreadLoad<'T> modifier : Expr<deviceptr<'T> -> 'T> =
-    let load =
-        modifier |> function
-        | LOAD_DEFAULT ->   DefaultLoad
-        | LOAD_CA ->        ThreadLoad.ThreadLoad_CA
-        | LOAD_CG ->        ThreadLoad.ThreadLoad_CG
-        | LOAD_CS ->        ThreadLoad.ThreadLoad_CS
-        | LOAD_CV ->        ThreadLoad.ThreadLoad_CV
-        | LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG
-        | LOAD_VOLATILE ->  DefaultLoad
-    <@ load @>
+//let inline DefaultLoad (ptr:deviceptr<int>) = ptr.[0]
+//
+//let inline ThreadLoad<int> modifier = //: Expr<deviceptr<int> -> 'T> =
+//    let load =
+//        modifier |> function
+//        | LOAD_DEFAULT ->   DefaultLoad
+//        | LOAD_CA ->        ThreadLoad.ThreadLoad_CA
+//        | LOAD_CG ->        ThreadLoad.ThreadLoad_CG
+//        | LOAD_CS ->        ThreadLoad.ThreadLoad_CS
+//        | LOAD_CV ->        ThreadLoad.ThreadLoad_CV
+//        | LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG
+//        | LOAD_VOLATILE ->  DefaultLoad
+//    <@ load @>
+
+let inline ThreadLoad modifier = <@ fun (ptr:deviceptr<int>) -> ptr.[0] @>
 
 //let dereference (ptr:deviceptr<int>) = ptr |> __ptr_to_obj
 //

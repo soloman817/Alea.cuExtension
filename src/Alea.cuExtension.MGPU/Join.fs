@@ -168,7 +168,7 @@
 //        deviceMemToMemLoop total.[0] sharedIndices tid (rightJoin_global + start) false
 //    @>
 //
-//type IJoin<'T> =
+//type IJoin<int> =
 //    {
 //        //Action : ActionHint -> Device
 //    }

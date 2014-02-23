@@ -21,7 +21,7 @@
 //let aCounts, bCounts = aibCounts |> List.unzip
 //
 //
-//let hostBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) =
+//let hostBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) =
 //    let result : 'T[] = Array.zeroCreate (dataA.Length + dataB.Length)
 //    Array.blit dataB 0 result 0 indices.[0]
 //    Array.set result indices.[0] dataA.[0]
@@ -34,7 +34,7 @@
 //
 //
 //let testBulkInsert() =
-//    let test verify eps (dataA:'T[]) (indices:int[]) (dataB:'T[]) = pcalc {
+//    let test verify eps (dataA:int[]) (indices:int[]) (dataB:int[]) = pcalc {
 //        let bulkin = worker.LoadPModule(pfuncts.BulkInsert()).Invoke
 //    
 //        let aCount = dataA.Length

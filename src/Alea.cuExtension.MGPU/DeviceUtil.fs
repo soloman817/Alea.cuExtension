@@ -131,8 +131,8 @@ type CompType =
     | CompTypeGreater
     | CompTypeGreater_Equal
 
-let comp (compType:CompType) (ident:'T) = 
-    { new IComp<'T> with
+let comp (compType:CompType) (ident:int) = 
+    { new IComp<int> with
         member this.Identity = ident
         // @COMMENTS@ : after changed the return type to be bool, it is easy to write here
         member this.Host = 

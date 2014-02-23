@@ -2,65 +2,122 @@
 module Alea.cuExtension.CUB.Warp.WarpSpecializations.WarpScanShfl
 
 open System    
+open Microsoft.FSharp.Quotations
 
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
 open Alea.cuExtension.CUB.Common
 open Alea.cuExtension.CUB.Utilities
+open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Warp
 
-
-let STEPS = 
-    fun logical_warp_threads ->
-        logical_warp_threads |> log2
-
-let SHFL_C =
-    fun logical_warp_threads ->
-        let STEPS = logical_warp_threads |> STEPS
-        ((-1 <<< STEPS) &&& 31) <<< 8
-
-
-let Broadcast<'T> logical_warp_threads =
+let private Broadcast logical_warp_threads =
     let shuffleBroadcast = logical_warp_threads |> __ptx__.ShuffleBroadcast
-    <@ fun (input:'T) (src_lane:int) ->
+    <@ fun (input:int) (src_lane:int) ->
         (input, src_lane) ||> %shuffleBroadcast
     @>
 
+module private Internal =
+    module Enum =
+        let STEPS = 
+            fun logical_warp_threads ->
+                logical_warp_threads |> log2
+
+        let SHFL_C =
+            fun logical_warp_threads ->
+                let STEPS = logical_warp_threads |> STEPS
+                ((-1 <<< STEPS) &&& 31) <<< 8
+
+
+    module Sig =
+        module InclusiveScan =
+            type DefaultExpr        = Expr<int -> Ref<int> -> unit>
+            type WithAggregateExpr  = Expr<int -> Ref<int> -> Ref<int> -> unit>
+
+        module InclusiveSum =
+            type DefaultExpr = Expr<int -> Ref<int> -> unit>
+
+            module WithAggregate =
+                type GenericExpr    = Expr<int -> Ref<int> -> Ref<int> -> unit>
+                type ULongLongExpr  = Expr<ulonglong -> Ref<ulonglong> -> Ref<ulonglong> -> unit>
+                type Float32Expr    = Expr<float32 -> Ref<float32> -> Ref<float32> -> unit>
+                type MultiShfl      = Expr<int -> Ref<int> -> Ref<int> -> unit>
+                type SingleShfl     = Expr<int -> Ref<int> -> Ref<int> -> unit>
+
+        module ExclusiveScan =
+            type DefaultExpr        = Expr<int -> Ref<int> -> int -> unit>
+            type WithAggregateExpr  = Expr<int -> Ref<int> -> int -> Ref<int> -> unit>
+            
+            module Identityless =
+                type DefaultExpr        = Expr<int -> Ref<int> -> unit>
+                type WithAggregateExpr  = Expr<int -> Ref<int> -> Ref<int> -> unit>
+
+        type BroadcastExpr = Expr<int -> int -> int>
+                
+
+
+
 
 module InclusiveScan =
-    type ScanOp<'T> = 'T -> 'T -> 'T
+    open Internal
 
-    let WithAggregate<'T> logical_warp_threads =
-        let STEPS = logical_warp_threads |> STEPS
-        let broadcast = logical_warp_threads |> Broadcast<'T>
-        <@ fun (input:'T) (output:Ref<'T>) (scan_op:ScanOp<'T>) (warp_aggregate:Ref<'T>) -> 
+    type API =
+        {
+            Default         :   Sig.InclusiveScan.DefaultExpr
+            WithAggregate   :   Sig.InclusiveScan.WithAggregateExpr            
+        }
+
+    let private WithAggregate logical_warp_threads (scan_op:IScanOp) =
+        let STEPS = logical_warp_threads |> Enum.STEPS
+        let broadcast = logical_warp_threads |> Broadcast
+        let scan_op = scan_op.op
+        <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) -> 
             output := input
 
             for STEP = 0 to (STEPS - 1) do
                 let OFFSET = 1 <<< STEP
                 let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
-
-                if lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
+                ()
+//                if lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> %scan_op
 
             warp_aggregate := (!output, logical_warp_threads - 1) ||> %broadcast
         @>
 
-    let Default<'T> logical_warp_threads =
-        let inclusiveScan = logical_warp_threads |> WithAggregate<'T>
-        <@ fun (input:'T) (output:Ref<'T>) (scan_op:ScanOp<'T>) ->
+    let private Default logical_warp_threads (scan_op:IScanOp) =
+        let inclusiveScan = (logical_warp_threads, scan_op) ||> WithAggregate
+        let scan_op = scan_op.op
+        <@ fun (input:int) (output:Ref<int>) ->
             let warp_aggregate = __local__.Variable()
             %inclusiveScan
             <|| (input,output)
-            <|  scan_op
             <|  warp_aggregate
         @>
 
+    let api logical_warp_threads scan_op =
+        {
+            Default         = (logical_warp_threads, scan_op) ||> Default
+            WithAggregate   = (logical_warp_threads, scan_op) ||> WithAggregate
+        }
+
+//let x = InclusiveScan.api 0 (scan_op ADD 0)
 
 module InclusiveSum =
+    open Internal
+
+    type API =
+        {
+            Default                 : Sig.InclusiveSum.DefaultExpr
+            Generic                 : Sig.InclusiveSum.WithAggregate.GenericExpr
+            ULongLongSpecialized    : Sig.InclusiveSum.WithAggregate.ULongLongExpr
+            Float32Specialized      : Sig.InclusiveSum.WithAggregate.Float32Expr
+            MultiShfl               : Sig.InclusiveSum.WithAggregate.MultiShfl
+            SingleShfl              : Sig.InclusiveSum.WithAggregate.SingleShfl
+        }
+
 
     [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type InclusiveSumPtxAttribute() =
+    type private InclusiveSumPtxAttribute() =
         inherit Attribute()
 
         interface ICustomCallBuilder with
@@ -81,14 +138,14 @@ module InclusiveSum =
                         }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx>] inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
+    let [<InclusiveSumPtx>] private inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
 
 
-    let SingleShfl<'T> logical_warp_threads = 
-        let STEPS = logical_warp_threads |> STEPS
-        let SHFL_C = logical_warp_threads |> SHFL_C
+    let private SingleShfl logical_warp_threads = 
+        let STEPS = logical_warp_threads |> Enum.STEPS
+        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
-        <@ fun (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) ->
+        <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) ->
             let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
             for STEP = 0 to (STEPS - 1) do
                 temp := (!temp |> uint32, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx
@@ -96,12 +153,12 @@ module InclusiveSum =
             warp_aggregate := (!output, logical_warp_threads - 1) ||> %broadcast
         @>
 
-    let MultiShfl<'T>() =
-        <@ fun (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) -> () @>
+    let private MultiShfl _ =
+        <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) -> () @>
         
 
     [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type InclusiveSumPtx_Float32Attribute() =
+    type private InclusiveSumPtx_Float32Attribute() =
         inherit Attribute()
 
         interface ICustomCallBuilder with
@@ -122,22 +179,22 @@ module InclusiveSum =
                         }", "=f,f,r,r,f", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
+    let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
 
-    let Float32Specialized logical_warp_threads =
-        let STEPS = logical_warp_threads |> STEPS
-        let SHFL_C = logical_warp_threads |> SHFL_C
+    let private Float32Specialized logical_warp_threads =
+        let STEPS = logical_warp_threads |> Enum.STEPS
+        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
         <@ fun (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) ->
             output := input
             for STEP = 0 to (STEPS - 1) do
                 output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_Float32
 
-            warp_aggregate := (!output, logical_warp_threads - 1) ||> %broadcast
+            warp_aggregate := (!output |> int, logical_warp_threads - 1) ||> %broadcast
         @>
 
     [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type InclusiveSumPtx_ULongLongAttribute() =
+    type private InclusiveSumPtx_ULongLongAttribute() =
         inherit Attribute()
 
         interface ICustomCallBuilder with
@@ -164,86 +221,136 @@ module InclusiveSum =
                         }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
+    let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
 
-    let ULongLongSpecialized logical_warp_threads =
-        let STEPS = logical_warp_threads |> STEPS
-        let SHFL_C = logical_warp_threads |> SHFL_C
+    let private ULongLongSpecialized logical_warp_threads =
+        let STEPS = logical_warp_threads |> Enum.STEPS
+        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
         <@ fun (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) ->
             output := input
             for STEP = 0 to (STEPS - 1) do
                 output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_ULongLong
             
-            warp_aggregate := (!output, logical_warp_threads - 1) ||> %broadcast
+            warp_aggregate := (!output |> int, logical_warp_threads - 1) ||> %broadcast
         @>
 
-    let Generic<'T> logical_warp_threads =
-        let inclusiveSum = if sizeof<'T> <= sizeof<uint32> then logical_warp_threads |> SingleShfl<'T> else MultiShfl<'T>()
-        <@ fun (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) -> 
+    let private Generic logical_warp_threads =
+        let inclusiveSum = if sizeof<int> <= sizeof<uint32> then logical_warp_threads |> SingleShfl else MultiShfl()
+        <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) -> 
             (input, output, warp_aggregate) |||> %inclusiveSum
         @>
 
-    let Default<'T> logical_warp_threads =
-        let inclusiveSum = logical_warp_threads |> Generic<'T>
-        <@ fun (input:'T) (output:Ref<'T>) ->
+    let private Default logical_warp_threads =
+        let inclusiveSum = logical_warp_threads |> Generic
+        <@ fun (input:int) (output:Ref<int>) ->
             let warp_aggregate = __local__.Variable()
             (input, output, warp_aggregate) |||> %inclusiveSum
         @>
 
+    let api logical_warp_threads _ =
+        {
+            Default                 = logical_warp_threads |> Default
+            Generic                 = logical_warp_threads |> Generic
+            ULongLongSpecialized    = logical_warp_threads |> ULongLongSpecialized
+            Float32Specialized      = logical_warp_threads |> Float32Specialized
+            MultiShfl               = logical_warp_threads |> MultiShfl
+            SingleShfl              = logical_warp_threads |> SingleShfl
+        }
 
+//let y = InclusiveSum.api 0 (scan_op ADD 0)
 
 module ExclusiveScan =
-    type ScanOp<'T> = 'T -> 'T -> 'T
+    open Internal
 
-    let WithAggregate<'T> logical_warp_threads =
-        let inclusiveScan = logical_warp_threads |> InclusiveScan.WithAggregate<'T>
-        <@ fun (input:'T) (output:Ref<'T>) (identity:'T) (scan_op:ScanOp<'T>) (warp_aggregate:Ref<'T>) ->
+    type API =
+        {
+            Default             : Sig.ExclusiveScan.DefaultExpr
+            Default_NoID        : Sig.ExclusiveScan.Identityless.DefaultExpr
+            WithAggregate       : Sig.ExclusiveScan.WithAggregateExpr
+            WithAggregate_NoID  : Sig.ExclusiveScan.Identityless.WithAggregateExpr    
+        }
+
+
+    let private WithAggregate logical_warp_threads (scan_op:IScanOp) =
+        let inclusiveScan = ((logical_warp_threads, scan_op) ||> InclusiveScan.api).WithAggregate
+        <@ fun (input:int) (output:Ref<int>) (identity:int) (warp_aggregate:Ref<int>) ->
             let inclusive = __local__.Variable()
             %inclusiveScan
             <|| (input, inclusive)
-            <|  scan_op
             <|  warp_aggregate
 
             let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
 
-            output := if lane_id = 0 then identity else exclusive |> __obj_reinterpret
+//            output := if lane_id = 0 then identity else exclusive |> __obj_reinterpret
+            ()
         @>
 
-    let Default<'T> logical_warp_threads =
-        let exclusiveScan = logical_warp_threads |> WithAggregate<'T>
-        <@ fun (input:'T) (output:Ref<'T>) (identity:'T) (scan_op:ScanOp<'T>) -> 
+    let private Default logical_warp_threads (scan_op:IScanOp) =
+        let exclusiveScan = (logical_warp_threads, scan_op) ||> WithAggregate
+        <@ fun (input:int) (output:Ref<int>) (identity:int) -> 
             let warp_aggregate = __local__.Variable()
             %exclusiveScan
             <|| (input, output)
             <|  identity
-            <|  scan_op
             <|  warp_aggregate
         @>
 
 
-    module Identityless =
-        let WithAggregate<'T> logical_warp_threads =
-            let inclusiveScan = logical_warp_threads |> InclusiveScan.WithAggregate<'T>
-            <@ fun (input:'T) (output:Ref<'T>) (scan_op:ScanOp<'T>) (warp_aggregate:Ref<'T>) ->
+    module private Identityless =
+        let WithAggregate logical_warp_threads (scan_op:IScanOp)  =
+            let inclusiveScan = ((logical_warp_threads, scan_op) ||> InclusiveScan.api).WithAggregate
+            <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) ->
                 let inclusive = __local__.Variable()
                 %inclusiveScan
                 <|| (input, inclusive)
-                <|  scan_op
                 <|  warp_aggregate
 
                 output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
             @>
 
-        let Default<'T> logical_warp_threads =
-            let exclusiveScan = logical_warp_threads |> WithAggregate<'T>
-            <@ fun (input:'T) (output:Ref<'T>) (scan_op:ScanOp<'T>) ->
+        let Default logical_warp_threads (scan_op:IScanOp) =
+            let exclusiveScan = (logical_warp_threads, scan_op) ||> WithAggregate
+            <@ fun (input:int) (output:Ref<int>) ->
                 let warp_aggregate = __local__.Variable()
                 %exclusiveScan
                 <|| (input, output)
-                <|  scan_op
                 <|  warp_aggregate
             @>
+
+    let api logical_warp_threads scan_op =
+        {
+            Default             = (logical_warp_threads, scan_op) ||> Default
+            Default_NoID        = (logical_warp_threads, scan_op) ||> Identityless.Default
+            WithAggregate       = (logical_warp_threads, scan_op) ||> WithAggregate
+            WithAggregate_NoID  = (logical_warp_threads, scan_op) ||> Identityless.WithAggregate
+        }
+
+//let z = ExclusiveScan.api 0 (scan_op ADD 0)
+
+module WarpScanShfl =
+    type API =
+        {
+            InclusiveScan : InclusiveScan.API
+            InclusiveSum  : InclusiveSum.API
+            ExclusiveScan : ExclusiveScan.API
+            Broadcast     : Internal.Sig.BroadcastExpr
+        }
+
+    let api _ logical_warp_threads scan_op =
+        fun _ (warp_id:int) (lane_id:int) ->
+            {
+                InclusiveScan   = (logical_warp_threads, scan_op) ||> InclusiveScan.api
+                InclusiveSum    = (logical_warp_threads, scan_op) ||> InclusiveSum.api
+                ExclusiveScan   = (logical_warp_threads, scan_op) ||> ExclusiveScan.api
+                Broadcast       = logical_warp_threads |> Broadcast
+            }
+
+
+//
+//let foo = WarpScanShfl.api 12 (scan_op ADD 0)
+//
+//let x = foo.InclusiveScan.Default
 
 //let STEPS = 
 //    fun logical_warp_threads ->

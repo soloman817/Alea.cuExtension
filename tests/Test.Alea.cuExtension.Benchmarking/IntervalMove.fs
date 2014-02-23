@@ -62,7 +62,7 @@ module IntervalExpand =
             Array.set terms (i + r) (terms.[i + r] + r2)
             swap terms.[r] terms.[i + r]
 
-    let benchmarkIntervalExpand (version:char) (hSource:'T[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
+    let benchmarkIntervalExpand (version:char) (hSource:int[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
         let scan = worker.LoadPModule(pScanner.Scan()).Invoke
         let expand = worker.LoadPModule(pIntervalMover.IntervalExpandFunc()).Invoke
     
@@ -95,7 +95,7 @@ module IntervalExpand =
 
         let hResults, timing' = calc |> PCalc.runInWorker worker
         let timing = timing' / 1000.0
-        let bytes = sizeof<'T> * (count + numTerms) + sizeof<int> * numTerms |> float
+        let bytes = sizeof<int> * (count + numTerms) + sizeof<int> * numTerms |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
         printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -108,14 +108,14 @@ module IntervalExpand =
 
         match version with
         | 'A' ->
-            match typeof<'T> with
+            match typeof<int> with
             | x when x = typeof<int> -> iexp_A_BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<int64> -> iexp_A_BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float32> -> iexp_A_BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float> -> iexp_A_BMS4.Float64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | _ -> ()
         | 'B' ->
-            match typeof<'T> with
+            match typeof<int> with
             | x when x = typeof<int> -> iexp_B_BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<int64> -> iexp_B_BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float32> -> iexp_B_BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
@@ -225,7 +225,7 @@ module IntervalMove =
             Array.set terms (i + r) (terms.[i + r] + r2)
             swap terms.[r] terms.[i + r]
 
-    let benchmarkIntervalMove (version:char) (hSource:'T[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
+    let benchmarkIntervalMove (version:char) (hSource:int[]) (count:int) (numIt:int) (numTerms:int) (testIdx:int) =
         let scan = worker.LoadPModule(pScanner.Scan()).Invoke    
         let move = worker.LoadPModule(pIntervalMover.IntervalMoveFunc()).Invoke
 
@@ -269,7 +269,7 @@ module IntervalMove =
             let! dGather = DArray.scatterInBlob worker gatherHost
             let! dScatter = DArray.scatterInBlob worker scatterHost
             let! dSource = DArray.scatterInBlob worker hSource
-            let! dDest = DArray.createInBlob<'T> worker count
+            let! dDest = DArray.createInBlob<int> worker count
 
             let! move = move count numTerms
 
@@ -288,7 +288,7 @@ module IntervalMove =
 
         let hResults, timing' = calc |> PCalc.runInWorker worker
         let timing = timing' / 1000.0
-        let bytes = 3 * sizeof<int> * numTerms + 2 * sizeof<'T> * count |> float
+        let bytes = 3 * sizeof<int> * numTerms + 2 * sizeof<int> * count |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
         printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -301,14 +301,14 @@ module IntervalMove =
 
         match version with
         | 'A' ->
-            match typeof<'T> with
+            match typeof<int> with
             | x when x = typeof<int> -> imv_A_BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<int64> -> imv_A_BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float32> -> imv_A_BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float> -> imv_A_BMS4.Float64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | _ -> ()
         | 'B' ->
-            match typeof<'T> with
+            match typeof<int> with
             | x when x = typeof<int> -> imv_B_BMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<int64> -> imv_B_BMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
             | x when x = typeof<float32> -> imv_B_BMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'

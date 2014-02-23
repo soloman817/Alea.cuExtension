@@ -104,7 +104,7 @@ type __ptx__ private () =
     
     [<BFI>]     static member BFI(x,y,bit,numBits) = bfi x y bit numBits
     //[<ShuffleUp>] 
-    static member ShuffleUp(input:'T, src_offset:int) =
+    static member ShuffleUp(input:int, src_offset:int) =
         let SHFL_C = 0
          
         let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
@@ -120,8 +120,8 @@ type __ptx__ private () =
         !output
 
     //[<ShuffleBroadcast>]
-    static member ShuffleBroadcast<'T> logical_warp_threads =
-        <@ fun (input:'T) (src_lane:int) ->
+    static member ShuffleBroadcast logical_warp_threads =
+        <@ fun (input:int) (src_lane:int) ->
             let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
     
             let output : 'T ref = __local__.Variable()

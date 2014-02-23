@@ -23,11 +23,11 @@
 //        VT : int
 //    }
 //
-//let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<'T>) =
+//let deviceLoadSortedSearch (NT:int) (VT:int) (bounds:int) (indexA:bool) (matchA:bool) (indexB:bool) (matchB:bool) (compOp:IComp<int>) =
 //    let deviceLoad2ToShared = deviceLoad2ToSharedB NT VT (VT + 1) 
 //    let ctaSortedSearch = ctaSortedSearch NT VT bounds indexA matchA indexB matchB compOp
 //
-//    <@ fun (range:int4) (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (tid:int) (block:int) (keys_shared:deviceptr<'T>) (indices_shared:deviceptr<int>) ->
+//    <@ fun (range:int4) (a_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<int>) (bCount:int) (tid:int) (block:int) (keys_shared:deviceptr<int>) (indices_shared:deviceptr<int>) ->
 //        let deviceLoad2ToShared = %deviceLoad2ToShared
 //        let ctaSortedSearch = %ctaSortedSearch
 //
@@ -63,7 +63,7 @@
 //
 //
 //
-//let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (indexB:int) (matchB:int) (compOp:IComp<'T>) =
+//let kernelSortedSearch (plan:Plan) (bounds:int) (indexA:int) (matchA:int) (indexB:int) (matchB:int) (compOp:IComp<int>) =
 //    let NT = plan.NT
 //    let VT = plan.VT
 //    let NV = plan.NT * plan.VT
@@ -80,14 +80,14 @@
 //    let deviceLoadSortedSearch = deviceLoadSortedSearch NT VT bounds indexA matchA indexB matchB compOp
 //    let deviceMemToMemLoop = deviceMemToMemLoop NT
 //
-//    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (mp_global:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) -> //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) ->
+//    <@ fun (a_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<int>) (bCount:int) (mp_global:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) -> //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) ->
 //        let reduce = %reduce
 //        let computeMergeRange = %computeMergeRange
 //        let deviceLoadSortedSearch = %deviceLoadSortedSearch
 //        let deviceMemToMemLoop = %deviceMemToMemLoop
 //
-//        //let shared = __shared__.Array<'T>(sharedSize) |> __array_to_ptr
-//        let sharedKeys = __shared__.Array<'T>(sharedSize)
+//        //let shared = __shared__.Array<int>(sharedSize) |> __array_to_ptr
+//        let sharedKeys = __shared__.Array<int>(sharedSize)
 //        let sharedIndices = __shared__.Array<int>(sharedSize)
 //        let sharedReduce = __shared__.Array<int>(sharedSize)
 //
@@ -116,14 +116,14 @@
 //        @>
 //
 //
-////type ISortedSearch<'T> =
+////type ISortedSearch<int> =
 ////    {                                                                                                                         // cause use until we have support for atomics  
-////        Action : ActionHint -> deviceptr<'T> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit //deviceptr<int> -> deviceptr<int> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit //deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
 //
-//let sortedSearch (bounds:int) (typeA:MgpuSearchType) (typeB:MgpuSearchType) (compOp:IComp<'T>) = cuda {
+//let sortedSearch (bounds:int) (typeA:MgpuSearchType) (typeB:MgpuSearchType) (compOp:IComp<int>) = cuda {
 //    let plan = {NT = 128; VT = 7}
 //    let NT = plan.NT
 //    let VT = plan.VT
@@ -148,7 +148,7 @@
 //            let lp = LaunchParam(numBlocks, NT)
 //
 //
-//            let run (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) = //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) =
+//            let run (a_global:deviceptr<int>) (b_global:deviceptr<int>) (parts:deviceptr<int>) (aIndices_global:deviceptr<int>) (bIndices_global:deviceptr<int>) = //(aMatchCount:deviceptr<int>) (bMatchCount:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp aCount bCount NV 0

@@ -62,7 +62,7 @@ module MergeKeys =
 
     let aibCounts = sourceCounts |> List.map (fun x -> aib x)
 
-    let benchmarkMergeKeys (count:int) (aData:'T[]) (aCount:int) (bData:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+    let benchmarkMergeKeys (count:int) (aData:int[]) (aCount:int) (bData:int[]) (bCount:int) (compOp:IComp<int>) (numIt:int) (testIdx:int) =
         let merge = worker.LoadPModule(pfuncts.MergeKeys(compOp)).Invoke
         let aData = aData |> Array.sort
         let bData = bData |> Array.sort
@@ -88,7 +88,7 @@ module MergeKeys =
 
         let hResults, timing' = calc |> PCalc.run
         let timing = timing' / 1000.0
-        let bytes = (2 * sizeof<'T> * count) |> float
+        let bytes = (2 * sizeof<int> * count) |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
         printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -99,7 +99,7 @@ module MergeKeys =
             numIt
             timing'
 
-        match typeof<'T> with
+        match typeof<int> with
         | x when x = typeof<int> -> mkBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<int64> -> mkBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<float32> -> mkBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
@@ -199,7 +199,7 @@ module MergePairs =
 
     let aibCounts = sourceCounts |> List.map (fun x -> aib x)
 
-    let benchmarkMergePairs (count:int) (aKeys:'T[]) (aVals:'T[]) (aCount:int) (bKeys:'T[]) (bVals:'T[]) (bCount:int) (compOp:IComp<'T>) (numIt:int) (testIdx:int) =
+    let benchmarkMergePairs (count:int) (aKeys:int[]) (aVals:int[]) (aCount:int) (bKeys:int[]) (bVals:int[]) (bCount:int) (compOp:IComp<int>) (numIt:int) (testIdx:int) =
         let merge = worker.LoadPModule(pfuncts.MergePairs(compOp)).Invoke
         let aKeys = aKeys |> Array.sort
         let bKeys = bKeys |> Array.sort
@@ -231,7 +231,7 @@ module MergePairs =
 
         let hResults, timing' = calc |> PCalc.runInWorker worker
         let timing = timing' / 1000.0
-        let bytes = (2 * (2 * sizeof<'T>) * count) |> float
+        let bytes = (2 * (2 * sizeof<int>) * count) |> float
         let bandwidth = bytes * (float numIt) / timing
         let throughput = (float count) * (float numIt) / timing
         printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -242,7 +242,7 @@ module MergePairs =
             numIt
             timing'
 
-        match typeof<'T> with
+        match typeof<int> with
         | x when x = typeof<int> -> mpBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<int64> -> mpBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<float32> -> mpBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'

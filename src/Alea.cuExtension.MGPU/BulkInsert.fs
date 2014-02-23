@@ -34,7 +34,7 @@
 //    let computeMergeRange = computeMergeRange.Device
 //    let deviceTransferMergeValues = deviceTransferMergeValuesA NT VT
 //
-//    <@ fun (a_global:deviceptr<'T>) (indices_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (mp_global:deviceptr<int>) (dest_global:deviceptr<'T>) ->
+//    <@ fun (a_global:deviceptr<int>) (indices_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<int>) (bCount:int) (mp_global:deviceptr<int>) (dest_global:deviceptr<int>) ->
 //        let deviceGlobalToReg = %deviceGlobalToReg
 //        let computeMergeRange = %computeMergeRange
 //        let deviceTransferMergeValues = %deviceTransferMergeValues
@@ -94,9 +94,9 @@
 //
 //
 //
-////type IBulkInsert<'T> =
+////type IBulkInsert<int> =
 ////    {
-////        Action : ActionHint -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<'T> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
@@ -118,7 +118,7 @@
 //            let numBlocks = divup (aCount + bCount) NV
 //            let lp = LaunchParam(numBlocks, plan.NT)
 //                        
-//            let run (a_global:deviceptr<'T>) (indices_global:deviceptr<int>) (zeroItr:deviceptr<int>) (b_global:deviceptr<'T>) (parts:deviceptr<int>) (dest_global:deviceptr<'T>) =
+//            let run (a_global:deviceptr<int>) (indices_global:deviceptr<int>) (zeroItr:deviceptr<int>) (b_global:deviceptr<int>) (parts:deviceptr<int>) (dest_global:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp. aCount bCount NV 0

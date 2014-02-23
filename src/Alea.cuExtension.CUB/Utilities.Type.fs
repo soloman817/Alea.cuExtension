@@ -2,6 +2,8 @@
 module Alea.cuExtension.CUB.Utilities.Type
 
 open System
+open Microsoft.FSharp.Core.Operators
+
 open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension
@@ -149,10 +151,10 @@ module UnitWord =
                     | _ -> None
                 | _ -> None
 
-    type ShuffleWord = int
-    type VolatileWord = int
-    type DeviceWord = int
-    type TextureWord = int
+    type ShuffleWord = ShuffleWord of int
+    type VolatileWord = VolatileWord of int
+    type DeviceWord = DeviceWord of int
+    type TextureWord = TextureWord of int
 
 //module ScanOperators =
 //    type ScanOpKind =
@@ -504,6 +506,22 @@ let baseTraits (category:Category) (primitive:bool) (null_type:bool) (unsignedBi
 
 type KeyValuePair<'K, 'V> = System.Collections.Generic.KeyValuePair<'K,'V>
 let keyValueOp(op:('V -> 'V -> 'V)) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyValuePair<'K,'V>) -> (kvp1.Value,kvp2.Value) ||> op
+//
+//let PRIMITIVE<int>() =
+//    typeof<int> |> function
+//    | ty when ty = typeof<int8> -> true
+//    | ty when ty = typeof<uint8> -> true
+//    | ty when ty = typeof<int16> -> true
+//    | ty when ty = typeof<uint16> -> true
+//    | ty when ty = typeof<int> -> true
+//    | ty when ty = typeof<uint32> -> true
+//    | ty when ty = typeof<int64> -> true
+//    | ty when ty = typeof<uint64> -> true
+//    | ty when ty = typeof<float32> -> true
+//    | ty when ty = typeof<float> -> true
+//    | _ -> false
+
+
 
 
 let inline ZeroInitialize() =

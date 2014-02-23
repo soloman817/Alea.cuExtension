@@ -14,7 +14,7 @@
 //let testReduce (op:IScanOp<'TI, 'TV, 'TR>) =
 //    let reduce = worker.LoadPModule(pfuncts.Reduce(op)).Invoke
 //
-//    fun (gold:'TI[] -> 'TV) (verify:'TV -> 'TV -> unit) (data:'TI[]) ->
+//    fun (gold:intI[] -> 'TV) (verify:intV -> 'TV -> unit) (data:intI[]) ->
 //        let calc = pcalc {
 //            let! data = DArray.scatterInBlob worker data
 //            let! result = reduce data

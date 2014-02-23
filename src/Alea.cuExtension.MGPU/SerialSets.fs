@@ -19,15 +19,15 @@
 ////// SerialSetIntersection
 ////// Emit A if A and B are in range and equal.
 ////
-//let serialSetIntersection (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+//let serialSetIntersection (VT:int) (rangeCheck:bool) (compOp:IComp<int>) =
 //    let comp = compOp.Device
-//    <@ fun  (data       :deviceptr<'T>) 
+//    <@ fun  (data       :deviceptr<int>) 
 //            (aBegin     :int) 
 //            (aEnd       :int) 
 //            (bBegin     :int) 
 //            (bEnd       :int) 
 //            (end'       :int) 
-//            (results    :deviceptr<'T>) 
+//            (results    :deviceptr<int>) 
 //            (indices    :deviceptr<int>) 
 //            ->
 //            let comp = %comp
@@ -66,15 +66,15 @@
 ////template<int VT, bool RangeCheck, typename T, typename Comp>
 ////MGPU_DEVICE int SerialSetUnion(const T* data, int aBegin, int aEnd,
 ////	int bBegin, int bEnd, int end, T* results, int* indices, Comp comp) {
-//let serialSetUnion (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+//let serialSetUnion (VT:int) (rangeCheck:bool) (compOp:IComp<int>) =
 //    let comp = compOp.Device
-//    <@ fun  (data       :deviceptr<'T>) 
+//    <@ fun  (data       :deviceptr<int>) 
 //            (aBegin     :int) 
 //            (aEnd       :int) 
 //            (bBegin     :int) 
 //            (bEnd       :int) 
 //            (end'       :int) 
-//            (results    :deviceptr<'T>) 
+//            (results    :deviceptr<int>) 
 //            (indices    :deviceptr<int>) 
 //            ->
 //        let comp = %comp
@@ -118,15 +118,15 @@
 ////// SerialSetDifference
 ////// Emit A if A < B.
 //// 
-//let serialSetDifference (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+//let serialSetDifference (VT:int) (rangeCheck:bool) (compOp:IComp<int>) =
 //    let comp = compOp.Device
-//    <@ fun  (data       :deviceptr<'T>) 
+//    <@ fun  (data       :deviceptr<int>) 
 //            (aBegin     :int) 
 //            (aEnd       :int) 
 //            (bBegin     :int) 
 //            (bEnd       :int) 
 //            (end'       :int) 
-//            (results    :deviceptr<'T>) 
+//            (results    :deviceptr<int>) 
 //            (indices    :deviceptr<int>) 
 //            ->
 //        let comp = %comp
@@ -169,15 +169,15 @@
 ////// SerialSetSymDiff
 ////// Emit A if A < B and emit B if B < A.
 ////
-//let serialSetSymDiff (VT:int) (rangeCheck:bool) (compOp:IComp<'T>) =
+//let serialSetSymDiff (VT:int) (rangeCheck:bool) (compOp:IComp<int>) =
 //    let comp = compOp.Device
-//    <@ fun  (data       :deviceptr<'T>) 
+//    <@ fun  (data       :deviceptr<int>) 
 //            (aBegin     :int) 
 //            (aEnd       :int) 
 //            (bBegin     :int) 
 //            (bEnd       :int) 
 //            (end'       :int) 
-//            (results    :deviceptr<'T>) 
+//            (results    :deviceptr<int>) 
 //            (indices    :deviceptr<int>) 
 //            ->
 //        let comp = %comp
@@ -223,20 +223,20 @@
 ////// Uses the MgpuSetOp enum to statically select one of the four serial ops
 ////// above.
 ////
-//let serialSetOp (VT:int) (rangeCheck:bool) (setOp:MgpuSetOp) (compOp:IComp<'T>) =
+//let serialSetOp (VT:int) (rangeCheck:bool) (setOp:MgpuSetOp) (compOp:IComp<int>) =
 //    let comp = compOp.Device
 //    let serialSetIntersection = serialSetIntersection VT rangeCheck compOp
 //    let serialSetUnion = serialSetUnion VT rangeCheck compOp
 //    let serialSetDifference = serialSetDifference VT rangeCheck compOp
 //    let serialSetSymDiff = serialSetSymDiff VT rangeCheck compOp
 //
-//    <@ fun  (data:deviceptr<'T>) 
+//    <@ fun  (data:deviceptr<int>) 
 //            (aBegin:int) 
 //            (aEnd:int) 
 //            (bBegin:int) 
 //            (bEnd:int) 
 //            (star:int) 
-//            (results:deviceptr<'T>) 
+//            (results:deviceptr<int>) 
 //            (indices:deviceptr<int>) 
 //            ->
 //        let comp = %comp

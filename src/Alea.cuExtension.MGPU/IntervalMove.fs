@@ -33,11 +33,11 @@
 //
 //    <@ fun  (destCount          :int) 
 //            (indices_global     :deviceptr<int>) 
-//            (values_global      :deviceptr<'T>) 
+//            (values_global      :deviceptr<int>) 
 //            (sourceCount        :int)
 //            (countingItr_global :deviceptr<int>) 
 //            (mp_global          :deviceptr<int>) 
-//            (output_global      :deviceptr<'T>) 
+//            (output_global      :deviceptr<int>) 
 //            ->
 //        let ctaLoadBalance = %ctaLoadBalance
 //        let deviceSharedToReg = %deviceSharedToReg
@@ -48,7 +48,7 @@
 //        let mutable destCount = destCount
 //        let mutable sourceCount = sourceCount
 //
-//        let shared = __shared__.Array<'T>(sharedSize) |> __array_to_ptr
+//        let shared = __shared__.Array<int>(sharedSize) |> __array_to_ptr
 //        let sharedIndices = __shared__.Array<int>()
 //        let sharedValues = shared
 //
@@ -62,16 +62,16 @@
 //        deviceSharedToReg (NT * VT) sharedIndices tid sources true
 //        deviceMemToMemLoop sourceCount (values_global + range.z) tid sharedValues true
 //
-//        let values = __local__.Array<'T>(VT) |> __array_to_ptr
+//        let values = __local__.Array<int>(VT) |> __array_to_ptr
 //        deviceGather destCount (sharedValues - range.z) sources tid values false
 //
 //        deviceRegToGlobal destCount values tid (output_global + range.x) false
 //    @>
 //
 //
-////type IIntervalExpand<'T> = 
+////type IIntervalExpand<int> = 
 ////    {
-////        Action : ActionHint -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
@@ -97,7 +97,7 @@
 //            let numBlocks = divup (moveCount + intervalCount) NV
 //            let lp = LaunchParam(numBlocks, NT)
 //
-//            let run (indices_global:deviceptr<int>) (values_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
+//            let run (indices_global:deviceptr<int>) (values_global:deviceptr<int>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp moveCount intervalCount NV 0
@@ -130,10 +130,10 @@
 //            (scatter_global     :deviceptr<int>) 
 //            (indices_global     :deviceptr<int>) 
 //            (intervalCount      :int) 
-//            (input_global       :deviceptr<'T>)
+//            (input_global       :deviceptr<int>)
 //            (countingItr_global :deviceptr<int>) 
 //            (mp_global          :deviceptr<int>) 
-//            (output_global      :deviceptr<'T>) 
+//            (output_global      :deviceptr<int>) 
 //            ->
 //        let ctaLoadBalance = %ctaLoadBalance
 //        let deviceMemToMemLoop = %deviceMemToMemLoop
@@ -187,7 +187,7 @@
 //                scatterArr.[i] <- intervals_shared2.[interval.[i]] + rank.[i]
 //            __syncthreads()
 //
-//        let data = __local__.Array<'T>(VT) |> __array_to_ptr
+//        let data = __local__.Array<int>(VT) |> __array_to_ptr
 //        if gather then
 //            deviceGather moveCount input_global gatherArr tid data false
 //        else
@@ -200,9 +200,9 @@
 //    @>
 //
 //
-////type IIntervalGather<'T> =
+////type IIntervalGather<int> =
 ////    {
-////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
@@ -225,7 +225,7 @@
 //            let numBlocks = divup (moveCount + intervalCount) NV
 //            let lp = LaunchParam(numBlocks, plan.NT)
 //
-//            let run (gather_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
+//            let run (gather_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<int>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp moveCount intervalCount NV 0
@@ -235,9 +235,9 @@
 //            { NumPartitions = numBlocks + 1 } ) }
 //
 //
-////type IIntervalScatter<'T> = 
+////type IIntervalScatter<int> = 
 ////    {
-////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
@@ -259,7 +259,7 @@
 //            let numBlocks = divup (moveCount + intervalCount) NV
 //            let lp = LaunchParam(numBlocks, plan.NT)
 //            
-//            let run (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>)  (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
+//            let run (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<int>)  (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp moveCount intervalCount NV 0
@@ -269,9 +269,9 @@
 //            { NumPartitions = numBlocks + 1 } ) }
 //
 //
-////type IIntervalMove<'T> = 
+////type IIntervalMove<int> = 
 ////    {
-////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> deviceptr<int> -> deviceptr<int> -> deviceptr<'T> -> unit
+////        Action : ActionHint -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> deviceptr<int> -> unit
 ////        NumPartitions : int
 ////    }
 //
@@ -294,7 +294,7 @@
 //            let numBlocks = divup (moveCount + intervalCount) NV
 //            let lp = LaunchParam(numBlocks, plan.NT)
 //            
-//            let run (gather_global:deviceptr<int>) (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<'T>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<'T>) =
+//            let run (gather_global:deviceptr<int>) (scatter_global:deviceptr<int>) (indices_global:deviceptr<int>) (input_global:deviceptr<int>) (countingItr_global:deviceptr<int>) (mp_global:deviceptr<int>) (output_global:deviceptr<int>) =
 //                fun () ->
 //                    
 //                    let mpp = mpp moveCount intervalCount NV 0

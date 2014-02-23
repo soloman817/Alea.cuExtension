@@ -50,7 +50,7 @@ module BulkInsert =
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-    let benchmarkBulkInsert (dataA:'T[]) (indices:int[]) (dataB:'T[]) (numIt:int) (testIdx:int) =
+    let benchmarkBulkInsert (dataA:int[]) (indices:int[]) (dataB:int[]) (numIt:int) (testIdx:int) =
         let inserter = worker.LoadPModule(pfuncts.BulkInsertFunc()).Invoke
 
         let calc = pcalc {
@@ -78,7 +78,7 @@ module BulkInsert =
         // I use runInWorker to avoid thread switching.
         let hResults, timing' = calc |> PCalc.runInWorker worker
         let timing = timing' / 1000.0 // timing (in second), timing' (in millisecond)
-        let bytes = (sizeof<int> + 2 * sizeof<'T>) * aCount + 2 * sizeof<'T> * bCount |> float
+        let bytes = (sizeof<int> + 2 * sizeof<int>) * aCount + 2 * sizeof<int> * bCount |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
     
@@ -90,7 +90,7 @@ module BulkInsert =
             numIt
             timing'
 
-        match typeof<'T> with
+        match typeof<int> with
         | x when x = typeof<int> -> biBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<int64> -> biBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<float32> -> biBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
@@ -204,7 +204,7 @@ module BulkRemove =
     let removeCount c = c / removeAmount
     let removeCounts = sourceCounts |> List.map (fun x -> removeCount x)
     
-    let benchmarkBulkRemove (data:'T[]) (indices:int[]) (numIt:int) (testIdx:int) =
+    let benchmarkBulkRemove (data:int[]) (indices:int[]) (numIt:int) (testIdx:int) =
         let remover = worker.LoadPModule(pfuncts.BulkRemoveFunc()).Invoke
 
         let calc = pcalc {
@@ -231,7 +231,7 @@ module BulkRemove =
         // I use runInWorker to avoid thread switching.
         let hResults, timing' = calc |> PCalc.runInWorker worker
         let timing = timing' / 1000.0 // timing (in second), timing' (in millisecond)
-        let bytes = (sizeof<'T> * count + keepCount * sizeof<'T> + removeCount * sizeof<'T>) |> float
+        let bytes = (sizeof<int> * count + keepCount * sizeof<int> + removeCount * sizeof<int>) |> float
         let throughput = (float count) * (float numIt) / timing
         let bandwidth = bytes * (float numIt) / timing
         printfn "%9d: %9.3f M/s %9.3f GB/s %6.3f ms x %4d = %7.3f ms"
@@ -242,7 +242,7 @@ module BulkRemove =
             numIt
             timing'
 
-        match typeof<'T> with
+        match typeof<int> with
         | x when x = typeof<int> -> brBMS4.Int32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<int64> -> brBMS4.Int64s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'
         | x when x = typeof<float32> -> brBMS4.Float32s.NewEntry_My3 testIdx (throughput / 1.0e6) (bandwidth / 1.0e9) timing'

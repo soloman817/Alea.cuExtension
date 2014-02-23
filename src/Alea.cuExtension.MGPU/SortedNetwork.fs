@@ -12,88 +12,88 @@ open Alea.cuExtension.MGPU.DeviceUtil
 open Alea.cuExtension.MGPU.LoadStore
 open Alea.cuExtension.MGPU.CTAScan
 
-
-
-//////////////////////////////////////////////////////////////////////////////////
-//// Odd-even transposition sorting network. Sorts keys and values in-place in
-//// register.
-//// http://en.wikipedia.org/wiki/Odd%E2%80%93even_sort
-type IOddEvenTransposeSortT<'T> =
-    abstract member Sort : Expr<deviceptr<'T> -> deviceptr<'T> -> int -> unit>
-
-//let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'T>) =
-//    { new IOddEvenTransposeSortT<'T> with
-//        member this.Sort = 
-//            let swap = (swap compOp.Identity).Device
-//            let comp = compOp.Device            
-//            <@ fun (keys:deviceptr<'T>) (values:deviceptr<'T>) (flags:int)  ->
-//                let swap = %swap
-//                let comp = %comp
-//                            
-//                let mutable i = 1 &&& I
-//                while i < VT - 1 do
-//                    if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
-//                        swap keys.[i] keys.[i + 1]
-//                        swap values.[i] values.[i + 1]
-//                    i <- i + 2                
-//                 @> }
-
-
-let oddEvenTransposeSortT (VT:int) (compOp:IComp<'T>) =
-    let comp = compOp.Device        
-    <@ fun (keys:deviceptr<'T>) (values:deviceptr<'T>) (flags:int) ->        
-        let comp = %comp
-        let mutable level = 0
-        while level < VT do
-            let mutable i = 1 &&& level
-            while i < VT - 1 do
-                //if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
-                if ( comp keys.[i + 1] keys.[i] ) then
-                    swap keys.[i] keys.[i + 1]
-                    swap values.[i] values.[i + 1]
-                i <- i + 2  
-            level <- level + 1 
-    @>
-
-
-
-
-//let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TV>) =
-//    let swap = (swap compOp.Identity).Device
-//    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
-//    let comp = compOp.Device
-//    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
-//        let swap = %swap
-//        let comp = %comp
-//        let oddEvenTransposeSortT = %oddEvenTransposeSortT
 //
-//        let mutable i = 1 &&& I
-//        while i < VT - 2 do
-//            if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
-//                swap keys.[i] keys.[i + 1]
-//                swap values.[i] values.[i + 1]
-//            i <- i + 2
-//        oddEvenTransposeSortT keys values flags
-//            @>
-
-
-let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
-    let oddEvenTransposeSortT = oddEvenTransposeSortT VT compOp
-    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) ->
-        let oddEvenTransposeSortT = %oddEvenTransposeSortT
-        oddEvenTransposeSortT keys values 0
-    @>
-
-
-let oddEvenTransposeSortFlags (VT:int) (compOp:IComp<'TV>) =
-    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
-        ()
-    @>
-
-let oddEvenMergesortFlags (VT:int) (compOp:IComp<'TV>) =
-    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
-        ()
-    @>
+//
+////////////////////////////////////////////////////////////////////////////////////
+////// Odd-even transposition sorting network. Sorts keys and values in-place in
+////// register.
+////// http://en.wikipedia.org/wiki/Odd%E2%80%93even_sort
+//type IOddEvenTransposeSortT<int> =
+//    abstract member Sort : Expr<deviceptr<int> -> deviceptr<int> -> int -> unit>
+//
+////let inline oddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<int>) =
+////    { new IOddEvenTransposeSortT<int> with
+////        member this.Sort = 
+////            let swap = (swap compOp.Identity).Device
+////            let comp = compOp.Device            
+////            <@ fun (keys:deviceptr<int>) (values:deviceptr<int>) (flags:int)  ->
+////                let swap = %swap
+////                let comp = %comp
+////                            
+////                let mutable i = 1 &&& I
+////                while i < VT - 1 do
+////                    if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+////                        swap keys.[i] keys.[i + 1]
+////                        swap values.[i] values.[i + 1]
+////                    i <- i + 2                
+////                 @> }
+//
+//
+//let oddEvenTransposeSortT (VT:int) (compOp:IComp<int>) =
+//    let comp = compOp.Device        
+//    <@ fun (keys:deviceptr<int>) (values:deviceptr<int>) (flags:int) ->        
+//        let comp = %comp
+//        let mutable level = 0
+//        while level < VT do
+//            let mutable i = 1 &&& level
+//            while i < VT - 1 do
+//                //if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+//                if ( comp keys.[i + 1] keys.[i] ) then
+//                    swap keys.[i] keys.[i + 1]
+//                    swap values.[i] values.[i + 1]
+//                i <- i + 2  
+//            level <- level + 1 
+//    @>
+//
+//
+//
+//
+////let OddEvenTransposeSortT (I:int) (VT:int) (compOp:IComp<'TV>) =
+////    let swap = (swap compOp.Identity).Device
+////    let oddEvenTransposeSortT = (oddEvenTransposeSortT (I + 1) VT compOp).Sort
+////    let comp = compOp.Device
+////    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
+////        let swap = %swap
+////        let comp = %comp
+////        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+////
+////        let mutable i = 1 &&& I
+////        while i < VT - 2 do
+////            if (((2 <<< i) &&& flags) = 0) && (comp keys.[i + 1] keys.[i]) then
+////                swap keys.[i] keys.[i + 1]
+////                swap values.[i] values.[i + 1]
+////            i <- i + 2
+////        oddEvenTransposeSortT keys values flags
+////            @>
+//
+//
+//let oddEvenTransposeSort (VT:int) (compOp:IComp<'TV>) =
+//    let oddEvenTransposeSortT = oddEvenTransposeSortT VT compOp
+//    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) ->
+//        let oddEvenTransposeSortT = %oddEvenTransposeSortT
+//        oddEvenTransposeSortT keys values 0
+//    @>
+//
+//
+//let oddEvenTransposeSortFlags (VT:int) (compOp:IComp<'TV>) =
+//    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
+//        ()
+//    @>
+//
+//let oddEvenMergesortFlags (VT:int) (compOp:IComp<'TV>) =
+//    <@ fun (keys:deviceptr<'TV>) (values:deviceptr<'TV>) (flags:int) ->
+//        ()
+//    @>
 //////////////////////////////////////////////////////////////////////////////////
 //// Batcher Odd-Even Mergesort network
 //// Unstable but executes much faster than the transposition sort.

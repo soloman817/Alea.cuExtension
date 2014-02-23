@@ -41,7 +41,7 @@
 //
 //
 //let testMergeKeys() =
-//    let test verify eps (aData:'T[]) (bData:'T[]) (compOp:IComp<'T>)= pcalc {
+//    let test verify eps (aData:int[]) (bData:int[]) (compOp:IComp<int>)= pcalc {
 //        let merge = worker.LoadPModule(pfuncts.MergeKeys(compOp)).Invoke
 //        
 //        let aData = aData |> Array.sort
@@ -54,7 +54,7 @@
 //
 //        let! dA = DArray.scatterInBlob worker aData
 //        let! dB = DArray.scatterInBlob worker bData
-//        let! dC = DArray.createInBlob<'T> worker (aCount + bCount)
+//        let! dC = DArray.createInBlob<int> worker (aCount + bCount)
 //        let! merge = merge aCount bCount
 //        do! merge dA dB dC
 //

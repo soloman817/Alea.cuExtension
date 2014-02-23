@@ -12,7 +12,7 @@ open Alea.CUDA
 // it is just a lambda function, so it is ok.
 // Cooperative load functions
 let deviceSharedToReg (NT:int) (VT:int) =
-    <@ fun (count:int) (data:deviceptr<'T>) (tid:int) (reg:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (data:deviceptr<int>) (tid:int) (reg:deviceptr<int>) (sync:bool) ->
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 reg.[i] <- data.[NT * i + tid]
@@ -24,7 +24,7 @@ let deviceSharedToReg (NT:int) (VT:int) =
 
 // Cooperative store functions
 let deviceRegToShared (NT:int) (VT:int) =
-    <@ fun (count:int) (reg:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (reg:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 dest.[NT * i + tid] <- reg.[i]
@@ -36,7 +36,7 @@ let deviceRegToShared (NT:int) (VT:int) =
         if sync then __syncthreads() @>
 
 let deviceRegToGlobal (NT:int) (VT:int) =
-    <@ fun (count:int) (reg:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (reg:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then
@@ -45,7 +45,7 @@ let deviceRegToGlobal (NT:int) (VT:int) =
 
 //let deviceGlobalToReg (NT:int) (VT:int) = deviceSharedToReg NT VT
 let deviceGlobalToReg (NT:int) (VT:int) =
-    <@ fun (count:int) (data:deviceptr<'T>) (tid:int) (reg:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (data:deviceptr<int>) (tid:int) (reg:deviceptr<int>) (sync:bool) ->
             if count >= NT * VT then
                 for i = 0 to VT - 1 do
                     reg.[i] <- data.[NT * i + tid]
@@ -60,8 +60,8 @@ let deviceGlobalToReg (NT:int) (VT:int) =
 // Transfer from shared memory to global, or glbal to shared, for transfers that are smaller than NT * VT in the average case.
 // The goal is to reduce unnecessary comparison logic
 let deviceMemToMem4 (NT:int) (VT:int) =
-    <@ fun (count:int) (source:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
-        let x = __local__.Array<'T>(VT)
+    <@ fun (count:int) (source:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
+        let x = __local__.Array<int>(VT)
         let count' = if VT < 4 then VT else 4
         if (count >= NT * VT) then
             for i = 0 to count' - 1 do
@@ -81,7 +81,7 @@ let deviceMemToMem4 (NT:int) (VT:int) =
 
 let deviceMemToMemLoop (NT:int) =
     let deviceMemToMem4 = deviceMemToMem4 NT 4
-    <@ fun (count:int) (source:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (source:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
         let deviceMemToMem4 = %deviceMemToMem4
         let mutable i = 0
         while i < count do
@@ -92,7 +92,7 @@ let deviceMemToMemLoop (NT:int) =
 
 // Functions to copy between shared and global memory where the average case is to transfer NT * VT elements.
 let deviceSharedToGlobal (NT:int) (VT:int) =
-    <@ fun (count:int) (source:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (source:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then
@@ -102,8 +102,8 @@ let deviceSharedToGlobal (NT:int) (VT:int) =
 let deviceGlobalToShared (NT:int) (VT:int)  =
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceRegToShared = deviceRegToShared NT VT
-    <@ fun (count:int) (source:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
-        let reg = __local__.Array<'T>(VT) |> __array_to_ptr
+    <@ fun (count:int) (source:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
+        let reg = __local__.Array<int>(VT) |> __array_to_ptr
         let deviceGlobalToReg = %deviceGlobalToReg
         let deviceRegToShared = %deviceRegToShared
         deviceGlobalToReg count source tid reg false
@@ -112,18 +112,18 @@ let deviceGlobalToShared (NT:int) (VT:int)  =
 let deviceGlobalToGlobal (NT:int) (VT:int) =
     let deviceGlobalToReg = deviceGlobalToReg NT VT
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (source:deviceptr<'T>) (tid:int) (dest:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (source:deviceptr<int>) (tid:int) (dest:deviceptr<int>) (sync:bool) ->
         let deviceGlobalToReg = %deviceGlobalToReg
         let deviceRegToGlobal = %deviceRegToGlobal
 
-        let values = __local__.Array<'T>(VT) |> __array_to_ptr
+        let values = __local__.Array<int>(VT) |> __array_to_ptr
         deviceGlobalToReg count source tid values false
         deviceRegToGlobal count values tid dest sync @>
 
 
 // Gather/scatter functions
 let deviceGather (NT:int) (VT:int) =
-    <@ fun (count:int) (data:deviceptr<'T>) (indices:deviceptr<int>) (tid:int) (reg:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (data:deviceptr<int>) (indices:deviceptr<int>) (tid:int) (reg:deviceptr<int>) (sync:bool) ->
         if count >= (NT * VT) then
             for i = 0 to VT - 1 do
                 reg.[i] <- data.[indices.[i]]
@@ -135,7 +135,7 @@ let deviceGather (NT:int) (VT:int) =
         if sync then __syncthreads() @>
 
 let deviceScatter (NT:int) (VT:int) =
-    <@ fun (count:int) (reg:deviceptr<'T>) (tid:int) (indices:deviceptr<int>) (data:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (reg:deviceptr<int>) (tid:int) (indices:deviceptr<int>) (data:deviceptr<int>) (sync:bool) ->
         if count >= NT * VT then
             for i = 0 to VT - 1 do
                 data.[indices.[i]] <- reg.[i]
@@ -148,13 +148,13 @@ let deviceScatter (NT:int) (VT:int) =
 
 // Cooperative transpose functions (strided to thread order)
 let deviceThreadToShared (VT:int) =
-    <@ fun (threadReg:deviceptr<'T>) (tid:int) (shared:deviceptr<'T>) (sync:bool) ->
+    <@ fun (threadReg:deviceptr<int>) (tid:int) (shared:deviceptr<int>) (sync:bool) ->
         for i = 0 to VT - 1 do
             shared.[VT * tid + i] <- threadReg.[i]
         if sync then __syncthreads() @>
 
 let deviceSharedToThread (VT:int) =
-    <@ fun (shared:deviceptr<'T>) (tid:int) (threadReg:deviceptr<'T>) (sync:bool) ->
+    <@ fun (shared:deviceptr<int>) (tid:int) (threadReg:deviceptr<int>) (sync:bool) ->
         for i = 0 to VT - 1 do
             threadReg.[i] <- shared.[VT * tid + i]
         if sync then __syncthreads() @>
@@ -162,12 +162,12 @@ let deviceSharedToThread (VT:int) =
 ///////////
 let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
     let deviceRegToShared = deviceRegToShared NT VT1
-    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (tid:int) (shared:deviceptr<'T>) (sync:bool) ->
+    <@ fun (a_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<int>) (bCount:int) (tid:int) (shared:deviceptr<int>) (sync:bool) ->
         let deviceRegToShared = %deviceRegToShared
-        let b0 = (int(b_global - a_global) / sizeof<'T>) - aCount
+        let b0 = (int(b_global - a_global) / sizeof<int>) - aCount
         
         let total = aCount + bCount
-        let reg = __local__.Array<'T>(VT1)
+        let reg = __local__.Array<int>(VT1)
         if total >= NT * VT0 then
             for i = 0 to VT0 - 1 do
                 let index = NT * i + tid
@@ -191,14 +191,14 @@ let deviceLoad2ToSharedA (NT:int) (VT0:int) (VT1:int) =
 
 let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
     let deviceRegToShared = deviceRegToShared NT VT1
-    <@ fun (a_global:deviceptr<'T>) (aCount:int) (b_global:deviceptr<'T>) (bCount:int) (tid:int) (shared:deviceptr<'T>) (sync:bool) ->
+    <@ fun (a_global:deviceptr<int>) (aCount:int) (b_global:deviceptr<int>) (bCount:int) (tid:int) (shared:deviceptr<int>) (sync:bool) ->
         let deviceRegToShared = %deviceRegToShared
         //let mutable b_global = b_global
         
         let b_global = b_global - aCount
         let total = aCount + bCount
 
-        let reg = __local__.Array<'T>(VT1)
+        let reg = __local__.Array<int>(VT1)
         
         if total >= NT * VT0 then
             for i = 0 to VT0 - 1 do
@@ -227,10 +227,10 @@ let deviceLoad2ToSharedB (NT:int) (VT0:int) (VT1:int) =
 // DeviceGatherGlobalToGlobal
 let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (data_global:deviceptr<'T>) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (data_global:deviceptr<int>) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<int>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
-        let values = __local__.Array<'T>(VT)
+        let values = __local__.Array<int>(VT)
         for i = 0 to VT - 1 do
             let index = NT * i + tid
             if index < count then
@@ -247,10 +247,10 @@ let deviceGatherGlobalToGlobal (NT:int) (VT:int) =
 // Like DeviceGatherGlobalToGlobal, but for two arrays at once.
 let deviceTransferMergeValuesA (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (bStart:int) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (a_global:deviceptr<int>) (b_global:deviceptr<int>) (bStart:int) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<int>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
                      
-        let values = __local__.Array<'T>(VT)
+        let values = __local__.Array<int>(VT)
         let b_global = b_global - bStart
         
         if count >= ( NT * VT ) then
@@ -271,10 +271,10 @@ let deviceTransferMergeValuesA (NT:int) (VT:int) =
 
 let deviceTransferMergeValuesB (NT:int) (VT:int) =
     let deviceRegToGlobal = deviceRegToGlobal NT VT
-    <@ fun (count:int) (a_global:deviceptr<'T>) (b_global:deviceptr<'T>) (bStart:int) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<'T>) (sync:bool) ->
+    <@ fun (count:int) (a_global:deviceptr<int>) (b_global:deviceptr<int>) (bStart:int) (indices_shared:deviceptr<int>) (tid:int) (dest_global:deviceptr<int>) (sync:bool) ->
         let deviceRegToGlobal = %deviceRegToGlobal
         
-        let values = __local__.Array<'T>(VT)
+        let values = __local__.Array<int>(VT)
         let bOffset = (int(b_global - a_global) / sizeof<int>) - bStart
         
         if count >= NT * VT then

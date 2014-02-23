@@ -36,7 +36,7 @@ let blockLoad = Load.blockLoad
 //type IBlockLoad =
 //    abstract LoadDirectBlocked : LoadDirectBlocked
 //
-//let load (ldb:LoadDirectBlocked) (template:Template<'T>) =
+//let load (ldb:LoadDirectBlocked) (template:Template<int>) =
 //    ldb |> function
 //    | Default expr -> ()
 //    | Guarded expr -> ()
