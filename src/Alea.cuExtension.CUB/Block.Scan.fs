@@ -36,13 +36,62 @@ type BlockScanAlgorithm =
     | BLOCK_SCAN_WARP_SCANS
 
 
-let SAFE_ALGORITHM = 
-    fun block_threads algorithm ->
-        if (algorithm = BLOCK_SCAN_WARP_SCANS) && ((block_threads % CUB_PTX_WARP_THREADS) <> 0) then
-            BLOCK_SCAN_RAKING
-        else
-            algorithm
 
+
+module private Internal =
+
+    let SAFE_ALGORITHM = 
+        fun block_threads algorithm ->
+            if (algorithm = BLOCK_SCAN_WARP_SCANS) && ((block_threads % CUB_PTX_WARP_THREADS) <> 0) then
+                BLOCK_SCAN_RAKING
+            else
+                algorithm
+
+    module Sig =
+        module InclusiveSum =
+            type DefaultExpr                    = Expr<int -> Ref<int> -> unit>
+            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module ExclusiveSum =
+            type DefaultExpr                    = Expr<int -> Ref<int> -> unit>
+            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module InclusiveScan =
+            type DefaultExpr                    = Expr<int -> Ref<int> -> unit>
+            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module ExclusiveScan =
+            type DefaultExpr                    = Expr<int -> Ref<int> -> int -> unit>
+            type WithAggregateExpr              = Expr<int -> Ref<int> -> int -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> int -> Ref<int> -> Ref<int -> int> -> unit>
+
+            module Identityless =
+                type DefaultExpr                    = Expr<int -> Ref<int> -> unit>
+                type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
+                type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+    module BlockScan =
+        let pickScanKind block_threads algorithm =
+            let SAFE_ALGORITHM = (block_threads, algorithm) ||> SAFE_ALGORITHM
+            SAFE_ALGORITHM = BLOCK_SCAN_WARP_SCANS
+
+        let (|BlockScanWarpScan|_|) templateParams =
+            let block_threads, algorithm, scan_op = templateParams
+            if (block_threads, algorithm) ||> pickScanKind then 
+                BlockScanWarpScan.api 
+                <|| (block_threads, scan_op)
+                |> Some
+            else
+                None
+
+        let (|BlockScanRaking|_|) templateParams =
+            let block_threads, algorithm, scan_op = templateParams
+            if (block_threads, algorithm) ||> pickScanKind |> not then
+                BlockScanRaking.api
+                <|| (block_threads, )
 
 module ExclusiveSum =
 //    type DefaultFunctionExpr = Expr<int -> Ref<int> -> unit>
@@ -71,7 +120,6 @@ module ExclusiveSum =
 
 
 module ExclusiveScan =
-    type ScanOp = int -> int -> int
 //                                    input -> &output -> identity -> scanop
 //    type DefaultFunctionExpr = Expr<int -> Ref<int> -> int -> ScanOp -> unit>
 //                                       input -> &output -> &identity -> scanop -> &block_aggregate
@@ -80,45 +128,45 @@ module ExclusiveScan =
 //    type WithAggregateAndCallbackOpFunctionExpr = Expr<int -> Ref<int> -> Ref<int> -> ScanOp -> Ref<int> -> Ref<int> -> unit>
     module SingleDatumPerThread =
         let private Default =
-            <@ fun (input:int) (output:Ref<int>) (identity:int) (scan_op:IScanOp<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (identity:int) (scan_op:IScanOp) -> () @>
 
         let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
         module Identityless =
             let private Default =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) -> () @>
+                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) -> () @>
 
             let private WithAggregate =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
             let private WithAggregateAndCallbackOp =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
     module MultipleDataPerThread =
         let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) -> () @>
 
         let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
         module Identityless =
             let private Default items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) -> () @>
 
             let private WithAggregate items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
             let private WithAggregateAndCallbackOp items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
 module InclusiveSum =
@@ -149,24 +197,24 @@ module InclusiveScan =
 
     module SingleDatumPerThread =
         let private Default =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) -> () @>
 
         let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
     module MultipleDataPerThread =
         let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) -> () @>
 
         let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
 module InternalBlockScan =

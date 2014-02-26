@@ -130,7 +130,7 @@ type __ptx__ private () =
             let output_alias : deviceptr<ShuffleWord> = output |> __ref_reinterpret |> __ref_to_ptr
 
             for WORD = 0 to (WORDS - 1) do
-                let shuffle_word = (input_alias.[WORD] |> uint32, src_lane, (logical_warp_threads - 1)) |||> ShuffleBroadcast
+                let shuffle_word = (input_alias.[WORD] |> __obj_reinterpret, src_lane, (logical_warp_threads - 1)) |||> ShuffleBroadcast
         
                 output_alias.[WORD] <- shuffle_word |> __obj_reinterpret
 

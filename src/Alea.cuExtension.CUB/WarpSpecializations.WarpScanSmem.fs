@@ -23,7 +23,7 @@ let private Broadcast (temp_storage:deviceptr<int>) (warp_id:int) (lane_id:int) 
 
 
 module private Internal =
-    module Enum =
+    module Constants =
         
         let POW_OF_TWO =
             fun logical_warp_threads -> ((logical_warp_threads &&& (logical_warp_threads - 1)) = 0)
@@ -143,7 +143,7 @@ module InclusiveSum =
             @>
 
     let private WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
-        let warp_smem_elements = logical_warp_threads |> Enum.WARP_SMEM_ELEMENTS
+        let warp_smem_elements = logical_warp_threads |> Constants.WARP_SMEM_ELEMENTS
         fun (temp_storage:int[,]) (warp_id:int) (lane_id:int) ->
             let has_identity = true //PRIMITIVE()
             let initIdentity = 

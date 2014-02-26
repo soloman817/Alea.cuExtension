@@ -1,6 +1,8 @@
 ﻿[<AutoOpen>]
 module Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanWarpScans
 
+open Microsoft.FSharp.Quotations
+
 open Alea.CUDA
 open Alea.CUDA.Utilities
 
@@ -9,28 +11,72 @@ open Alea.cuExtension.CUB.Utilities
 open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Warp
 
-let WARPS =
-    fun block_threads ->
-        (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
+
 
 
 type TempStorage =
     {
         warp_scan : deviceptr<int>
         warp_aggregates : int[]
-        block_prefix    : int
+        mutable block_prefix    : int
     }
 
 
-module ApplyWarpAggregates =
-    type ScanOp = int -> int -> int
+module private Internal =
+    module Constants =
+        let WARPS =
+            fun block_threads ->
+                (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
 
-    let private Default block_threads =
+
+    module internal Sig =
+        module ApplyWarpAggregates =
+            type DefaultExpr = Expr<Ref<int> -> int -> Ref<int> -> unit>
+            type WithLaneValidationExpr = Expr<Ref<int> -> int -> Ref<int> -> bool -> unit>
+
+        module ExclusiveScan =
+            type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+            module Identityless =
+                type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> unit>
+                type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module ExclusiveSum =
+            type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module InclusiveScan =
+            type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+        module InclusiveSum =
+            type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+
+
+
+    let WarpScan block_threads scan_op =
+        let WARPS = block_threads |> WARPS
+        (WARPS, CUB_PTX_WARP_THREADS, scan_op) |||> WarpScan.api
+
+
+
+module ApplyWarpAggregates =
+    open Internal
+
+    type API =
+        {
+            Default             : Sig.ApplyWarpAggregates.DefaultExpr
+            WithLaneValidation  : Sig.ApplyWarpAggregates.WithLaneValidationExpr
+        }
+
+    let private Default (block_threads:int) (scan_op:IScanOp) =
         let lane_valid = true
         let WARPS = block_threads |> WARPS
-
+        let scan_op = scan_op.op
         fun (temp_storage:TempStorage) (warp_id:int) ->
-            <@ fun (partial:Ref<int>) (scan_op:ScanOp) (warp_aggregate:int) (block_aggregate:Ref<int>) ->
+            <@ fun (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) ->
                 temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
 
                 __syncthreads()
@@ -39,15 +85,16 @@ module ApplyWarpAggregates =
 
                 for WARP = 1 to WARPS - 1 do
                     if warp_id = WARP then
-                        partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
+                        partial := if lane_valid then (!block_aggregate, !partial) ||> %scan_op else !block_aggregate
+                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> %scan_op
             @>
 
 
-    let private WithLaneValidation block_threads =
+    let private WithLaneValidation (block_threads:int) (scan_op:IScanOp) =
         let WARPS = block_threads |> WARPS
+        let scan_op = scan_op.op
         fun (temp_storage:TempStorage) (warp_id:int) ->
-            <@ fun (partial:Ref<int>) (scan_op:ScanOp) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool) ->
+            <@ fun (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool) ->
                 temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
 
                 __syncthreads()
@@ -56,135 +103,233 @@ module ApplyWarpAggregates =
 
                 for WARP = 1 to WARPS - 1 do
                     if warp_id = WARP then
-                        partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
+                        partial := if lane_valid then (!block_aggregate, !partial) ||> %scan_op else !block_aggregate
+                    block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> %scan_op
             @>
 
-    let api block_threads =
-        let _Default            = block_threads |> Default
-        let _WithLaneValidation = block_threads |> WithLaneValidation
-        (_Default, _WithLaneValidation)
+    let api block_threads scan_op =
+        fun temp_storage warp_id ->
+            {
+                Default             =   Default
+                                        <||     (block_threads, scan_op) 
+                                        <||     (temp_storage, warp_id)
+
+                WithLaneValidation  =   WithLaneValidation
+                                        <||     (block_threads, scan_op) 
+                                        <||     (temp_storage, warp_id)
+            }
+        
    
 
 
 module ExclusiveSum =
+    open Internal
+    
+    type API =
+        {
+            WithAggregate               : Sig.ExclusiveSum.WithAggregateExpr
+            WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOpExpr
+        }
+        
 
-    module SingleDatumPerThread =
-        let private Default =
-            <@ fun (input:int) (output:Ref<int>) -> () @>
+    let private WithAggregate block_threads scan_op =
+        
+        fun temp_storage warp_id lane_id ->
+            let WarpScan = (    WarpScan
+                                <||     (block_threads, scan_op)
+                                <|||    (temp_storage.warp_scan, warp_id, lane_id)
+                            ).ExclusiveSum.WithAggregate
+                        
+            let ApplyWarpAggregates = ( ApplyWarpAggregates.api
+                                        <||     (block_threads, scan_op)
+                                        <||    (temp_storage, warp_id)
+                                      ).WithLaneValidation
 
-        let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) ->
+                let warp_aggregate = __local__.Variable()
+                
+                (input, output, warp_aggregate) |||> (%WarpScan)
+                (%ApplyWarpAggregates)
+                <|||    (output, !warp_aggregate, block_aggregate)
+                <|      (lane_id > 0)
+            @>
 
-        let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    let private WithAggregateAndCallbackOp block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            let ExclusiveSum =  WithAggregate
+                                <||     (block_threads, scan_op)
+                                <|||    (temp_storage, warp_id, lane_id)
+            let scan_op = scan_op.op
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) ->
+                (input, output, block_aggregate) |||> %ExclusiveSum
 
+                if warp_id = 0 then 
+                    let block_prefix = !block_aggregate |> !block_prefix_callback_op
+                    if lane_id = 0 then
+                        temp_storage.block_prefix <- block_prefix
 
-    module MultipleDataPerThread =
-        let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) -> () @>
+                __syncthreads()
 
-        let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (block_aggregate:Ref<int>) -> () @>
+                output := (temp_storage.block_prefix, !output) ||> %scan_op
+            @>
 
-        let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    let api block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                WithAggregate =                 WithAggregate
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp =    WithAggregateAndCallbackOp
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module ExclusiveScan =
-    type ScanOp = int -> int -> int
-
-    module SingleDatumPerThread =
-        let private Default =
-            <@ fun (input:int) (output:Ref<int>) (identity:int) (scan_op:ScanOp) -> () @>
-
-        let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
-
-        let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    open Internal
+    
+    type API =
+        {
+            WithAggregate                       : Sig.ExclusiveScan.WithAggregateExpr
+            WithAggregate_NoID                  : Sig.ExclusiveScan.Identityless.WithAggregateExpr
+            WithAggregateAndCallbackOp          : Sig.ExclusiveScan.WithAggregateAndCallbackOpExpr
+            WithAggregateAndCallbackOp_NoID     : Sig.ExclusiveScan.Identityless.WithAggregateAndCallbackOpExpr
+        }
 
 
-        module Identityless =
-            let private Default =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) -> () @>
+    let private WithAggregate block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-            let private WithAggregate =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
-
-            let private WithAggregateAndCallbackOp =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
-
-    module MultipleDataPerThread =
-        let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:ScanOp) -> () @>
-
-        let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
-
-        let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    let private WithAggregateAndCallbackOp block_threads scan_op =
+        fun temp_storage warp_id lane_id ->       
+            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
 
-        module Identityless =
-            let private Default items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) -> () @>
+    module private Identityless =
 
-            let private WithAggregate items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
+        let WithAggregate block_threads scan_op =
+            fun temp_storage warp_id lane_id ->    
+                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-            let private WithAggregateAndCallbackOp items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+        let WithAggregateAndCallbackOp block_threads scan_op =
+            fun temp_storage warp_id lane_id ->            
+                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+
+
+    let api block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                WithAggregate =                     WithAggregate
+                                                    <||     (block_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregate_NoID =                Identityless.WithAggregate
+                                                    <||     (block_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp =        WithAggregateAndCallbackOp
+                                                    <||     (block_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp_NoID =   Identityless.WithAggregateAndCallbackOp
+                                                    <||     (block_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module InclusiveSum =
+    open Internal
+    
+    type API =
+        {
+            WithAggregate               : Sig.InclusiveSum.WithAggregateExpr
+            WithAggregateAndCallbackOp  : Sig.InclusiveSum.WithAggregateAndCallbackOpExpr
+        }
 
-    module SingleDatumPerThread =
-        let private Default =
-            <@ fun (input:int) (output:Ref<int>) -> () @>
-
-        let private WithAggregate =
+    let private WithAggregate block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
             <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-        let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    let private WithAggregateAndCallbackOp block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int->int>) -> () @>
 
+    let api block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                WithAggregate =                 WithAggregate
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
 
-    module MultipleDataPerThread =
-        let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) -> () @>
-
-        let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (block_aggregate:Ref<int>) -> () @>
-
-        let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+                WithAggregateAndCallbackOp =    WithAggregateAndCallbackOp
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module InclusiveScan =
-    type ScanOp = int -> int -> int
-
-    module SingleDatumPerThread =
-        let private Default =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) -> () @>
-
-        let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
-
-        let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+    open Internal
+    
+    type API =
+        {
+            WithAggregate               : Sig.InclusiveScan.WithAggregateExpr
+            WithAggregateAndCallbackOp  : Sig.InclusiveScan.WithAggregateAndCallbackOpExpr
+        }
 
 
-    module MultipleDataPerThread =
-        let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) -> () @>
+    let private WithAggregate block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-        let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) -> () @>
+    let private WithAggregateAndCallbackOp block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int->int>) -> () @>
 
-        let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:ScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
+    let api block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                WithAggregate =                 WithAggregate
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp =    WithAggregateAndCallbackOp
+                                                <||     (block_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
+
+
+module BlockScanWarpScan =
+    
+    type API =
+        {
+            InclusiveSum    : InclusiveSum.API
+            InclusiveScan   : InclusiveScan.API
+            ExclusiveSum    : ExclusiveSum.API
+            ExclusiveScan   : ExclusiveScan.API
+        }
+
+    let api block_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                InclusiveSum    =   InclusiveSum.api
+                                    <||     (block_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+
+                InclusiveScan   =   InclusiveScan.api
+                                    <||     (block_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+
+                ExclusiveSum    =   ExclusiveSum.api
+                                    <||     (block_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+
+                ExclusiveScan   =   ExclusiveScan.api
+                                    <||     (block_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 

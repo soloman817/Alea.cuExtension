@@ -33,7 +33,7 @@ type GridQueue =
             | Locale.Device ->
                 this.d_counters.[FILL] <- fill_size
                 this.d_counters.[DRAIN] <- 0
-//                Alea.CUDA.CUDAInterop.cudaError_enum.CUDA_SUCCESS
+//                Alea.CUDA.CUDAInterop.cudaError_Constants.CUDA_SUCCESS
             | Locale.Host ->
                 let counters = Array.zeroCreate 2
                 counters |> Array.set <| FILL <| fill_size

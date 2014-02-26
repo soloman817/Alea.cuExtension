@@ -19,7 +19,7 @@ let private Broadcast logical_warp_threads =
     @>
 
 module private Internal =
-    module Enum =
+    module Constants =
         let STEPS = 
             fun logical_warp_threads ->
                 logical_warp_threads |> log2
@@ -69,7 +69,7 @@ module InclusiveScan =
         }
 
     let private WithAggregate logical_warp_threads (scan_op:IScanOp) =
-        let STEPS = logical_warp_threads |> Enum.STEPS
+        let STEPS = logical_warp_threads |> Constants.STEPS
         let broadcast = logical_warp_threads |> Broadcast
         let scan_op = scan_op.op
         <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) -> 
@@ -142,8 +142,8 @@ module InclusiveSum =
 
 
     let private SingleShfl logical_warp_threads = 
-        let STEPS = logical_warp_threads |> Enum.STEPS
-        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
+        let STEPS = logical_warp_threads |> Constants.STEPS
+        let SHFL_C = logical_warp_threads |> Constants.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
         <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) ->
             let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
@@ -182,8 +182,8 @@ module InclusiveSum =
     let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
 
     let private Float32Specialized logical_warp_threads =
-        let STEPS = logical_warp_threads |> Enum.STEPS
-        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
+        let STEPS = logical_warp_threads |> Constants.STEPS
+        let SHFL_C = logical_warp_threads |> Constants.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
         <@ fun (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) ->
             output := input
@@ -224,8 +224,8 @@ module InclusiveSum =
     let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
 
     let private ULongLongSpecialized logical_warp_threads =
-        let STEPS = logical_warp_threads |> Enum.STEPS
-        let SHFL_C = logical_warp_threads |> Enum.SHFL_C
+        let STEPS = logical_warp_threads |> Constants.STEPS
+        let SHFL_C = logical_warp_threads |> Constants.SHFL_C
         let broadcast = logical_warp_threads |> Broadcast
         <@ fun (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) ->
             output := input

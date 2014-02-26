@@ -31,7 +31,8 @@ let Sum() = <@ fun a b -> a + b @>
 //    abstract max : Op<int>
 type IScanOp =
     abstract op : Expr<Op>
-    
+
+type IReductionOp = IScanOp    
 
 //let inline op (id:int) =
 //    { new IScanOp<int> with

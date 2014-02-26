@@ -19,46 +19,41 @@ type BlockLoadAlgorithm =
     | BLOCK_LOAD_WARP_TRANSPOSE
 
 
-type DefaultFunction        = Template<Function<int -> deviceptr<int> -> deviceptr<int> -> unit>>
-type GuardedFunction        = Template<Function<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>>
-type GuardedWithOOBFunction = Template<Function<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>>
+module private Internal =
+    module Sig =
+        module LoadDirectBlocked =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
-type DefaultFunctionExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-type GuardedFunctionExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-type GuardedWithOOBFunctionExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+        module LoadDirectBlockedVectorized =
+            type DefaultExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
 
-type Load =
-    | Default of DefaultFunctionExpr
-    | Guarded of GuardedFunctionExpr
-    | GuardedWithOOB of GuardedWithOOBFunctionExpr
+        module LoadDirectStriped =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
-type FunctionExprAPI =
-    {
-        Default         : DefaultFunctionExpr
-        Guarded         : GuardedFunctionExpr
-        GuardedWithOOB  : GuardedWithOOBFunctionExpr
-    }
+        module LoadDirectWarpStriped =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
-//type InternalAPI = int -> int -> Template<API>
+        module LoadInternal =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
-type InternalLoadAPI =
-    {
-        LoadDirectBlocked           : FunctionExprAPI //InternalAPI //Template<API>
-        LoadDirectBlockedVectorized : FunctionExprAPI //InternalAPI //Template<API>
-        LoadDirectStriped           : FunctionExprAPI //InternalAPI //Template<API>
-        LoadDirectWarpStriped       : FunctionExprAPI //InternalAPI //Template<API>
-    }
-
-
-type BlockLoadAPI =
-    abstract Default : DefaultFunction
-    abstract Guarded : GuardedFunction
-    abstract GuardedWithOOB : GuardedWithOOBFunction
-
-type BlockLoadAPI2 =
-    abstract Load : Load
 
 module LoadDirectBlocked =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.LoadDirectBlocked.DefaultExpr
+            Guarded         : Sig.LoadDirectBlocked.GuardedExpr
+            GuardedWithOOB  : Sig.LoadDirectBlocked.GuardedWithOOBExpr
+        }
     
     let private Default items_per_thread = 
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
@@ -79,23 +74,29 @@ module LoadDirectBlocked =
         @>
 
 
+    let api _ items_per_thread  =
+        {
+            Default =           Default
+                                <| items_per_thread
 
-//    let api _ items_per_thread  = cuda { 
-//        let! _Default = items_per_thread |> Default |> Compiler.DefineFunction
-//        let! _Guarded = items_per_thread |> Guarded |> Compiler.DefineFunction
-//        let! _GuardedWithOOB = items_per_thread |> GuardedWithOOB |> Compiler.DefineFunction
-//        return { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB } }
+            Guarded =           Guarded
+                                <| items_per_thread
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        let _GuardedWithOOB = items_per_thread |> GuardedWithOOB
-        { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
+            GuardedWithOOB =    GuardedWithOOB
+                                <| items_per_thread
+        }
+
 
 module LoadDirectBlockedVectorized =
+    open Internal
+
+    type API =
+        {
+            Default : Sig.LoadDirectBlockedVectorized.DefaultExpr
+        }
 
     let private Default items_per_thread =
-        <@ fun (linear_tid:int) (block_ptr:deviceptr<'Vector>) (items:deviceptr<'Vector>) ->
+        <@ fun (linear_tid:int) (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
             let MAX_VEC_SIZE = CUB_MIN 4 items_per_thread
             let VEC_SIZE = if (((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((items_per_thread % MAX_VEC_SIZE) = 0) then MAX_VEC_SIZE else 1
             let VECTORS_PER_THREAD = items_per_thread / VEC_SIZE
@@ -110,19 +111,29 @@ module LoadDirectBlockedVectorized =
     let private Guarded x = <@ fun x y z w -> () @>
     let private GuardedWithOOB x = <@ fun x y z w u -> () @>
 
-//    let api _ items_per_thread = cuda { 
-//        let! _Default = items_per_thread |> Default |> Compiler.DefineFunction
-//        let! _Guarded = items_per_thread |> Guarded |> Compiler.DefineFunction
-//        let! _GuardedWithOOB = items_per_thread |> GuardedWithOOB |> Compiler.DefineFunction
-//        return { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB } }
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        let _GuardedWithOOB = items_per_thread |> GuardedWithOOB
-        { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
+    let api _ items_per_thread  =
+        {
+            Default =           Default
+                                <| items_per_thread
+
+//            Guarded =           Guarded
+//                                <| items_per_thread
+//
+//            GuradedWithOOB =    GuardedWithOOB
+//                                <| items_per_thread
+        }
+
 
 module LoadDirectStriped =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.LoadDirectStriped.DefaultExpr
+            Guarded         : Sig.LoadDirectStriped.GuardedExpr
+            GuardedWithOOB  : Sig.LoadDirectStriped.GuardedWithOOBExpr
+        }
     
     let private Default block_threads items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
@@ -145,19 +156,29 @@ module LoadDirectStriped =
         @>
 
 
-//    let api block_threads items_per_thread = cuda { 
-//        let! _Default =         (block_threads, items_per_thread) ||> Default           |> Compiler.DefineFunction
-//        let! _Guarded =         (block_threads, items_per_thread) ||> Guarded           |> Compiler.DefineFunction
-//        let! _GuardedWithOOB =  (block_threads, items_per_thread) ||> GuardedWithOOB    |> Compiler.DefineFunction
-//        return { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB } }
-
     let api block_threads items_per_thread  =  
-        let _Default =          (block_threads, items_per_thread) ||> Default
-        let _Guarded =          (block_threads, items_per_thread) ||> Guarded
-        let _GuardedWithOOB =   (block_threads, items_per_thread) ||> GuardedWithOOB
-        { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
+        {
+            Default =           Default
+                                <|| (block_threads, items_per_thread)
+
+            Guarded =           Guarded
+                                <|| (block_threads, items_per_thread)
+
+            GuardedWithOOB =    GuardedWithOOB
+                                <|| (block_threads, items_per_thread)
+        }
+
     
 module LoadDirectWarpStriped =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.LoadDirectWarpStriped.DefaultExpr
+            Guarded         : Sig.LoadDirectWarpStriped.GuardedExpr
+            GuardedWithOOB  : Sig.LoadDirectWarpStriped.GuardedWithOOBExpr
+        }
+
 
     let private Default items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
@@ -191,20 +212,57 @@ module LoadDirectWarpStriped =
                 if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
         @>
 
+    
+    let api _ items_per_thread =
+        {
+            Default =           Default
+                                <| items_per_thread
 
-//    let api _ items_per_thread = cuda { 
-//        let! _Default           = items_per_thread        |> Default          |> Compiler.DefineFunction
-//        let! _Guarded           = items_per_thread        |> Guarded          |> Compiler.DefineFunction
-//        let! _GuardedWithOOB    = items_per_thread        |> GuardedWithOOB   |> Compiler.DefineFunction
-//        return { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB } }
+            Guarded =           Guarded
+                                <| items_per_thread
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        let _GuardedWithOOB = items_per_thread |> GuardedWithOOB
-        { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
+            GuardedWithOOB =    GuardedWithOOB
+                                <| items_per_thread
+        }
 
-module InternalLoad =
+
+
+module LoadInternal =
+    open Internal
+
+    module BlockLoadDirect =
+        type API =
+            {
+                LoadDirectBlocked : LoadDirectBlocked.API
+            }
+
+        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+
+    module BlockLoadVectorize =
+        type API =
+            {
+                LoadDirectBlocked : LoadDirectBlocked.API
+            }
+
+        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+
+    module BlockLoadTranspose =
+        type API =
+            {
+                LoadDirectStriped   : LoadDirectStriped.API
+                BlockExchange       : BlockExchange.API
+            }
+
+        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+
+    module BlockLoadWarpTranspose =
+        type API =
+            {
+                LoadDirectWarpStriped   : LoadDirectWarpStriped.API
+                BlockExchange           : BlockExchange.API                
+            }
+
+        let api block_threads items_per_thread algorithm warp_time_slicing = ()
 
     //let load (block_threads:int) (items_per_thread:int) =
 //    let private internalAPI = 
@@ -219,12 +277,12 @@ module InternalLoad =
 //            | BLOCK_LOAD_VECTORIZE ->        (block_threads, items_per_thread) ||> internalAPI.LoadDirectBlockedVectorized
 //            | BLOCK_LOAD_TRANSPOSE ->        (block_threads, items_per_thread) ||> internalAPI.LoadDirectStriped
 //            | BLOCK_LOAD_WARP_TRANSPOSE ->   (block_threads, items_per_thread) ||> internalAPI.LoadDirectWarpStriped
-
-    let api (block_threads:int) (items_per_thread:int) = 
-            {   LoadDirectBlocked           = (block_threads, items_per_thread) ||> LoadDirectBlocked.api;
-                LoadDirectBlockedVectorized = (block_threads, items_per_thread) ||> LoadDirectBlockedVectorized.api
-                LoadDirectStriped           = (block_threads, items_per_thread) ||> LoadDirectStriped.api
-                LoadDirectWarpStriped       = (block_threads, items_per_thread) ||> LoadDirectWarpStriped.api }
+//
+//    let api (block_threads:int) (items_per_thread:int) = 
+//            {   LoadDirectBlocked           = (block_threads, items_per_thread) ||> LoadDirectBlocked.api;
+//                LoadDirectBlockedVectorized = (block_threads, items_per_thread) ||> LoadDirectBlockedVectorized.api
+//                LoadDirectStriped           = (block_threads, items_per_thread) ||> LoadDirectStriped.api
+//                LoadDirectWarpStriped       = (block_threads, items_per_thread) ||> LoadDirectWarpStriped.api }
 
 
 //    let load (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) = //cuda {//(valid_items:int option) (oob_default:int option) =
@@ -254,66 +312,66 @@ module InternalLoad =
 //            | BLOCK_LOAD_VECTORIZE, GuardedWithOOBOption ->        Load.GuardedWithOOB(api.LoadDirectBlockedVectorized.GuardedWithOOB)
 //            | BLOCK_LOAD_TRANSPOSE, GuardedWithOOBOption ->        Load.GuardedWithOOB(api.LoadDirectStriped.GuardedWithOOB)
 //            | BLOCK_LOAD_WARP_TRANSPOSE, GuardedWithOOBOption ->   Load.GuardedWithOOB(api.LoadDirectWarpStriped.GuardedWithOOB)
-    let load (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) = //cuda {//(valid_items:int option) (oob_default:int option) =
-        let api = (block_threads, items_per_thread) ||> api
-        algorithm |> function
-        | BLOCK_LOAD_DIRECT ->          api.LoadDirectBlocked
-        | BLOCK_LOAD_VECTORIZE ->       api.LoadDirectBlockedVectorized
-        | BLOCK_LOAD_TRANSPOSE ->       api.LoadDirectStriped
-        | BLOCK_LOAD_WARP_TRANSPOSE ->  api.LoadDirectWarpStriped
-
-
-let inline blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) = 
-    let loadInternal = (block_threads, items_per_thread, algorithm) |||> InternalLoad.load
-    { new BlockLoadAPI with
-        member this.Default =           cuda { return! loadInternal.Default         |> Compiler.DefineFunction}
-        member this.Guarded =           cuda { return! loadInternal.Guarded         |> Compiler.DefineFunction}
-        member this.GuardedWithOOB =    cuda { return! loadInternal.GuardedWithOOB  |> Compiler.DefineFunction}
-    }
-    
-
-//let blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) = cuda {
-    //let loadInternal = (block_threads, items_per_thread, algorithm) |||> InternalLoad.load
+//    let load (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) = //cuda {//(valid_items:int option) (oob_default:int option) =
+//        let api = (block_threads, items_per_thread) ||> api
 //        algorithm |> function
-//        | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->
-//            ()
+//        | BLOCK_LOAD_DIRECT ->          api.LoadDirectBlocked
+//        | BLOCK_LOAD_VECTORIZE ->       api.LoadDirectBlockedVectorized
+//        | BLOCK_LOAD_TRANSPOSE ->       api.LoadDirectStriped
+//        | BLOCK_LOAD_WARP_TRANSPOSE ->  api.LoadDirectWarpStriped
 //
-//        | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->
-//            ()
 //
-//        | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->
-//            let stripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.stripedToBlocked
-//            ()
-//
-//        | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->
-//            let warpStripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.warpStripedToBlocked
-//            ()
-        //}
-//let PrivateStorage() = __null()
-//
-//[<Record>]
-//type ThreadFields =
-//    {
-//        mutable temp_storage : deviceptr<int>
-//        mutable linear_tid : int
+//let inline blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) = 
+//    let loadInternal = (block_threads, items_per_thread, algorithm) |||> InternalLoad.load
+//    { new BlockLoadAPI with
+//        member this.Default =           cuda { return! loadInternal.Default         |> Compiler.DefineFunction}
+//        member this.Guarded =           cuda { return! loadInternal.Guarded         |> Compiler.DefineFunction}
+//        member this.GuardedWithOOB =    cuda { return! loadInternal.GuardedWithOOB  |> Compiler.DefineFunction}
 //    }
-//
-//    [<ReflectedDefinition>]
-//    member this.Get() = (this.temp_storage, this.linear_tid)
 //    
-//    [<ReflectedDefinition>]
-//    static member Init(temp_storage:deviceptr<int>, linear_tid:int) =
-//        {
-//            temp_storage = temp_storage
-//            linear_tid = linear_tid
-//        }
 //
-//    [<ReflectedDefinition>]
-//    static member Default() =
-//        {
-//            temp_storage = __null()
-//            linear_tid = 0
-//        }
+////let blockLoad (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) = cuda {
+//    //let loadInternal = (block_threads, items_per_thread, algorithm) |||> InternalLoad.load
+////        algorithm |> function
+////        | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->
+////            ()
+////
+////        | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->
+////            ()
+////
+////        | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->
+////            let stripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.stripedToBlocked
+////            ()
+////
+////        | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->
+////            let warpStripedToBlocked = (block_threads, items_per_thread, warp_time_slicing) |||> Exchange.warpStripedToBlocked
+////            ()
+//        //}
+////let PrivateStorage() = __null()
+////
+////[<Record>]
+////type ThreadFields =
+////    {
+////        mutable temp_storage : deviceptr<int>
+////        mutable linear_tid : int
+////    }
+////
+////    [<ReflectedDefinition>]
+////    member this.Get() = (this.temp_storage, this.linear_tid)
+////    
+////    [<ReflectedDefinition>]
+////    static member Init(temp_storage:deviceptr<int>, linear_tid:int) =
+////        {
+////            temp_storage = temp_storage
+////            linear_tid = linear_tid
+////        }
+////
+////    [<ReflectedDefinition>]
+////    static member Default() =
+////        {
+////            temp_storage = __null()
+////            linear_tid = 0
+////        }
 //
 //
 //

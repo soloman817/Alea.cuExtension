@@ -134,7 +134,7 @@ type CacheStoreModifier =
 [<ReflectedDefinition>]
 let DefaultStore (ptr:deviceptr<int>) (value:int) = ptr.[0] <- value
 
-let inline ThreadStore modifier : Expr<deviceptr<int> -> int -> unit> =
+let ThreadStore modifier : Expr<deviceptr<int> -> int -> unit> =
     let store = 
         modifier |> function
         | STORE_DEFAULT ->      DefaultStore

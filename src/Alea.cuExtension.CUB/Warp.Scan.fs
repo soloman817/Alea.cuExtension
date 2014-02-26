@@ -17,7 +17,7 @@ type private InternalWarpScan =
     | WarpScanSmem of WarpScanSmem.API
 
 module private Internal =
-    module Enum =
+    module Constants =
         let POW_OF_TWO =
             fun logical_warp_threads -> ((logical_warp_threads &&& (logical_warp_threads - 1)) = 0)
 
@@ -48,12 +48,9 @@ module private Internal =
                 type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
                 type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
 
-    type InternalWarpScanKind =
-        | WarpScanShfl
-        | WarpScanSmem
 
     let pickScanKind logical_warps logical_warp_threads =
-        let POW_OF_TWO = logical_warp_threads |> Enum.POW_OF_TWO
+        let POW_OF_TWO = logical_warp_threads |> Constants.POW_OF_TWO
         ((CUB_PTX_VERSION >= 300) && ((logical_warps = 1) || POW_OF_TWO))
 
     let (|WarpScanShfl|_|) templateParams =
@@ -161,6 +158,69 @@ module private Internal =
                                                             <|||    (temp_storage, warp_id, lane_id)
                     }
 
+        module ExclusiveSum =
+            type API =
+                {
+                    Default : Expr<int -> Ref<int> -> unit>
+                    WithAggregate : Expr<int -> Ref<int> -> Ref<int> -> unit>
+                    WithAggregateAndCallbackOp : Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+                }
+
+
+            let private Default logical_warps logical_warp_threads scan_op =
+                fun temp_storage warp_id lane_id ->
+                    let InclusiveSum =  (   InclusiveSum.api
+                                            <|||    (temp_storage, warp_id, lane_id)
+                                            <|||    (logical_warps, logical_warp_threads, scan_op)).Default
+                    <@ fun (input:int) (output:Ref<int>) ->
+                        let inclusive = __local__.Variable()
+                        (input, inclusive) ||> %InclusiveSum
+                        output := !inclusive - input
+                    @>
+               
+
+            let private WithAggregate logical_warps logical_warp_threads scan_op =
+                fun temp_storage warp_id lane_id ->
+                    let InclusiveSum =  (   InclusiveSum.api
+                                            <|||    (temp_storage, warp_id, lane_id)
+                                            <|||    (logical_warps, logical_warp_threads, scan_op)).WithAggregate
+                    <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) ->
+                        let inclusive = __local__.Variable()
+                        (input, inclusive, warp_aggregate) |||> %InclusiveSum
+                        output := !inclusive - input
+                    @>
+
+
+            let private WithAggregateAndCallbackOp logical_warps logical_warp_threads scan_op =
+                fun temp_storage warp_id lane_id ->
+                    let InclusiveSum =  (   InclusiveSum.api
+                                            <|||    (temp_storage, warp_id, lane_id)
+                                            <|||    (logical_warps, logical_warp_threads, scan_op)).WithAggregateAndCallbackOp
+                    <@ fun (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) (warp_prefix_op:Ref<int -> int>)->
+                        let inclusive = __local__.Variable()
+                        %InclusiveSum
+                        <|| (input, inclusive)
+                        <|| (warp_aggregate, warp_prefix_op)
+                      
+                        output := !inclusive - input
+                    @>
+
+            let api logical_warps logical_warp_threads scan_op =
+                fun temp_storage warp_id lane_id ->
+                    {
+                        Default =                       Default
+                                                        <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                        <|||    (temp_storage, warp_id, lane_id)
+
+                        WithAggregate =                 WithAggregate
+                                                        <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                        <|||    (temp_storage, warp_id, lane_id)
+
+                        WithAggregateAndCallbackOp =    WithAggregateAndCallbackOp
+                                                        <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                        <|||    (temp_storage, warp_id, lane_id)
+                    }
+
 
 module InclusiveSum =
     open Internal
@@ -172,22 +232,34 @@ module InclusiveSum =
             WithAggregateAndCallbackOp  : Sig.InclusiveSum.WithAggregateAndCallbackOpExpr
         }
 
-    let private Default (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) -> () @>
+    let private Default logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) -> () @>
 
-    let private WithAggregate (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+    let private WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->    
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-    let private WithAggregateAndCallbackOp (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+    let private WithAggregateAndCallbackOp logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->    
+           <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
 
-    let api scan_op =
-        {
-            Default                     = scan_op |> Default
-            WithAggregate               = scan_op |> WithAggregate
-            WithAggregateAndCallbackOp  = scan_op |> WithAggregateAndCallbackOp
-        }
+    let api logical_warps logical_warp_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                Default                     =   Default
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+                
+                WithAggregate               =   WithAggregate
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
         
 
 
@@ -202,22 +274,34 @@ module ExclusiveSum =
             WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOpExpr
         }
 
-    let private Default (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) -> () @>
+    let private Default logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) -> () @>
 
-    let private WithAggregate (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+    let private WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-    let private WithAggregateAndCallbackOp (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+    let private WithAggregateAndCallbackOp logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
 
-    let api scan_op =
-        {
-            Default                     = scan_op |> Default
-            WithAggregate               = scan_op |> WithAggregate
-            WithAggregateAndCallbackOp  = scan_op |> WithAggregateAndCallbackOp
-        }
+    let api logical_warps logical_warp_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                Default                     =   Default
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+                
+                WithAggregate               =   WithAggregate
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+                                                                                    
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module ExclusiveScan =
@@ -233,36 +317,60 @@ module ExclusiveScan =
             WithAggregateAndCallbackOp_NoID : Sig.ExclusiveScan.Identityless.WithAggregateAndCallbackOpExpr
         }
 
-    let private Default (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (identity:int) -> () @>
+    let private Default logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (identity:int) -> () @>
 
-    let private WithAggregate (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (identity:int) (block_aggregate:Ref<int>) -> () @>
+    let private WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (identity:int) (block_aggregate:Ref<int>) -> () @>
 
-    let private WithAggregateAndCallbackOp (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (identity:int) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+    let private WithAggregateAndCallbackOp logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (identity:int) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
     module private Identityless =
-        let Default (scan_op:IScanOp) =
-            <@ fun (input:int) (output:Ref<int>) -> () @>
+        let Default logical_warps logical_warp_threads (scan_op:IScanOp) =
+            fun temp_storage warp_id lane_id ->
+                <@ fun (input:int) (output:Ref<int>) -> () @>
 
-        let WithAggregate (scan_op:IScanOp) =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+        let WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
+            fun temp_storage warp_id lane_id ->
+                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-        let WithAggregateAndCallbackOp (scan_op:IScanOp) =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+        let WithAggregateAndCallbackOp logical_warps logical_warp_threads (scan_op:IScanOp) =
+            fun temp_storage warp_id lane_id ->
+                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
 
 
-    let api scan_op =
-        {
-            Default                         = scan_op |> Default 
-            Default_NoID                    = scan_op |> Identityless.Default
-            WithAggregate                   = scan_op |> WithAggregate
-            WithAggregate_NoID              = scan_op |> Identityless.WithAggregate
-            WithAggregateAndCallbackOp      = scan_op |> WithAggregateAndCallbackOp
-            WithAggregateAndCallbackOp_NoID = scan_op |> Identityless.WithAggregateAndCallbackOp
-        }
+    let api logical_warps logical_warp_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                Default                     =       Default
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                Default_NoID                =       Identityless.Default
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+                
+                WithAggregate               =       WithAggregate
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregate_NoID          =       Identityless.WithAggregate
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+                                                                                    
+                WithAggregateAndCallbackOp  =       WithAggregateAndCallbackOp
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+
+                WithAggregateAndCallbackOp_NoID  =  Identityless.WithAggregateAndCallbackOp
+                                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                    <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module InclusiveScan =
@@ -276,22 +384,34 @@ module InclusiveScan =
         }
 
 
-    let private Default (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) -> () @>
+    let private Default logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) -> () @>
 
-    let private WithAggregate (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+    let private WithAggregate logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
 
-    let private WithAggregateAndCallbackOp (scan_op:IScanOp) =
-        <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+    let private WithAggregateAndCallbackOp logical_warps logical_warp_threads (scan_op:IScanOp) =
+        fun temp_storage warp_id lane_id ->
+            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
     
-    let api scan_op =
-        {
-            Default                     = scan_op |> Default
-            WithAggregate               = scan_op |> WithAggregate
-            WithAggregateAndCallbackOp  = scan_op |> WithAggregateAndCallbackOp
-        }
+    let api logical_warps logical_warp_threads scan_op =
+        fun temp_storage warp_id lane_id ->
+            {
+                Default                     =   Default
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+                
+                WithAggregate               =   WithAggregate
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+                                                                                    
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
+                                                <|||    (logical_warps, logical_warp_threads, scan_op)
+                                                <|||    (temp_storage, warp_id, lane_id)
+            }
 
 
 module WarpScan =
@@ -306,9 +426,22 @@ module WarpScan =
 
 
     let api logical_warps logical_warp_threads scan_op =
-        {
-            InclusiveSum    = scan_op |> InclusiveSum.api
-            InclusiveScan   = scan_op |> InclusiveScan.api
-            ExclusiveSum    = scan_op |> ExclusiveSum.api
-            ExclusiveScan   = scan_op |> ExclusiveScan.api
-        }
+        fun temp_storage warp_id lane_id ->
+            {
+                InclusiveSum    =   InclusiveSum.api
+                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+                                    
+                                    
+                InclusiveScan   =   InclusiveScan.api
+                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+                                    
+                ExclusiveSum    =   ExclusiveSum.api
+                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+
+                ExclusiveScan   =   ExclusiveScan.api
+                                    <|||    (logical_warps, logical_warp_threads, scan_op)
+                                    <|||    (temp_storage, warp_id, lane_id)
+            }

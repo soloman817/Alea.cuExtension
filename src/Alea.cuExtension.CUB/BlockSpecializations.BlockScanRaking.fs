@@ -125,221 +125,221 @@ let WARP_SYNCHRONOUS =
 //        if (MEMOIZE) then
 //            // Copy data back to smem
 //            for i = 0 to (SEGMENT_LENGTH - 1) do smem_raking_ptr.[i] <- cached_segment.[i]
-type TempStorage =
-    {
-        warp_scan : deviceptr<int>
-        raking_grid : deviceptr<int>
-        block_aggregate : int
-    }
-
-module ExclusiveScan =
-    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
-    //template <typename ScanOp>
-    
-    let private Default raking_threads warp_synchronous =
-        let RAKING_THREADS = raking_threads
-        let WARP_SYNCHRONOUS = warp_synchronous
-        let WarpScan = Alea.cuExtension.CUB.Warp.Scan.ExclusiveScan
-        fun (temp_storage:TempStorage) (linear_tid:int) ->
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) ->
-                
-
-                if (WARP_SYNCHRONOUS) then
-                    // Short-circuit directly to warp scan
-                    this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                        input,
-                        output,
-                        !identity,
-                        scan_op,
-                        block_aggregate)
-                else
-                    // Place thread partial into shared memory raking grid
-                    let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
-                    placement_ptr.[0] <- input
-
-                    __syncthreads()
-
-                    // Reduce parallelism down to just raking threads
-                    if (linear_tid < RAKING_THREADS) then
-                        // Raking upsweep reduction in grid
-                        let raking_partial = this.Upsweep(scan_op)
-
-                        // Exclusive warp synchronous scan
-                        this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                            raking_partial,
-                            raking_partial |> __obj_to_ref,
-                            !identity,
-                            scan_op,
-                            temp_storage.block_aggregate |> __obj_to_ref)
-
-                        // Exclusive raking downsweep scan
-                        this.ExclusiveDownsweep(scan_op, raking_partial)
-            
-                    __syncthreads()
-
-                    // Grab thread prefix from shared memory
-                    output := placement_ptr.[0]
-
-                    // Retrieve block aggregate
-                    block_aggregate := temp_storage.block_aggregate
-            @>
-        
-    
-    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
-    //template <
-    //    typename        ScanOp,
-    //    typename        BlockPrefixCallbackOp>
-    member this.ExclusiveScan(input:int, output:Ref<int>, identity:int, scan_op:IScanOp, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
-        // localize template params & constants
-        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
-        let RAKING_THREADS = this.Constants.RAKING_THREADS
-        // localize thread fields
-        let temp_storage = !(this.ThreadFields.temp_storage)
-        let linear_tid = this.ThreadFields.linear_tid
-
-
-        if (WARP_SYNCHRONOUS) then
-            // Short-circuit directly to warp scan
-            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                input,
-                output,
-                identity,
-                scan_op,
-                block_aggregate,
-                block_prefix_callback_op)        
-        else        
-            // Place thread partial into shared memory raking grid
-            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
-            placement_ptr.[0] <- input
-
-            __syncthreads()
-
-            // Reduce parallelism down to just raking threads
-            if (linear_tid < RAKING_THREADS) then
-                // Raking upsweep reduction in grid
-                let raking_partial = this.Upsweep(scan_op)
-
-                // Exclusive warp synchronous scan
-                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                    raking_partial,
-                    raking_partial |> __obj_to_ref,
-                    identity,
-                    scan_op,
-                    temp_storage.block_aggregate |> __obj_to_ref,
-                    block_prefix_callback_op)
-
-                // Exclusive raking downsweep scan
-                this.ExclusiveDownsweep(scan_op, raking_partial)
-
-            __syncthreads()
-
-            // Grab thread prefix from shared memory
-            output := placement_ptr.[0]
-
-            // Retrieve block aggregate
-            block_aggregate := temp_storage.block_aggregate
-        
-
-    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.  With no identity value, the output computed for <em>thread</em><sub>0</sub> is undefined.
-    //template <typename ScanOp>
-    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:IScanOp, block_aggregate:Ref<int>) =
-        // localize template params & constants
-        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
-        let RAKING_THREADS = this.Constants.RAKING_THREADS
-        // localize thread fields
-        let temp_storage = !(this.ThreadFields.temp_storage)
-        let linear_tid = this.ThreadFields.linear_tid
-
-        if (WARP_SYNCHRONOUS) then
-            // Short-circuit directly to warp scan
-            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                input,
-                output,
-                scan_op,
-                block_aggregate)
-        else
-            // Place thread partial into shared memory raking grid
-            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
-            placement_ptr.[0] <- input
-
-            __syncthreads()
-
-            // Reduce parallelism down to just raking threads
-            if (linear_tid < RAKING_THREADS) then
-                // Raking upsweep reduction in grid
-                let raking_partial = this.Upsweep(scan_op)
-
-                // Exclusive warp synchronous scan
-                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                    raking_partial,
-                    raking_partial |> __obj_to_ref,
-                    scan_op,
-                    temp_storage.block_aggregate |> __obj_to_ref)
-
-                // Exclusive raking downsweep scan
-                this.ExclusiveDownsweep(scan_op, raking_partial, (linear_tid <> 0))
-            
-
-            __syncthreads()
-
-            // Grab thread prefix from shared memory
-            output := placement_ptr.[0]
-
-            // Retrieve block aggregate
-            block_aggregate := temp_storage.block_aggregate
-        
-    
-    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
-    //template <
-    //    typename ScanOp,
-    //    typename BlockPrefixCallbackOp>
-    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:IScanOp, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
-        // localize template params & constants
-        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
-        let RAKING_THREADS = this.Constants.RAKING_THREADS
-        // localize thread fields
-        let temp_storage = !(this.ThreadFields.temp_storage)
-        let linear_tid = this.ThreadFields.linear_tid
-            
-        if (WARP_SYNCHRONOUS) then
-            // Short-circuit directly to warp scan
-            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                input,
-                output,
-                scan_op,
-                block_aggregate,
-                block_prefix_callback_op)
-        else       
-            // Place thread partial into shared memory raking grid
-            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
-            placement_ptr.[0] <- input
-
-            __syncthreads()
-
-            // Reduce parallelism down to just raking threads
-            if (linear_tid < RAKING_THREADS) then
-                // Raking upsweep reduction in grid
-                let raking_partial = this.Upsweep(scan_op)
-
-                // Exclusive warp synchronous scan
-                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
-                    raking_partial,
-                    raking_partial |> __obj_to_ref,
-                    scan_op,
-                    temp_storage.block_aggregate |> __obj_to_ref,
-                    block_prefix_callback_op)
-
-                // Exclusive raking downsweep scan
-                this.ExclusiveDownsweep(scan_op, raking_partial)
-            
-
-            __syncthreads()
-
-            // Grab thread prefix from shared memory
-            output := placement_ptr.[0]
-
-            // Retrieve block aggregate
-            block_aggregate := temp_storage.block_aggregate
+//type TempStorage =
+//    {
+//        warp_scan : deviceptr<int>
+//        raking_grid : deviceptr<int>
+//        block_aggregate : int
+//    }
+//
+//module ExclusiveScan =
+//    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
+//    //template <typename ScanOp>
+//    
+//    let private Default raking_threads warp_synchronous =
+//        let RAKING_THREADS = raking_threads
+//        let WARP_SYNCHRONOUS = warp_synchronous
+//        let WarpScan = Alea.cuExtension.CUB.Warp.Scan.ExclusiveScan
+//        fun (temp_storage:TempStorage) (linear_tid:int) ->
+//            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) ->
+//                
+//
+//                if (WARP_SYNCHRONOUS) then
+//                    // Short-circuit directly to warp scan
+//                    this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                        input,
+//                        output,
+//                        !identity,
+//                        scan_op,
+//                        block_aggregate)
+//                else
+//                    // Place thread partial into shared memory raking grid
+//                    let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
+//                    placement_ptr.[0] <- input
+//
+//                    __syncthreads()
+//
+//                    // Reduce parallelism down to just raking threads
+//                    if (linear_tid < RAKING_THREADS) then
+//                        // Raking upsweep reduction in grid
+//                        let raking_partial = this.Upsweep(scan_op)
+//
+//                        // Exclusive warp synchronous scan
+//                        this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                            raking_partial,
+//                            raking_partial |> __obj_to_ref,
+//                            !identity,
+//                            scan_op,
+//                            temp_storage.block_aggregate |> __obj_to_ref)
+//
+//                        // Exclusive raking downsweep scan
+//                        this.ExclusiveDownsweep(scan_op, raking_partial)
+//            
+//                    __syncthreads()
+//
+//                    // Grab thread prefix from shared memory
+//                    output := placement_ptr.[0]
+//
+//                    // Retrieve block aggregate
+//                    block_aggregate := temp_storage.block_aggregate
+//            @>
+//        
+//    
+//    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
+//    //template <
+//    //    typename        ScanOp,
+//    //    typename        BlockPrefixCallbackOp>
+//    member this.ExclusiveScan(input:int, output:Ref<int>, identity:int, scan_op:IScanOp, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
+//        // localize template params & constants
+//        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+//        let RAKING_THREADS = this.Constants.RAKING_THREADS
+//        // localize thread fields
+//        let temp_storage = !(this.ThreadFields.temp_storage)
+//        let linear_tid = this.ThreadFields.linear_tid
+//
+//
+//        if (WARP_SYNCHRONOUS) then
+//            // Short-circuit directly to warp scan
+//            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                input,
+//                output,
+//                identity,
+//                scan_op,
+//                block_aggregate,
+//                block_prefix_callback_op)        
+//        else        
+//            // Place thread partial into shared memory raking grid
+//            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
+//            placement_ptr.[0] <- input
+//
+//            __syncthreads()
+//
+//            // Reduce parallelism down to just raking threads
+//            if (linear_tid < RAKING_THREADS) then
+//                // Raking upsweep reduction in grid
+//                let raking_partial = this.Upsweep(scan_op)
+//
+//                // Exclusive warp synchronous scan
+//                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                    raking_partial,
+//                    raking_partial |> __obj_to_ref,
+//                    identity,
+//                    scan_op,
+//                    temp_storage.block_aggregate |> __obj_to_ref,
+//                    block_prefix_callback_op)
+//
+//                // Exclusive raking downsweep scan
+//                this.ExclusiveDownsweep(scan_op, raking_partial)
+//
+//            __syncthreads()
+//
+//            // Grab thread prefix from shared memory
+//            output := placement_ptr.[0]
+//
+//            // Retrieve block aggregate
+//            block_aggregate := temp_storage.block_aggregate
+//        
+//
+//    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  Also provides every thread with the block-wide \p block_aggregate of all inputs.  With no identity value, the output computed for <em>thread</em><sub>0</sub> is undefined.
+//    //template <typename ScanOp>
+//    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:IScanOp, block_aggregate:Ref<int>) =
+//        // localize template params & constants
+//        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+//        let RAKING_THREADS = this.Constants.RAKING_THREADS
+//        // localize thread fields
+//        let temp_storage = !(this.ThreadFields.temp_storage)
+//        let linear_tid = this.ThreadFields.linear_tid
+//
+//        if (WARP_SYNCHRONOUS) then
+//            // Short-circuit directly to warp scan
+//            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                input,
+//                output,
+//                scan_op,
+//                block_aggregate)
+//        else
+//            // Place thread partial into shared memory raking grid
+//            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
+//            placement_ptr.[0] <- input
+//
+//            __syncthreads()
+//
+//            // Reduce parallelism down to just raking threads
+//            if (linear_tid < RAKING_THREADS) then
+//                // Raking upsweep reduction in grid
+//                let raking_partial = this.Upsweep(scan_op)
+//
+//                // Exclusive warp synchronous scan
+//                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                    raking_partial,
+//                    raking_partial |> __obj_to_ref,
+//                    scan_op,
+//                    temp_storage.block_aggregate |> __obj_to_ref)
+//
+//                // Exclusive raking downsweep scan
+//                this.ExclusiveDownsweep(scan_op, raking_partial, (linear_tid <> 0))
+//            
+//
+//            __syncthreads()
+//
+//            // Grab thread prefix from shared memory
+//            output := placement_ptr.[0]
+//
+//            // Retrieve block aggregate
+//            block_aggregate := temp_storage.block_aggregate
+//        
+//    
+//    /// Computes an exclusive threadblock-wide prefix scan using the specified binary \p scan_op functor.  Each thread contributes one input element.  the call-back functor \p block_prefix_callback_op is invoked by the first warp in the block, and the value returned by <em>lane</em><sub>0</sub> in that warp is used as the "seed" value that logically prefixes the threadblock's scan inputs.  Also provides every thread with the block-wide \p block_aggregate of all inputs.
+//    //template <
+//    //    typename ScanOp,
+//    //    typename BlockPrefixCallbackOp>
+//    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:IScanOp, block_aggregate:Ref<int>, block_prefix_callback_op:Ref<int -> int>) =
+//        // localize template params & constants
+//        let WARP_SYNCHRONOUS = this.Constants.WARP_SYNCHRONOUS
+//        let RAKING_THREADS = this.Constants.RAKING_THREADS
+//        // localize thread fields
+//        let temp_storage = !(this.ThreadFields.temp_storage)
+//        let linear_tid = this.ThreadFields.linear_tid
+//            
+//        if (WARP_SYNCHRONOUS) then
+//            // Short-circuit directly to warp scan
+//            this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                input,
+//                output,
+//                scan_op,
+//                block_aggregate,
+//                block_prefix_callback_op)
+//        else       
+//            // Place thread partial into shared memory raking grid
+//            let placement_ptr = this.BlockRakingLayout.PlacementPtr <||| (temp_storage.raking_grid, linear_tid, None)
+//            placement_ptr.[0] <- input
+//
+//            __syncthreads()
+//
+//            // Reduce parallelism down to just raking threads
+//            if (linear_tid < RAKING_THREADS) then
+//                // Raking upsweep reduction in grid
+//                let raking_partial = this.Upsweep(scan_op)
+//
+//                // Exclusive warp synchronous scan
+//                this.WarpScan.Initialize(temp_storage.warp_scan, 0, linear_tid).ExclusiveScan(
+//                    raking_partial,
+//                    raking_partial |> __obj_to_ref,
+//                    scan_op,
+//                    temp_storage.block_aggregate |> __obj_to_ref,
+//                    block_prefix_callback_op)
+//
+//                // Exclusive raking downsweep scan
+//                this.ExclusiveDownsweep(scan_op, raking_partial)
+//            
+//
+//            __syncthreads()
+//
+//            // Grab thread prefix from shared memory
+//            output := placement_ptr.[0]
+//
+//            // Retrieve block aggregate
+//            block_aggregate := temp_storage.block_aggregate
 
 
 //type TemplateParameters =
