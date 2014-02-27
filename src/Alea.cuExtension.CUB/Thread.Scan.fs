@@ -7,7 +7,94 @@ open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 
+module private Internal =
+    module Sig =
+        module ThreadScanExclusive =
+            type DefaultExpr                = Expr<int -> int -> deviceptr<int> -> deviceptr<int> -> int>
+            type WithApplyPrefixDefaultExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int>
+            type WithApplyPrefixExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> bool -> int>
+            
+       
+        module ThreadScanInclusive =
+            type WithPrefixExpr             = Expr<int -> deviceptr<int> -> deviceptr<int> -> int>
+            type DefaultExpr                = Expr<deviceptr<int> -> deviceptr<int> -> int>
+            type WithApplyPrefixDefaultExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int>
+            type WithApplyPrefixExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> bool -> int>
 
+module ThreadScanExclusive =
+    open Internal
+
+    type API =
+        {
+            Default                 : Sig.ThreadScanExclusive.DefaultExpr
+            WithApplyPrefixDefault  : Sig.ThreadScanExclusive.WithApplyPrefixDefaultExpr
+            WithApplyPrefix         : Sig.ThreadScanExclusive.WithApplyPrefixExpr
+        }
+
+    let private Default length (scan_op:IScanOp) =
+        let scan_op = scan_op.op
+        <@ fun (inclusive:int) (exclusive:int) (input:deviceptr<int>) (output:deviceptr<int>) ->
+            let mutable addend = input.[0]
+            let mutable inclusive = inclusive
+            output.[0] <- exclusive
+            let mutable exclusive = inclusive
+
+            for i = 1 to (length - 1) do
+                addend <- input.[i]
+                inclusive <- (exclusive, addend) ||> %scan_op
+                output.[i] <- exclusive
+                exclusive <- inclusive
+
+            inclusive
+        @>
+
+
+    let private WithApplyPrefixDefault length (scan_op:IScanOp) =
+        let apply_prefix = true
+        let Default = (length, scan_op) ||> Default
+        let scan_op = scan_op.op
+        <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) ->
+            let mutable inclusive = input.[0]
+            if apply_prefix then inclusive <- (prefix, inclusive) ||> %scan_op
+
+            output.[0] <- prefix
+            let exclusive = inclusive
+
+            %Default
+            <|| (inclusive, exclusive)
+            <|| (input, output)
+        @>
+
+    let private WithApplyPrefix length (scan_op:IScanOp) =
+        let Default = (length, scan_op) ||> Default
+        let scan_op = scan_op.op
+        <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) (apply_prefix:bool) ->
+            let mutable inclusive = input.[0]
+            if apply_prefix then inclusive <- (prefix, inclusive) ||> %scan_op
+
+            output.[0] <- prefix
+            let exclusive = inclusive
+
+            %Default
+            <|| (inclusive, exclusive)
+            <|| (input, output)
+        @>
+
+
+    let api length scan_op =
+        {
+            Default                 =   Default
+                                        <|| (length, scan_op)
+
+            WithApplyPrefixDefault  =   WithApplyPrefixDefault
+                                        <|| (length, scan_op)
+
+            WithApplyPrefix         =   WithApplyPrefix
+                                        <|| (length, scan_op)
+        }
+
+
+module ThreadScanInclusive = ()
 //type IScanOp =
 //    abstract hplus : ('T -> 'T ->'T)
 //    abstract dplus : Expr<'T -> 'T -> 'T>

@@ -16,6 +16,16 @@ type private InternalWarpScan =
     | WarpScanShfl of WarpScanShfl.API
     | WarpScanSmem of WarpScanSmem.API
 
+
+module TempStorage =
+    type API =
+        {
+            private_storage : deviceptr<int>
+        }
+
+    let uninitialized() = { private_storage = __null() }
+
+
 module private Internal =
     module Constants =
         let POW_OF_TWO =
@@ -73,6 +83,8 @@ module private Internal =
         else
             None
 
+
+    type TempStorage = TempStorage.API
     
     module WarpScan =
         module InclusiveSum =

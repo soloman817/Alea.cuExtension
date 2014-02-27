@@ -15,74 +15,109 @@ type BlockStoreAlgorithm =
     | BLOCK_STORE_TRANSPOSE
     | BLOCK_STORE_WARP_TRANSPOSE
 
-type DefaultFunction        = Template<Function<int -> deviceptr<int> -> deviceptr<int> -> unit>>
-type GuardedFunction        = Template<Function<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>>
-
-type DefaultFunctionExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-type GuardedFunctionExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-
-
-type FunctionExprAPI =
+type TemplateParameters =
     {
-        Default         : DefaultFunctionExpr
-        Guarded         : GuardedFunctionExpr
+        BLOCK_THREADS       : int
+        ITEMS_PER_THREAD    : int
+        ALGORITHM           : BlockStoreAlgorithm
+        WARP_TIME_SLICING   : bool
     }
 
+    static member Default(block_threads, items_per_thread) =
+        {
+            BLOCK_THREADS       = block_threads
+            ITEMS_PER_THREAD    = items_per_thread
+            ALGORITHM           = BLOCK_STORE_DIRECT
+            WARP_TIME_SLICING   = false
+        }
 
-type InternalStoreAPI =
-    {
-        StoreDirectBlocked           : FunctionExprAPI
-        StoreDirectBlockedVectorized : FunctionExprAPI
-        StoreDirectStriped           : FunctionExprAPI
-        StoreDirectWarpStriped       : FunctionExprAPI
-    }
+module private Internal =
+    module Sig =
+        module StoreDirectBlocked =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
 
+        module StoreDirectBlockedVectorized =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
 
-type BlockStoreAPI =
-    abstract Default : DefaultFunction
-    abstract Guarded : GuardedFunction
-
+        module StoreDirectStriped =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            
+        module StoreDirectWarpStriped =
+            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
+            
+        module StoreInternal =
+            type DefaultExpr        = Expr<deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> unit>
+            
 
 module StoreDirectBlocked =
+    open Internal
 
-    let private Default items_per_thread =
+    type API =
+        {
+            Default : Sig.StoreDirectBlocked.DefaultExpr
+            Guarded : Sig.StoreDirectBlocked.GuardedExpr
+        }
+
+
+    let private Default _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
             for ITEM = 0 to items_per_thread - 1 do block_itr.[(linear_tid * items_per_thread) + ITEM] <- items.[ITEM]
         @>
 
-    let private Guarded items_per_thread =
+    let private Guarded _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
             for ITEM = 0 to items_per_thread - 1 do
                 if ITEM + (linear_tid * items_per_thread) < valid_items then
                     block_itr.[(linear_tid * items_per_thread) + ITEM] <- items.[ITEM]
         @>
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        { Default = _Default; Guarded = _Guarded }
+    let api block_threads items_per_thread  =
+        {
+            Default =           Default
+                                <|| (block_threads, items_per_thread)
+
+            Guarded =           Guarded
+                                <|| (block_threads, items_per_thread)
+        }
 
 
 module StoreDirectBlockedVectorized =
-    
-    let private Default items_per_thread =
+    open Internal
+
+    type API =
+        {
+            Default : Sig.StoreDirectBlockedVectorized.DefaultExpr
+        }
+            
+    let private Default _ items_per_thread =
         let MAX_VEC_SIZE = (4, items_per_thread) ||> CUB_MIN
         let VEC_SIZE = if ((((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((items_per_thread % MAX_VEC_SIZE) = 0)) then MAX_VEC_SIZE else 1
         let VECTORS_PER_THREAD = items_per_thread / VEC_SIZE
         
         <@ fun (linear_tid:int) (block_ptr:deviceptr<int>) (items:deviceptr<int>) -> () @>
 
-    let private Guarded items_per_thread =
-        <@ fun (linear_tid:int) (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) -> () @>
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        { Default = _Default; Guarded = _Guarded }
+    let api block_threads items_per_thread  =
+        {
+            Default =           Default
+                                <|| (block_threads, items_per_thread)
+        }
 
 
 module StoreDirectStriped =
-    
+    open Internal
+
+    type API =
+        {
+            Default : Sig.StoreDirectStriped.DefaultExpr
+            Guarded : Sig.StoreDirectStriped.GuardedExpr
+        }
+            
     let private Default block_threads items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
             for ITEM = 0 to items_per_thread - 1 do block_itr.[(ITEM * block_threads) + linear_tid] <- items.[ITEM]
@@ -95,14 +130,26 @@ module StoreDirectStriped =
                     block_itr.[(ITEM * block_threads) + linear_tid] <- items.[ITEM]
         @>
 
-    let api block_threads items_per_thread  =  
-        let _Default = (block_threads, items_per_thread) ||> Default
-        let _Guarded = (block_threads, items_per_thread) ||> Guarded
-        { Default = _Default; Guarded = _Guarded }
+    let api block_threads items_per_thread  =
+        {
+            Default =           Default
+                                <|| (block_threads, items_per_thread)
+
+            Guarded =           Guarded
+                                <|| (block_threads, items_per_thread)
+        }
+
 
 module StoreDirectWarpStriped =
-    
-    let private Default items_per_thread =
+    open Internal
+
+    type API =
+        {
+            Default : Sig.StoreDirectWarpStriped.DefaultExpr
+            Guarded : Sig.StoreDirectWarpStriped.GuardedExpr
+        }
+            
+    let private Default _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
             let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
             let wid = linear_tid >>> CUB_PTX_WARP_THREADS
@@ -112,7 +159,7 @@ module StoreDirectWarpStriped =
         @>    
             
     
-    let private Guarded items_per_thread =
+    let private Guarded _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
             let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
             let wid = linear_tid >>> CUB_PTX_WARP_THREADS
@@ -123,36 +170,272 @@ module StoreDirectWarpStriped =
                     block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)] <- items.[ITEM]
         @>
 
-    let api _ items_per_thread  =  
-        let _Default = items_per_thread |> Default
-        let _Guarded = items_per_thread |> Guarded
-        { Default = _Default; Guarded = _Guarded }
+    let api block_threads items_per_thread  =
+        {
+            Default =           Default
+                                <|| (block_threads, items_per_thread)
+
+            Guarded =           Guarded
+                                <|| (block_threads, items_per_thread)
+        }
+
+module private StoreInternal =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.StoreInternal.DefaultExpr
+            Guarded         : Sig.StoreInternal.GuardedExpr
+        }
+
+    module BlockStoreDirect =
+        let Default block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let StoreDirectBlocked =
+                    (   StoreDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %StoreDirectBlocked
+                    <|||    (linear_tid, block_ptr, items)
+                @>
+
+        let Guarded block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let StoreDirectBlocked = 
+                    (   StoreDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %StoreDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+                @>
 
 
-module InternalStore =
+    module BlockStoreVectorized =
+        let Default block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let StoreDirectBlockedVectorized =  
+                    (   StoreDirectBlockedVectorized.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %StoreDirectBlockedVectorized
+                    <|||    (linear_tid, block_ptr, items)
+                @>
 
-    let api (block_threads:int) (items_per_thread:int) = 
-            {   StoreDirectBlocked           = (block_threads, items_per_thread) ||> StoreDirectBlocked.api;
-                StoreDirectBlockedVectorized = (block_threads, items_per_thread) ||> StoreDirectBlockedVectorized.api
-                StoreDirectStriped           = (block_threads, items_per_thread) ||> StoreDirectStriped.api
-                StoreDirectWarpStriped       = (block_threads, items_per_thread) ||> StoreDirectWarpStriped.api }
+        let Guarded block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let StoreDirectBlocked =
+                    (   StoreDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %StoreDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+                @>
 
 
-    let store (block_threads:int) (items_per_thread:int) (algorithm:BlockStoreAlgorithm) =
-        let api = (block_threads, items_per_thread) ||> api
-        algorithm |> function
-        | BLOCK_STORE_DIRECT ->         api.StoreDirectBlocked
-        | BLOCK_STORE_VECTORIZE ->      api.StoreDirectBlockedVectorized
-        | BLOCK_STORE_TRANSPOSE ->      api.StoreDirectStriped
-        | BLOCK_STORE_WARP_TRANSPOSE -> api.StoreDirectWarpStriped
+
+    module BlockStoreTranspose =
+        let private BlockedToStriped block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                let bts =    
+                    (   BlockExchange.api
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                        <|||    (0, 0, 0)
+                    ).BlockedToStriped
+                if warp_time_slicing then bts.WithTimeslicing else bts.Default
+        
+        
+        let Default block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let BlockedToStriped =  BlockedToStriped
+                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                        <||     (temp_storage, linear_tid)
+                
+                let StoreDirectStriped =  
+                    (   StoreDirectStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %StoreDirectStriped
+                    <|||    (linear_tid, block_ptr, items)
+                    
+                    %BlockedToStriped
+                    <|      (items)
+                @>
+
+        let Guarded block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let BlockedToStriped =  BlockedToStriped
+                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                        <||     (temp_storage, linear_tid)
+                
+                let StoreDirectStriped =  
+                    (   StoreDirectStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %StoreDirectStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+
+                    %BlockedToStriped
+                    <|      (items)
+                @>
 
 
-let inline blockStore (block_threads:int) (items_per_thread:int) (algorithm:BlockStoreAlgorithm) (warp_time_slicing:bool) =
-    let storeInternal = (block_threads, items_per_thread, algorithm) |||> InternalStore.store
-    { new BlockStoreAPI with
-        member this.Default =           cuda { return! storeInternal.Default         |> Compiler.DefineFunction}
-        member this.Guarded =           cuda { return! storeInternal.Guarded         |> Compiler.DefineFunction}
-    }
+    module BlockStoreWarpTranspose =
+        let private WARP_THREADS block_threads =
+            ((block_threads % CUB_PTX_WARP_THREADS) = 0) |> function
+            | false -> failwith "BLOCK_THREADS must be a multiple of WARP_THREADS"
+            | true -> CUB_PTX_WARP_THREADS
+
+        let private BlockedToWarpStriped block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                let wbts =    
+                    (   BlockExchange.api
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                        <|||    (0, 0, 0)
+                    ).BlockedToWarpStriped
+                if warp_time_slicing then wbts.WithTimeslicing else wbts.Default
+
+        let Default block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let BlockedToWarpStriped =  BlockedToWarpStriped
+                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                            <||     (temp_storage, linear_tid)
+                
+                let StoreDirectWarpStriped =  
+                    (   StoreDirectWarpStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %StoreDirectWarpStriped
+                    <|||    (linear_tid, block_ptr, items)
+                    
+                    %BlockedToWarpStriped
+                    <|      (items)
+                @>
+
+        let Guarded block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let BlockedToWarpStriped =  BlockedToWarpStriped
+                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                            <||     (temp_storage, linear_tid)
+                
+                let StoreDirectWarpStriped =  
+                    (   StoreDirectWarpStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %StoreDirectWarpStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+
+                    %BlockedToWarpStriped
+                    <|      (items)
+                @>
+
+module BlockStore =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.StoreInternal.DefaultExpr
+            Guarded         : Sig.StoreInternal.GuardedExpr
+        }
+
+    let api block_threads items_per_thread algorithm (warp_time_slicing:bool option) =
+        let warp_time_slicing = if warp_time_slicing.IsNone then false else warp_time_slicing.Value
+        fun temp_storage linear_tid ->
+            let _Default, _Guarded =
+                algorithm |> function
+                | BLOCK_STORE_DIRECT -> 
+                    (   
+                        StoreInternal.BlockStoreDirect.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),
+                        StoreInternal.BlockStoreDirect.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_STORE_VECTORIZE ->
+                    (   
+                        StoreInternal.BlockStoreVectorized.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        StoreInternal.BlockStoreVectorized.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_STORE_TRANSPOSE ->
+                    (   
+                        StoreInternal.BlockStoreTranspose.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        StoreInternal.BlockStoreTranspose.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_STORE_WARP_TRANSPOSE ->
+                    (   
+                        StoreInternal.BlockStoreWarpTranspose.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                    
+                        StoreInternal.BlockStoreWarpTranspose.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)                    
+                    )
+
+            {Default = _Default; Guarded = _Guarded}
+           
+
+
+//module InternalStore =
+//
+//    let api (block_threads:int) (items_per_thread:int) = 
+//            {   StoreDirectBlocked           = (block_threads, items_per_thread) ||> StoreDirectBlocked.api;
+//                StoreDirectBlockedVectorized = (block_threads, items_per_thread) ||> StoreDirectBlockedVectorized.api
+//                StoreDirectStriped           = (block_threads, items_per_thread) ||> StoreDirectStriped.api
+//                StoreDirectWarpStriped       = (block_threads, items_per_thread) ||> StoreDirectWarpStriped.api }
+//
+//
+//    let store (block_threads:int) (items_per_thread:int) (algorithm:BlockStoreAlgorithm) =
+//        let api = (block_threads, items_per_thread) ||> api
+//        algorithm |> function
+//        | BLOCK_STORE_DIRECT ->         api.StoreDirectBlocked
+//        | BLOCK_STORE_VECTORIZE ->      api.StoreDirectBlockedVectorized
+//        | BLOCK_STORE_TRANSPOSE ->      api.StoreDirectStriped
+//        | BLOCK_STORE_WARP_TRANSPOSE -> api.StoreDirectWarpStriped
+//
+//
+//let inline blockStore (block_threads:int) (items_per_thread:int) (algorithm:BlockStoreAlgorithm) (warp_time_slicing:bool) =
+//    let storeInternal = (block_threads, items_per_thread, algorithm) |||> InternalStore.store
+//    { new BlockStoreAPI with
+//        member this.Default =           cuda { return! storeInternal.Default         |> Compiler.DefineFunction}
+//        member this.Guarded =           cuda { return! storeInternal.Guarded         |> Compiler.DefineFunction}
+//    }
 //let storeDirectBlocked (block_threads:int) (items_per_thread:int) =
 //    fun (valid_items:int option) ->
 //        valid_items |> function

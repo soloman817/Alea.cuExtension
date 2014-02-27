@@ -19,6 +19,25 @@ type BlockLoadAlgorithm =
     | BLOCK_LOAD_WARP_TRANSPOSE
 
 
+type TemplateParameters =
+    {
+        BLOCK_THREADS       : int
+        ITEMS_PER_THREAD    : int
+        ALGORITHM           : BlockLoadAlgorithm
+        WARP_TIME_SLICING   : bool
+    }
+
+    static member Default(block_threads, items_per_thread) =
+        {
+            BLOCK_THREADS       = block_threads
+            ITEMS_PER_THREAD    = items_per_thread
+            ALGORITHM           = BLOCK_LOAD_DIRECT
+            WARP_TIME_SLICING   = false
+        }
+
+
+
+
 module private Internal =
     module Sig =
         module LoadDirectBlocked =
@@ -40,9 +59,9 @@ module private Internal =
             type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
         module LoadInternal =
-            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+            type DefaultExpr        = Expr<deviceptr<int> -> deviceptr<int> -> unit>
+            type GuardedExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> unit>
+            type GuardedWithOOBExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
 
 
 module LoadDirectBlocked =
@@ -55,18 +74,18 @@ module LoadDirectBlocked =
             GuardedWithOOB  : Sig.LoadDirectBlocked.GuardedWithOOBExpr
         }
     
-    let private Default items_per_thread = 
+    let private Default _ items_per_thread = 
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
             for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(linear_tid * items_per_thread) + ITEM]
         @>
 
-    let private Guarded items_per_thread =
+    let private Guarded _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
             let bounds = valid_items - (linear_tid * items_per_thread)
             for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(linear_tid * items_per_thread) + ITEM]
         @>
         
-    let private GuardedWithOOB items_per_thread =
+    let private GuardedWithOOB _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
             for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- oob_default
             let bounds = valid_items - (linear_tid * items_per_thread)
@@ -74,16 +93,16 @@ module LoadDirectBlocked =
         @>
 
 
-    let api _ items_per_thread  =
+    let api block_threads items_per_thread  =
         {
             Default =           Default
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
 
             Guarded =           Guarded
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
 
             GuardedWithOOB =    GuardedWithOOB
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
         }
 
 
@@ -180,7 +199,7 @@ module LoadDirectWarpStriped =
         }
 
 
-    let private Default items_per_thread =
+    let private Default _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
             let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
             let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
@@ -189,7 +208,7 @@ module LoadDirectWarpStriped =
             for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
         @>
 
-    let private Guarded items_per_thread =
+    let private Guarded _ items_per_thread =
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
             let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
             let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
@@ -200,7 +219,7 @@ module LoadDirectWarpStriped =
                 if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
         @>
         
-    let private GuardedWithOOB items_per_thread =        
+    let private GuardedWithOOB _ items_per_thread =        
         <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
             for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- oob_default
             let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
@@ -213,57 +232,513 @@ module LoadDirectWarpStriped =
         @>
 
     
-    let api _ items_per_thread =
+    let api block_threads items_per_thread =
         {
             Default =           Default
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
 
             Guarded =           Guarded
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
 
             GuardedWithOOB =    GuardedWithOOB
-                                <| items_per_thread
+                                <|| (block_threads, items_per_thread)
         }
 
 
-
-module LoadInternal =
+module private LoadInternal =
     open Internal
 
+    type API =
+        {
+            Default         : Sig.LoadInternal.DefaultExpr
+            Guarded         : Sig.LoadInternal.GuardedExpr
+            GuardedWithOOB  : Sig.LoadInternal.GuardedWithOOBExpr
+        }
+
     module BlockLoadDirect =
-        type API =
-            {
-                LoadDirectBlocked : LoadDirectBlocked.API
-            }
+        let Default block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlocked =
+                    (   LoadDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %LoadDirectBlocked
+                    <|||    (linear_tid, block_ptr, items)
+                @>
 
-        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+        let Guarded block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlocked = 
+                    (   LoadDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %LoadDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+                @>
 
-    module BlockLoadVectorize =
-        type API =
-            {
-                LoadDirectBlocked : LoadDirectBlocked.API
-            }
+        let GuardedWithOOB block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlocked =
+                    (   LoadDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).GuardedWithOOB
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
+                    %LoadDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|| (valid_items, oob_default)
+                @>
 
-        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+
+    module BlockLoadVectorized =
+        let Default block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlockedVectorized =  
+                    (   LoadDirectBlockedVectorized.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %LoadDirectBlockedVectorized
+                    <|||    (linear_tid, block_ptr, items)
+                @>
+
+        let Guarded block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlocked =
+                    (   LoadDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %LoadDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+                @>
+
+        let GuardedWithOOB block_threads items_per_thread _ =
+            fun _ linear_tid ->
+                let LoadDirectBlocked =
+                    (   LoadDirectBlocked.api
+                        <|| (block_threads, items_per_thread)
+                    ).GuardedWithOOB
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
+                    %LoadDirectBlocked
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|| (valid_items, oob_default)
+                @>
+
 
     module BlockLoadTranspose =
-        type API =
-            {
-                LoadDirectStriped   : LoadDirectStriped.API
-                BlockExchange       : BlockExchange.API
-            }
+        let private StripedToBlocked block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                let stb =    
+                    (   BlockExchange.api
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                        <|||    (0, 0, 0)
+                    ).StripedToBlocked
+                if warp_time_slicing then stb.WithTimeslicing else stb.Default
+        
+        
+        let Default block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let StripedToBlocked =  StripedToBlocked
+                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                        <||     (temp_storage, linear_tid)
+                
+                let LoadDirectStriped =  
+                    (   LoadDirectStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
 
-        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %LoadDirectStriped
+                    <|||    (linear_tid, block_ptr, items)
+                    
+                    %StripedToBlocked
+                    <|      (items)
+                @>
+
+        let Guarded block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let StripedToBlocked =  StripedToBlocked
+                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                        <||     (temp_storage, linear_tid)
+                
+                let LoadDirectStriped =  
+                    (   LoadDirectStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %LoadDirectStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+
+                    %StripedToBlocked
+                    <|      (items)
+                @>
+
+        let GuardedWithOOB block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let StripedToBlocked =  StripedToBlocked
+                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                        <||     (temp_storage, linear_tid)
+                
+                let LoadDirectStriped =  
+                    (   LoadDirectStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).GuardedWithOOB
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
+                    %LoadDirectStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|| (valid_items, oob_default)
+                    %StripedToBlocked
+                    <|      (items)
+                @>
+
 
     module BlockLoadWarpTranspose =
-        type API =
-            {
-                LoadDirectWarpStriped   : LoadDirectWarpStriped.API
-                BlockExchange           : BlockExchange.API                
-            }
+        let private WARP_THREADS block_threads =
+            ((block_threads % CUB_PTX_WARP_THREADS) = 0) |> function
+            | false -> failwith "BLOCK_THREADS must be a multiple of WARP_THREADS"
+            | true -> CUB_PTX_WARP_THREADS
 
-        let api block_threads items_per_thread algorithm warp_time_slicing = ()
+        let private WarpStripedToBlocked block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                let wstb =    
+                    (   BlockExchange.api
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                        <|||    (0, 0, 0)
+                    ).WarpStripedToBlocked
+                if warp_time_slicing then wstb.WithTimeslicing else wstb.Default
 
+        let Default block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let WarpStripedToBlocked =  WarpStripedToBlocked
+                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                            <||     (temp_storage, linear_tid)
+                
+                let LoadDirectWarpStriped =  
+                    (   LoadDirectWarpStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Default
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
+                    %LoadDirectWarpStriped
+                    <|||    (linear_tid, block_ptr, items)
+                    
+                    %WarpStripedToBlocked
+                    <|      (items)
+                @>
+
+        let Guarded block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let WarpStripedToBlocked =  WarpStripedToBlocked
+                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                            <||     (temp_storage, linear_tid)
+                
+                let LoadDirectWarpStriped =  
+                    (   LoadDirectWarpStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).Guarded
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
+                    %LoadDirectWarpStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|  (valid_items)
+
+                    %WarpStripedToBlocked
+                    <|      (items)
+                @>
+
+        let GuardedWithOOB block_threads items_per_thread warp_time_slicing =
+            fun temp_storage linear_tid ->
+                
+                let WarpStripedToBlocked =  WarpStripedToBlocked
+                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+                                            <||     (temp_storage, linear_tid)
+                
+                let LoadDirectWarpStriped =  
+                    (   LoadDirectWarpStriped.api
+                        <|| (block_threads, items_per_thread)
+                    ).GuardedWithOOB
+
+                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
+                    %LoadDirectWarpStriped
+                    <|  (linear_tid)
+                    <|| (block_ptr, items)
+                    <|| (valid_items, oob_default)
+                    %WarpStripedToBlocked
+                    <|      (items)
+                @>        
+
+
+    //let api block_threads items_per_thread algorithm warp_time_slicing
+
+
+module BlockLoad =
+    open Internal
+
+    type API =
+        {
+            Default         : Sig.LoadInternal.DefaultExpr
+            Guarded         : Sig.LoadInternal.GuardedExpr
+            GuardedWithOOB  : Sig.LoadInternal.GuardedWithOOBExpr
+        }
+
+    let api block_threads items_per_thread algorithm (warp_time_slicing:bool option) =
+        let warp_time_slicing = if warp_time_slicing.IsNone then false else warp_time_slicing.Value
+        fun temp_storage linear_tid ->
+            let _Default, _Guarded, _GuardedWithOOB =
+                algorithm |> function
+                | BLOCK_LOAD_DIRECT -> 
+                    (   
+                        LoadInternal.BlockLoadDirect.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),
+                        LoadInternal.BlockLoadDirect.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),
+                        LoadInternal.BlockLoadDirect.GuardedWithOOB
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_LOAD_VECTORIZE ->
+                    (   
+                        LoadInternal.BlockLoadVectorized.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        LoadInternal.BlockLoadVectorized.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        LoadInternal.BlockLoadVectorized.GuardedWithOOB
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_LOAD_TRANSPOSE ->
+                    (   
+                        LoadInternal.BlockLoadTranspose.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        LoadInternal.BlockLoadTranspose.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                        
+                        LoadInternal.BlockLoadTranspose.GuardedWithOOB
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)
+                    )
+
+                | BLOCK_LOAD_WARP_TRANSPOSE ->
+                    (   
+                        LoadInternal.BlockLoadWarpTranspose.Default
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                    
+                        LoadInternal.BlockLoadWarpTranspose.Guarded
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid),                    
+                        LoadInternal.BlockLoadWarpTranspose.GuardedWithOOB
+                        <|||    (block_threads, items_per_thread, warp_time_slicing)
+                        <||     (temp_storage, linear_tid)                    
+                    )
+
+            {Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB}
+                
+        
+//    let api block_threads items_per_thread warp_time_slicing =
+//        fun temp_storage linear_tid warp_lane warp_id warp_offset ->
+//            {
+//                BlockLoadDirect         =   BlockLoadDirect.api
+//                                            <||| (block_threads, items_per_thread, warp_time_slicing)
+//
+//                BlockLoadVectorized     =   BlockLoadVectorized.api
+//                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+//
+//                BlockLoadTranspose      =   BlockLoadTranspose.api
+//                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                                            <||     (temp_storage, linear_tid)
+//                                            <|||    (warp_lane, warp_id, warp_offset)
+//
+//                BlockLoadWarpTranspose  =   BlockLoadWarpTranspose.api
+//                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                                            <||     (temp_storage, linear_tid)
+//                                            <|||    (warp_lane, warp_id, warp_offset)
+//            }                    
+
+//
+//module BlockLoad =
+//    open Internal
+//
+//    type API =
+//        {
+//            BlockLoadDirect         : LoadInternal.BlockLoadDirect.API
+//            BlockLoadVectorized     : LoadInternal.BlockLoadVectorized.API
+//            BlockLoadTranspose      : LoadInternal.BlockLoadTranspose.API
+//            BlockLoadWarpTranspose  : LoadInternal.BlockLoadWarpTranspose.API
+//        }
+//
+//    let private (|BlockLoadDirect|_|) threadFields templateParams =
+//        let block_threads, items_per_thread, algorithm, warp_time_slicing = templateParams
+//        let temp_storage, linear_tid, warp_lane, warp_id, warp_offset = threadFields
+//        if algorithm = BlockLoadDirect then
+//            (   LoadInternal.api
+//                <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                <||     (temp_storage, linear_tid)
+//                <|||    (warp_lane, warp_id, warp_offset)
+//            ).BlockLoadDirect
+//            |>      Some
+//        else
+//            None
+//
+//    let private (|BlockLoadVectorized|_|) threadFields templateParams =
+//        let block_threads, items_per_thread, algorithm, warp_time_slicing = templateParams
+//        let temp_storage, linear_tid, warp_lane, warp_id, warp_offset = threadFields
+//        if algorithm = BlockLoadVectorized then
+//            (   LoadInternal.api
+//                <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                <||     (temp_storage, linear_tid)
+//                <|||    (warp_lane, warp_id, warp_offset)
+//            ).BlockLoadVectorized
+//            |>      Some
+//        else
+//            None
+//
+//    let private (|BlockLoadTranspose|_|) threadFields templateParams =
+//        let block_threads, items_per_thread, algorithm, warp_time_slicing = templateParams
+//        let temp_storage, linear_tid, warp_lane, warp_id, warp_offset = threadFields
+//        if algorithm = BlockLoadTranspose then
+//            (   LoadInternal.api
+//                <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                <||     (temp_storage, linear_tid)
+//                <|||    (warp_lane, warp_id, warp_offset)
+//            ).BlockLoadTranspose
+//            |>      Some
+//        else
+//            None
+//
+//    let private (|BlockLoadWarpTranspose|_|) threadFields templateParams =
+//        let block_threads, items_per_thread, algorithm, warp_time_slicing = templateParams
+//        let temp_storage, linear_tid, warp_lane, warp_id, warp_offset = threadFields
+//        if algorithm = BlockLoadWarpTranspose then
+//            (   LoadInternal.api
+//                <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                <||     (temp_storage, linear_tid)
+//                <|||    (warp_lane, warp_id, warp_offset)
+//            ).BlockLoadWarpTranspose
+//            |>      Some
+//        else
+//            None
+//
+//
+//    let private Default block_threads items_per_thread algorithm warp_time_slicing = 
+//        fun temp_storage linear_tid warp_lane warp_id warp_offset ->
+//            let templateParams = (block_threads, items_per_thread, algorithm, warp_time_slicing)
+//            let threadFields = (temp_storage, linear_tid, warp_lane, warp_id, warp_offset)
+//            let InternalLoad =
+//                templateParams |> function
+//                | BlockLoadDirect threadFields bld ->
+//                    bld.LoadDirectBlocked.Default
+//                | BlockLoadVectorized threadFields blv ->
+//                    blv.LoadDirectBlockedVectorized.Default
+//                | BlockLoadTranspose threadFields blt ->
+//                    blt.LoadDirectStriped.Default
+//                | BlockLoadWarpTranspose threadFields blwt ->
+//                    blwt.LoadDirectWarpStriped.Default
+//                | _ -> failwith "Invalid Template Parameters"
+//
+//
+//
+//
+//            <@ fun _ -> () @>
+//
+//    let private Guarded block_threads items_per_thread algorithm warp_time_slicing =
+//        <@ fun _ -> () @>
+//
+//    let private GuardedWithOOB block_threads items_per_thread algorithm warp_time_slicing =
+//        <@ fun _ -> () @>
+
+//module LoadInternal =
+//    open Internal
+//
+//    module BlockLoadDirect =
+//        type API =
+//            {
+//                LoadDirectBlocked : LoadDirectBlocked.API
+//            }
+//
+//        let api _ items_per_thread _ = 
+//            {
+//                LoadDirectBlocked   =   LoadDirectBlocked.api
+//                                        <|| (None, items_per_thread)
+//            }
+//
+//    module BlockLoadVectorize =
+//        type API =
+//            {
+//                LoadDirectBlockedVectorized : LoadDirectBlockedVectorized.API
+//            }
+//
+//        let api _ items_per_thread _ =
+//            {
+//                LoadDirectBlockedVectorized =   LoadDirectBlockedVectorized.api
+//                                                <|| (None, items_per_thread)
+//            }
+//
+//    module BlockLoadTranspose =
+//        type API =
+//            {
+//                LoadDirectStriped   : LoadDirectStriped.API
+//                BlockExchange       : BlockExchange.API
+//            }
+//
+//        let api block_threads items_per_thread warp_time_slicing = 
+//            fun temp_storage linear_tid warp_lane warp_id warp_offset ->
+//                {
+//                    LoadDirectStriped   =   LoadDirectStriped.api
+//                                            <|| (block_threads, items_per_thread)
+//
+//                    BlockExchange       =   BlockExchange.api
+//                                            <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                                            <||     (temp_storage, linear_tid)
+//                                            <|||    (warp_lane, warp_id, warp_offset)
+//                }
+//
+//    module BlockLoadWarpTranspose =
+//        type API =
+//            {
+//                LoadDirectWarpStriped   : LoadDirectWarpStriped.API
+//                BlockExchange           : BlockExchange.API                
+//            }
+//
+//        let api block_threads items_per_thread warp_time_slicing = 
+//            fun temp_storage linear_tid warp_lane warp_id warp_offset ->
+//                {
+//                    LoadDirectWarpStriped   =   LoadDirectWarpStriped.api
+//                                                <|| (block_threads, items_per_thread)
+//
+//                    BlockExchange           =   BlockExchange.api
+//                                                <|||    (block_threads, items_per_thread, warp_time_slicing)
+//                                                <||     (temp_storage, linear_tid)
+//                                                <|||    (warp_lane, warp_id, warp_offset)
+//                }
+//                 
     //let load (block_threads:int) (items_per_thread:int) =
 //    let private internalAPI = 
 //            {   LoadDirectBlocked           = LoadDirectBlocked.api;

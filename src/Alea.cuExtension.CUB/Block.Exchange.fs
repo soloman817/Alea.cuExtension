@@ -11,6 +11,21 @@ open Alea.cuExtension.CUB.Utilities
 open Macro
 open Ptx
 
+//type TemplateParameters =
+//    {
+//        BLOCK_THREADS       :   int
+//        ITEMS_PER_THREAD    :   int
+//        WARP_TIME_SLICING   :   bool
+//    }
+//
+//    member this.Get = (this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//
+//    static member Default(block_threads, items_per_thread) =
+//        {
+//            BLOCK_THREADS       = block_threads
+//            ITEMS_PER_THREAD    = items_per_thread
+//            WARP_TIME_SLICING   = false
+//        }
 
 module private Internal =
     module Constants =
@@ -62,27 +77,27 @@ module private Internal =
 
     module Sig =
         module BlockToStriped =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> unit>
 
         module BlockToWarpStriped =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> unit>
 
         module StripedToBlocked =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> unit>
 
         module WarpStripedToBlocked =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> unit>
 
         module ScatterToBlocked =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> deviceptr<int> -> unit>
 
         module ScatterToStriped =
-            type WithoutTimeslicingExpr = Expr<deviceptr<int> -> deviceptr<int> -> unit>
+            type DefaultExpr            = Expr<deviceptr<int> -> deviceptr<int> -> unit>
             type WithTimeslicingExpr    = Expr<deviceptr<int> -> deviceptr<int> -> unit>
 
 
@@ -91,11 +106,11 @@ module BlockedToStriped =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.BlockToStriped.WithoutTimeslicingExpr
+            Default  : Sig.BlockToStriped.DefaultExpr
             WithTimeslicing     : Sig.BlockToStriped.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let INSERT_PADDING =    Constants.INSERT_PADDING
                                 <|||    (block_threads, items_per_thread, warp_time_slicing)
         
@@ -165,7 +180,7 @@ module BlockedToStriped =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)
@@ -182,11 +197,11 @@ module BlockedToWarpStriped =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.BlockToWarpStriped.WithoutTimeslicingExpr
+            Default  : Sig.BlockToWarpStriped.DefaultExpr
             WithTimeslicing     : Sig.BlockToWarpStriped.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let LOG_SMEM_BANKS =            Constants.LOG_SMEM_BANKS
 
         let INSERT_PADDING =            Constants.INSERT_PADDING
@@ -243,7 +258,7 @@ module BlockedToWarpStriped =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)
@@ -260,11 +275,11 @@ module StripedToBlocked =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.StripedToBlocked.WithoutTimeslicingExpr
+            Default             : Sig.StripedToBlocked.DefaultExpr
             WithTimeslicing     : Sig.StripedToBlocked.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let INSERT_PADDING =    Constants.INSERT_PADDING
                                 <|||    (block_threads, items_per_thread, warp_time_slicing)        
 
@@ -328,7 +343,7 @@ module StripedToBlocked =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)
@@ -345,11 +360,11 @@ module WarpStripedToBlocked =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.WarpStripedToBlocked.WithoutTimeslicingExpr
+            Default  : Sig.WarpStripedToBlocked.DefaultExpr
             WithTimeslicing     : Sig.WarpStripedToBlocked.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let WARP_TIME_SLICED_THREADS =  Constants.WARP_TIME_SLICED_THREADS
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
         
@@ -404,7 +419,7 @@ module WarpStripedToBlocked =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)
@@ -421,11 +436,11 @@ module ScatterToBlocked =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.ScatterToBlocked.WithoutTimeslicingExpr
+            Default  : Sig.ScatterToBlocked.DefaultExpr
             WithTimeslicing     : Sig.ScatterToBlocked.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let init = (block_threads, items_per_thread, warp_time_slicing)
         let INSERT_PADDING =    init |||>   Constants.INSERT_PADDING
         let LOG_SMEM_BANKS =                Constants.LOG_SMEM_BANKS   
@@ -484,7 +499,7 @@ module ScatterToBlocked =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)
@@ -501,11 +516,11 @@ module ScatterToStriped =
 
     type API =
         {
-            WithoutTimeslicing  : Sig.ScatterToStriped.WithoutTimeslicingExpr
+            Default  : Sig.ScatterToStriped.DefaultExpr
             WithTimeslicing     : Sig.ScatterToStriped.WithTimeslicingExpr
         }
 
-    let private WithoutTimeslicing block_threads items_per_thread warp_time_slicing =
+    let private Default block_threads items_per_thread warp_time_slicing =
         let init = (block_threads, items_per_thread, warp_time_slicing)
         let INSERT_PADDING =            init |||>   Constants.INSERT_PADDING
         let LOG_SMEM_BANKS =                        Constants.LOG_SMEM_BANKS        
@@ -568,7 +583,7 @@ module ScatterToStriped =
     let api block_threads items_per_thread warp_time_slicing =
         fun temp_storage linear_tid warp_lane warp_id warp_offset ->
             {
-                WithoutTimeslicing =    WithoutTimeslicing
+                Default =    Default
                                         <|||    (block_threads, items_per_thread, warp_time_slicing)
                                         <||     (temp_storage, linear_tid)
                                         <|||    (warp_lane, warp_id, warp_offset)

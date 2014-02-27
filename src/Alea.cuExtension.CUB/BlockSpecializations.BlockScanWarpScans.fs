@@ -13,16 +13,27 @@ open Alea.cuExtension.CUB.Warp
 
 
 
+module TempStorage =
+    type API =
+        {
+            warp_scan               : Alea.cuExtension.CUB.Warp.Scan.TempStorage.API
+            warp_aggregates         : int[]
+            mutable block_prefix    : int
+        }
 
-type TempStorage =
-    {
-        warp_scan : deviceptr<int>
-        warp_aggregates : int[]
-        mutable block_prefix    : int
-    }
+    let unitialized() =
+        {
+            warp_scan       = Alea.cuExtension.CUB.Warp.Scan.TempStorage.uninitialized()
+            warp_aggregates = Array.empty
+            block_prefix    = 0
+        }
+
+
 
 
 module private Internal =
+    type TempStorage = TempStorage.API
+    
     module Constants =
         let WARPS =
             fun block_threads ->
@@ -54,16 +65,18 @@ module private Internal =
             type WithAggregateExpr = Expr<int -> Ref<int> -> Ref<int> -> unit>
             type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
 
-
+    //type TempStorage = TempStorage.API
 
     let WarpScan block_threads scan_op =
-        let WARPS = block_threads |> WARPS
+        let WARPS = block_threads |> Constants.WARPS
         (WARPS, CUB_PTX_WARP_THREADS, scan_op) |||> WarpScan.api
 
 
 
 module ApplyWarpAggregates =
     open Internal
+
+    //type TempStorage = TempStorage.API
 
     type API =
         {
@@ -73,7 +86,7 @@ module ApplyWarpAggregates =
 
     let private Default (block_threads:int) (scan_op:IScanOp) =
         let lane_valid = true
-        let WARPS = block_threads |> WARPS
+        let WARPS = block_threads |> Constants.WARPS
         let scan_op = scan_op.op
         fun (temp_storage:TempStorage) (warp_id:int) ->
             <@ fun (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) ->
@@ -91,7 +104,7 @@ module ApplyWarpAggregates =
 
 
     let private WithLaneValidation (block_threads:int) (scan_op:IScanOp) =
-        let WARPS = block_threads |> WARPS
+        let WARPS = block_threads |> Constants.WARPS
         let scan_op = scan_op.op
         fun (temp_storage:TempStorage) (warp_id:int) ->
             <@ fun (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool) ->
@@ -125,6 +138,8 @@ module ApplyWarpAggregates =
 module ExclusiveSum =
     open Internal
     
+    //type TempStorage = TempStorage.API
+
     type API =
         {
             WithAggregate               : Sig.ExclusiveSum.WithAggregateExpr
@@ -134,7 +149,7 @@ module ExclusiveSum =
 
     let private WithAggregate block_threads scan_op =
         
-        fun temp_storage warp_id lane_id ->
+        fun (temp_storage:TempStorage) warp_id lane_id ->
             let WarpScan = (    WarpScan
                                 <||     (block_threads, scan_op)
                                 <|||    (temp_storage.warp_scan, warp_id, lane_id)
@@ -142,7 +157,7 @@ module ExclusiveSum =
                         
             let ApplyWarpAggregates = ( ApplyWarpAggregates.api
                                         <||     (block_threads, scan_op)
-                                        <||    (temp_storage, warp_id)
+                                        <||     (temp_storage, warp_id)
                                       ).WithLaneValidation
 
             <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) ->
