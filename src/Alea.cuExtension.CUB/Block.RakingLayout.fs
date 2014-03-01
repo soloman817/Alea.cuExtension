@@ -14,16 +14,20 @@ open Macro
 //type TempStorage = deviceptr<int>
 //
 //let TempStorage grid_elements = __shared__.Array(grid_elements)
+[<AutoOpen>]
 module TempStorage =
     type API = deviceptr<int>
-
+    type TempStorage = API
     let initialize grid_elements =
-        API((__shared__.Array(grid_elements) |> __array_to_ptr).Handle)
+        API(__null().Handle)
+ //       Array.zeroCreate<int> grid_elements //|> __array_to_ptr
+        //<@ fun _ -> __shared__.Array(grid_elements) @>
         
 
 
 module private Internal =
-    type TempStorage = TempStorage.API
+    //type TempStorage = TempStorage.API
+    open TempStorage
 
     module Constants =
         let SHARED_ELEMENTS =
@@ -160,8 +164,9 @@ module BlockRakingLayout =
             UNGUARDED           = (block_threads, block_strips) ||> Internal.Constants.SHARED_ELEMENTS
         }
 
-    type API = 
+    type API =
         {
+            TempStorage     : TempStorage.API
             Constants       : Constants
             PlacementPtr    : PlacementPtr.API
             RakingPtr       : RakingPtr.API
@@ -170,8 +175,11 @@ module BlockRakingLayout =
     let api block_threads block_strips =
         block_strips |> function
         | None ->
+            let constants = (block_threads, 1) ||> init
             {
-                Constants       =   (block_threads, 1) ||> init
+                TempStorage     =   constants.GRID_ELEMENTS |> TempStorage.initialize
+
+                Constants       =   constants
 
                 PlacementPtr    =   PlacementPtr.api
                                     <|| (block_threads, 1)
@@ -181,8 +189,11 @@ module BlockRakingLayout =
             }
 
         | Some block_strips ->
+            let constants = (block_threads, block_strips) ||> init
             {
-                Constants       =   (block_threads, block_strips) ||> init
+                TempStorage     =   constants.GRID_ELEMENTS |> TempStorage.initialize
+
+                Constants       =   constants
 
                 PlacementPtr    =   PlacementPtr.api
                                     <|| (block_threads, block_strips)
@@ -190,7 +201,6 @@ module BlockRakingLayout =
                 RakingPtr       =   RakingPtr.api
                                     <|| (block_threads, block_strips)
             }
-
 
 //
 //let inline placementPtr (block_threads:int) (block_strips:int) =

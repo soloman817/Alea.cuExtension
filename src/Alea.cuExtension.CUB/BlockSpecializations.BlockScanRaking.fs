@@ -17,7 +17,7 @@ module TempStorage =
     type API =
         {
             warp_scan               :   Alea.cuExtension.CUB.Warp.Scan.TempStorage.API
-            raking_grid             :   deviceptr<int>
+            raking_grid             :   Alea.cuExtension.CUB.Block.RakingLayout.TempStorage.API
             mutable block_aggregate :   int
         }
 
@@ -397,6 +397,8 @@ module BlockScanRaking =
             ExclusiveSum    : ExclusiveSum.API
             ExclusiveScan   : ExclusiveScan.API
         }
+
+
 
     let api block_threads memoize scan_op =
         fun temp_storage linear_tid cached_segment ->

@@ -12,7 +12,6 @@ open Alea.cuExtension.CUB.Block
 //let scan_op = Alea.cuExtension.CUB.Thread.Operators.scan_op
 
 
-
 [<Test>]
 let ``block scan basic`` () =
     
@@ -25,21 +24,32 @@ let ``block scan basic`` () =
                             <||     (block_threads, items_per_thread)
                             <||     (BLOCK_STORE_WARP_TRANSPOSE, None)
 
-        let BlockScan   =   BlockScan.api
-                            <|||    (block_threads, algorithm, (scan_op ADD 0))
+        let blockScan   =   
+            let scan_op = (scan_op ADD 0)
+            BlockScan.api
+                <|||    (block_threads, algorithm, scan_op)
         
-        let load = __shared__.Extern()
+        let temp = 5 |> TempStorage.uninitialized 
+//        let! load = 
+//            <@ fun _ -> 
+//                __shared__.Array(10) |> __array_to_ptr |> ignore
+//                ()
+//            @> |> Compiler.DefineFunction
 
         let! kernel = 
 //            <@ fun (blockLoad:'T) (blockStore:'U) (blockScan:'V) (d_in:deviceptr<int>) (d_out:deviceptr<int>) (d_elapsed:deviceptr<float>) ->
             <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) (d_elapsed:deviceptr<float>) ->
-//                let temp_storage_load = __shared__.Extern()
+//                
+                    //let BlockScan = blockScan.Invoke
+                    //let temp_storage_load = __shared__.Extern()
 //                let temp_storage_store = __shared__.Extern()
 //                let temp_storage_scan = __shared__.Extern()
 //
 //                let data = __local__.Array<int>(items_per_thread)
 //                //blockLoad.Initialize(temp_storage_load).Load(d_in, data |> __array_to_ptr)
-                    load.[0] <- 1
+                    //let temp = __shared__.Array(10)
+                    let BlockScan = BlockScan temp 0
+                    //load.[0] <- 1
 //                __syncthreads()
 //
 //                let start = 0.0 //clock()

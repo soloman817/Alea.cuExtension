@@ -23,6 +23,8 @@ module TempStorage =
             private_storage : deviceptr<int>
         }
 
+    type TempStorage = API
+
     let uninitialized() = { private_storage = __null() }
 
 
@@ -84,9 +86,11 @@ module private Internal =
             None
 
 
-    type TempStorage = TempStorage.API
+    
     
     module WarpScan =
+        open TempStorage
+
         module InclusiveSum =
             type API =
                 {

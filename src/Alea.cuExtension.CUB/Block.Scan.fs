@@ -38,14 +38,19 @@ type BlockScanAlgorithm =
 
 module TempStorage =
     type API =
-        {
-            BlockScanWarpScan   : Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanWarpScans.TempStorage.API
-            BlockScanRaking     : Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanRaking.TempStorage.API
+        abstract    BlockScanWarpScan   : Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanWarpScans.TempStorage.API
+        abstract    BlockScanRaking     : Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanRaking.TempStorage.API
+        
+
+    let uninitialized grid_elements =
+        { new API with
+            member this.BlockScanWarpScan = Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanWarpScans.TempStorage.TempStorage.Uninitialized
+            member this.BlockScanRaking = grid_elements |> Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanRaking.TempStorage.unitialized
         }
 
 
 module private Internal =
-    type TempStorage = TempStorage.API
+    //type TempStorage = TempStorage.API
 
     module Constants =
         let SAFE_ALGORITHM = 
@@ -122,20 +127,20 @@ module private Internal =
 module ExclusiveSum =
     open Internal
     open BlockScan
-
+    open TempStorage
+    //type TempStorage = TempStorage.API
 
     module SingleDatumPerThread =
         type API =
-            {
-                Default                     : Sig.SingleDatumPerThread.ExclusiveSum.DefaultExpr
-                WithAggregate               : Sig.SingleDatumPerThread.ExclusiveSum.WithAggregateExpr
-                WithAggregateAndCallbackOp  : Sig.SingleDatumPerThread.ExclusiveSum.WithAggregateAndCallbackOpExpr
-            }
+            abstract    Default                     : Sig.SingleDatumPerThread.ExclusiveSum.DefaultExpr
+            abstract    WithAggregate               : Sig.SingleDatumPerThread.ExclusiveSum.WithAggregateExpr
+            abstract    WithAggregateAndCallbackOp  : Sig.SingleDatumPerThread.ExclusiveSum.WithAggregateAndCallbackOpExpr
+            
         
         let private Default block_threads algorithm scan_op =
             let templateParams = (block_threads, algorithm, scan_op)
             
-            fun (temp_storage:TempStorage) linear_tid cached_segment ->
+            fun (temp_storage:TempStorage.API) linear_tid cached_segment ->
                 let InternalBlockScan =
                     templateParams |> function
                     | BlockScanWarpScan bsws ->
@@ -164,27 +169,26 @@ module ExclusiveSum =
 
         let api block_threads algorithm scan_op =
             fun temp_storage linear_tid cached_segment ->
-                {
-                    Default                     =   Default
-                                                    <|||    (block_threads, algorithm, scan_op)
-                                                    <|||    (temp_storage, linear_tid, cached_segment)
+                { new API with
+                    member this.Default                     =   Default
+                                                                <|||    (block_threads, algorithm, scan_op)
+                                                                <|||    (temp_storage, linear_tid, cached_segment)
 
-                    WithAggregate               =   WithAggregate
-                                                    <|||    (block_threads, algorithm, scan_op)
-                                                    <|||    (temp_storage, linear_tid, cached_segment)
+                    member this.WithAggregate               =   WithAggregate
+                                                                <|||    (block_threads, algorithm, scan_op)
+                                                                <|||    (temp_storage, linear_tid, cached_segment)
 
-                    WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
-                                                    <|||    (block_threads, algorithm, scan_op)
-                                                    <|||    (temp_storage, linear_tid, cached_segment)
+                    member this.WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
+                                                                <|||    (block_threads, algorithm, scan_op)
+                                                                <|||    (temp_storage, linear_tid, cached_segment)
                 }
 
     module MultipleDataPerThread =
         type API =
-            {
-                Default                     : Sig.MultipleDataPerThread.ExclusiveSum.DefaultExpr
-                WithAggregate               : Sig.MultipleDataPerThread.ExclusiveSum.WithAggregateExpr
-                WithAggregateAndCallbackOp  : Sig.MultipleDataPerThread.ExclusiveSum.WithAggregateAndCallbackOpExpr
-            }
+            abstract    Default                     : Sig.MultipleDataPerThread.ExclusiveSum.DefaultExpr
+            abstract    WithAggregate               : Sig.MultipleDataPerThread.ExclusiveSum.WithAggregateExpr
+            abstract    WithAggregateAndCallbackOp  : Sig.MultipleDataPerThread.ExclusiveSum.WithAggregateAndCallbackOpExpr
+            
 
         let private Default block_threads algorithm scan_op =
             fun items_per_thread ->
@@ -204,21 +208,21 @@ module ExclusiveSum =
         let api block_threads algorithm scan_op =
             fun items_per_thread ->
                 fun temp_storage linear_tid cached_segment ->
-                    {
-                        Default                     =   Default
-                                                        <|||    (block_threads, algorithm, scan_op)
-                                                        <|      (items_per_thread)
-                                                        <|||    (temp_storage, linear_tid, cached_segment)
+                    { new API with
+                        member this.Default                     =   Default
+                                                                    <|||    (block_threads, algorithm, scan_op)
+                                                                    <|      (items_per_thread)
+                                                                    <|||    (temp_storage, linear_tid, cached_segment)
 
-                        WithAggregate               =   WithAggregate
-                                                        <|||    (block_threads, algorithm, scan_op)
-                                                        <|      (items_per_thread)
-                                                        <|||    (temp_storage, linear_tid, cached_segment)
+                        member this.WithAggregate               =   WithAggregate
+                                                                    <|||    (block_threads, algorithm, scan_op)
+                                                                    <|      (items_per_thread)
+                                                                    <|||    (temp_storage, linear_tid, cached_segment)
 
-                        WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
-                                                        <|||    (block_threads, algorithm, scan_op)
-                                                        <|      (items_per_thread)
-                                                        <|||    (temp_storage, linear_tid, cached_segment)
+                        member this.WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
+                                                                    <|||    (block_threads, algorithm, scan_op)
+                                                                    <|      (items_per_thread)
+                                                                    <|||    (temp_storage, linear_tid, cached_segment)
                     }
 
     type API =
@@ -356,21 +360,25 @@ module InclusiveScan =
 
 
 module BlockScan =
-    open Internal
+    //open Internal
 
     type API =
-        {
-            ExclusiveSum    : ExclusiveSum.API
-        }
+        abstract ExclusiveSum    : ExclusiveSum.API
+    
 
-    let api block_threads algorithm scan_op =
-        fun temp_storage linear_tid cached_segment ->
-            {
-                ExclusiveSum    =   ExclusiveSum.api
-                                    <|||    (block_threads, algorithm, scan_op)
-                                    <|      (None)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
-            }
+    let api block_threads algorithm scan_op = cuda {
+        
+        return fun (program:Program) ->
+            let worker = program.Worker
+            
+            fun temp_storage linear_tid cached_segment ->
+                { new API with
+                    member this.ExclusiveSum    =   ExclusiveSum.api
+                                                    <|||    (block_threads, algorithm, scan_op)
+                                                    <|      (None)
+                                                    <|||    (temp_storage, linear_tid, cached_segment)
+                }
+        }
         
     
      
