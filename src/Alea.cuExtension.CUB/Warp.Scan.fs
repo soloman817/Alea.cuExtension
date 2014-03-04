@@ -18,14 +18,22 @@ type private InternalWarpScan =
 
 
 module TempStorage =
+    [<Record>]
     type API =
         {
-            private_storage : deviceptr<int>
+            mutable Ptr : deviceptr<int>
+            mutable Length : int
         }
 
+        member this.Item
+            with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx]
+            and     [<ReflectedDefinition>] set (idx:int) (v:int) = this.Ptr.[idx] <- v
+
+        
     type TempStorage = API
 
-    let uninitialized() = { private_storage = __null() }
+    [<ReflectedDefinition>]
+    let uninitialized() = { Ptr = __null(); Length = 0 }
 
 
 module private Internal =
