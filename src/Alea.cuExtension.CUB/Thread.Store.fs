@@ -60,10 +60,10 @@ module internal ThreadStore =
                 | None, irPointer :: irVal :: [] -> buildThreadStore modifier ctx irPointer irVal |> Some
                 | _ -> None
 
-    let [<ThreadStore("wb")>] ThreadStore_WB (ptr:deviceptr<int>) (value:int) : unit = failwith ""
-    let [<ThreadStore("cg")>] ThreadStore_CG (ptr:deviceptr<int>) (value:int) : unit = failwith ""
-    let [<ThreadStore("cs")>] ThreadStore_CS (ptr:deviceptr<int>) (value:int) : unit = failwith ""
-    let [<ThreadStore("wt")>] ThreadStore_WT (ptr:deviceptr<int>) (value:int) : unit = failwith ""
+    let [<ThreadStore("wb")>] inline ThreadStore_WB (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("cg")>] inline ThreadStore_CG (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("cs")>] inline ThreadStore_CS (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
+    let [<ThreadStore("wt")>] inline ThreadStore_WT (ptr:deviceptr<'T>) (value:'T) : unit = failwith ""
 
 
     type IterateThreadStoreAttribute(modifier:string) =
@@ -91,10 +91,10 @@ module internal ThreadStore =
 
                 | _ -> None
 
-    let [<IterateThreadStore("wb")>] IterateThreadStore_WB (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
-    let [<IterateThreadStore("cg")>] IterateThreadStore_CG (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
-    let [<IterateThreadStore("cs")>] IterateThreadStore_CS (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
-    let [<IterateThreadStore("wt")>] IterateThreadStore_WT (max:int) (ptr:deviceptr<int>) (vals:deviceptr<int>) : unit = failwith ""
+    let [<IterateThreadStore("wb")>] inline IterateThreadStore_WB (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("cg")>] inline IterateThreadStore_CG (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("cs")>] inline IterateThreadStore_CS (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
+    let [<IterateThreadStore("wt")>] inline IterateThreadStore_WT (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""
 
 
     type IterateThreadDereferenceAttribute() =
@@ -132,19 +132,17 @@ type CacheStoreModifier =
 
 
 [<ReflectedDefinition>]
-let DefaultStore (ptr:deviceptr<int>) (value:int) = ptr.[0] <- value
+let inline DefaultStore (ptr:deviceptr<'T>) (value:'T) = ptr.[0] <- value
 
-let ThreadStore modifier : Expr<deviceptr<int> -> int -> unit> =
-    let store = 
-        modifier |> function
-        | STORE_DEFAULT ->      DefaultStore
-        | STORE_WB ->           ThreadStore.ThreadStore_WB
-        | STORE_CG ->           ThreadStore.ThreadStore_CG
-        | STORE_CS ->           ThreadStore.ThreadStore_CS
-        | STORE_WT ->           ThreadStore.ThreadStore_WT
-        | STORE_VOLATILE ->     DefaultStore
-    <@ store @>
-
+let inline ThreadStore<'T> modifier : deviceptr<'T> -> 'T -> unit =
+    modifier |> function
+    | STORE_DEFAULT ->      DefaultStore
+    | STORE_WB ->           ThreadStore.ThreadStore_WB
+    | STORE_CG ->           ThreadStore.ThreadStore_CG
+    | STORE_CS ->           ThreadStore.ThreadStore_CS
+    | STORE_WT ->           ThreadStore.ThreadStore_WT
+    | STORE_VOLATILE ->     DefaultStore
+    
 
 
 

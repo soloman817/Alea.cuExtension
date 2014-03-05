@@ -31,7 +31,7 @@ module ThreadScanExclusive =
             WithApplyPrefix         : Sig.ThreadScanExclusive.WithApplyPrefixExpr
         }
 
-    let private Default length (scan_op:IScanOp) =
+    let private Default length (scan_op:IScanOp<'T>) =
         let scan_op = scan_op.op
         <@ fun (inclusive:int) (exclusive:int) (input:deviceptr<int>) (output:deviceptr<int>) ->
             let mutable addend = input.[0]
@@ -49,7 +49,7 @@ module ThreadScanExclusive =
         @>
 
 
-    let private WithApplyPrefixDefault length (scan_op:IScanOp) =
+    let private WithApplyPrefixDefault length (scan_op:IScanOp<'T>) =
         let apply_prefix = true
         let Default = (length, scan_op) ||> Default
         let scan_op = scan_op.op
@@ -65,7 +65,7 @@ module ThreadScanExclusive =
             <|| (input, output)
         @>
 
-    let private WithApplyPrefix length (scan_op:IScanOp) =
+    let private WithApplyPrefix length (scan_op:IScanOp<'T>) =
         let Default = (length, scan_op) ||> Default
         let scan_op = scan_op.op
         <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) (apply_prefix:bool) ->

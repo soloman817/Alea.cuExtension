@@ -104,10 +104,10 @@ type __ptx__ private () =
     
     [<BFI>]     static member BFI(x,y,bit,numBits) = bfi x y bit numBits
     //[<ShuffleUp>] 
-    static member ShuffleUp(input:int, src_offset:int) =
+    static member inline ShuffleUp(input:'T, src_offset:int) =
         let SHFL_C = 0
          
-        let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+        let WORDS = (sizeof<'T> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
         let output = __local__.Variable()
         let output_alias : deviceptr<ShuffleWord> = output |> __ref_to_ptr
         let input_alias : deviceptr<ShuffleWord> = input |> __obj_reinterpret
@@ -120,22 +120,22 @@ type __ptx__ private () =
         !output
 
     //[<ShuffleBroadcast>]
-    static member ShuffleBroadcast logical_warp_threads =
-        <@ fun (input:int) (src_lane:int) ->
-            let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+    [<ReflectedDefinition>]
+    static member ShuffleBroadcast logical_warp_threads (input:'T) (src_lane:int) =
+        let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
     
-            let output : 'T ref = __local__.Variable()
+        let output : 'T ref = __local__.Variable()
 
-            let input_alias : deviceptr<ShuffleWord> = input |> __obj_to_ref |> __ref_reinterpret |> __ref_to_ptr
-            let output_alias : deviceptr<ShuffleWord> = output |> __ref_reinterpret |> __ref_to_ptr
+        let input_alias : deviceptr<ShuffleWord> = input |> __obj_to_ref |> __ref_reinterpret |> __ref_to_ptr
+        let output_alias : deviceptr<ShuffleWord> = output |> __ref_reinterpret |> __ref_to_ptr
 
-            for WORD = 0 to (WORDS - 1) do
-                let shuffle_word = (input_alias.[WORD] |> __obj_reinterpret, src_lane, (logical_warp_threads - 1)) |||> ShuffleBroadcast
+        for WORD = 0 to (WORDS - 1) do
+            let shuffle_word = (input_alias.[WORD] |> __obj_reinterpret, src_lane, (logical_warp_threads - 1)) |||> ShuffleBroadcast
         
-                output_alias.[WORD] <- shuffle_word |> __obj_reinterpret
+            output_alias.[WORD] <- shuffle_word |> __obj_reinterpret
 
-            output |> __ref_to_obj
-        @>
+        output |> __ref_to_obj
+        
 
     [<SHR_ADD>] static member SHR_ADD(x,shift,addend) = shr_add x shift addend
     [<LaneID>]  static member LaneId() = LaneId()

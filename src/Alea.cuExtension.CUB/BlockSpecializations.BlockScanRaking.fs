@@ -101,7 +101,7 @@ module GuardedReduce =
             Default : Sig.GuardedReduce.DefaultExpr
         }
 
-    let private Default block_threads (scan_op:IScanOp) =
+    let private Default block_threads (scan_op:IScanOp<'T>) =
         let SEGMENT_LENGTH = block_threads |> Constants.SEGMENT_LENGTH
         let UNGUARDED      = (block_threads |> BlockRakingLayout).Constants.UNGUARDED
         let scan_op = scan_op.op
@@ -260,7 +260,7 @@ module ExclusiveScan =
                     <|||    (temp_storage, linear_tid, cached_segment)
                 ).Default
 
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (block_aggregate:Ref<int>) ->
+            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (block_aggregate:Ref<int>) ->
                 if WARP_SYNCHRONOUS then
                     %WarpScan
                     <|| (input, output)
@@ -291,7 +291,7 @@ module ExclusiveScan =
 
     let private WithAggregateAndCallbackOp block_threads memoize scan_op =
         fun temp_storage linear_tid cached_segment ->
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) ->
+            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) ->
                 ()
             @>
 
@@ -344,7 +344,7 @@ module ExclusiveSum =
                     <|||    (temp_storage, linear_tid, cached_segment)
                 ).Default
 
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) ->
+            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) ->
                 if WARP_SYNCHRONOUS then
                     %WarpScan
                     <|| (input, output)
@@ -373,7 +373,7 @@ module ExclusiveSum =
 
     let private WithAggregateAndCallbackOp block_threads memoize scan_op =
         fun temp_storage linear_tid cached_segment ->
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
     let api block_threads memoize scan_op =
         fun temp_storage linear_tid cached_segment ->
@@ -432,7 +432,7 @@ module BlockScanRaking =
 //    
 //    /// Performs upsweep raking reduction, returning the aggregate
 //    //template <typename ScanOp>
-//    member inline this.Upsweep(scan_op:IScanOp) =
+//    member inline this.Upsweep(scan_op:IScanOp<'T>) =
 //        // localize template params & constants
 //        let SEGMENT_LENGTH = this.Constants.SEGMENT_LENGTH
 //        let MEMOIZE = this.TemplateParameters.MEMOIZE
@@ -522,7 +522,7 @@ module BlockScanRaking =
 //        let WARP_SYNCHRONOUS = warp_synchronous
 //        let WarpScan = Alea.cuExtension.CUB.Warp.Scan.ExclusiveScan
 //        fun (temp_storage:TempStorage) (linear_tid:int) ->
-//            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) ->
+//            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) ->
 //                
 //
 //                if (WARP_SYNCHRONOUS) then
@@ -841,7 +841,7 @@ module BlockScanRaking =
 //    
 //    /// Performs upsweep raking reduction, returning the aggregate
 //    //template <typename ScanOp>
-//    member inline this.Upsweep(scan_op:IScanOp) =
+//    member inline this.Upsweep(scan_op:IScanOp<'T>) =
 //        // localize template params & constants
 //        let SEGMENT_LENGTH = this.Constants.SEGMENT_LENGTH
 //        let MEMOIZE = this.TemplateParameters.MEMOIZE
@@ -1150,14 +1150,14 @@ module BlockScanRaking =
 //                fun linear_tid ->
 //                    fun warps raking_threads segment_length warp_synchronous ->
 //                        fun iteration ->
-//                            fun (raking_ptr:deviceptr<int>) (scan_op:IScanOp) (raking_partial:int) ->
+//                            fun (raking_ptr:deviceptr<int>) (scan_op:IScanOp<'T>) (raking_partial:int) ->
 //                                let mutable raking_partial = raking_partial
 //                                if unguarded || (((linear_tid * segment_length) + iteration) < block_threads) then
 //                                    let addend = raking_ptr.[iteration]
 //                                    raking_partial <- (raking_partial, addend) ||> scan_op
 //
 //    let upsweep =
-//        fun (scan_op:IScanOp) ->
+//        fun (scan_op:IScanOp<'T>) ->
 //            let smem_raking_ptr = ()
 //            ()
 //        

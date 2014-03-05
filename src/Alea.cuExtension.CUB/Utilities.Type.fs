@@ -167,7 +167,7 @@ module UnitWord =
 //        abstract Identity : int
 //        abstract Op : Expr<'T -> 'T -> 'T>
 //
-//    let inline scanOp (opKind:ScanOpKind) (identity:int) =
+//    let inline scanOp (opKind:ScanOpKind) (identity:'T) =
 //        { new IScanOp<int> with
 //            member this.Identity = identity
 //            member this.Op =

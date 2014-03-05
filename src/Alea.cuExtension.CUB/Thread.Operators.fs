@@ -10,7 +10,7 @@ open Alea.cuExtension.CUB.Common
 
 
 
-type Op = int -> int -> int
+//type Op<'T> = 'T -> 'T -> 'T
 //    
 type OpKind = 
     | ADD
@@ -29,10 +29,10 @@ let Sum() = <@ fun a b -> a + b @>
 //    abstract div : Op<int>
 //    abstract min : Op<int>
 //    abstract max : Op<int>
-type IScanOp =
-    abstract op : Expr<Op>
+type IScanOp<'T> =
+    abstract op : Expr<'T -> 'T -> 'T>
 
-type IReductionOp = IScanOp    
+type IReductionOp<'T> = IScanOp<'T>
 
 //let inline op (id:int) =
 //    { new IScanOp<int> with
@@ -44,14 +44,14 @@ type IReductionOp = IScanOp
 //        member this.max = <@ max @>
 //    }
 
-let inline scan_op (opkind:OpKind) (id:int) =
+let inline scan_op (opkind:OpKind) (id:'T) =
     opkind |> function
-    | ADD -> { new IScanOp with member this.op = <@ (+) @> }
-    | SUB -> { new IScanOp with member this.op = <@ (-) @> }
-    | MUL -> { new IScanOp with member this.op = <@ (*) @> }
-    | DIV -> { new IScanOp with member this.op = <@ (/) @> }
-    | MIN -> { new IScanOp with member this.op = <@ min @> }
-    | MAX -> { new IScanOp with member this.op = <@ max @> }
+    | ADD -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
+    | SUB -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
+    | MUL -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
+    | DIV -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
+    | MIN -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
+    | MAX -> { new IScanOp<'T> with member this.op = <@ fun (x:'T) (y:'T) -> x + y @> }
 
 //[<Record>]
 //type Equality<'T when 'T : equality> =

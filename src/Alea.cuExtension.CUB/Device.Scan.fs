@@ -33,7 +33,7 @@ open Alea.cuExtension.CUB.Grid
 //let ScanRegionKernel() =
 //    let TILE_STATUS_PADDING = CUB_PTX_WARP_THREADS
 //    fun (blockScanRegionT:BlockScanRegionPolicy) ->
-//        <@ fun (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (d_tile_status:deviceptr<LookbackTileDescriptor<int>>) (scan_op:IScanOp<int>) (identity:int) (num_items:Offset) (queue:GridQueue) ->
+//        <@ fun (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (d_tile_status:deviceptr<LookbackTileDescriptor<int>>) (scan_op:IScanOp<int>) (identity:'T) (num_items:Offset) (queue:GridQueue) ->
 //            // Shared memory for BlockScanRegion
 //            let temp_storage = ()
 //            ()
@@ -215,7 +215,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //
 //
-//let dispatch (d_temp_storage:deviceptr<int>) (temp_storage_bytes:int) (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (scan_op:IScanOp<int>) (identity:int) (num_items:int) (stream:CUstream) (debug_synchronous:bool) = 
+//let dispatch (d_temp_storage:deviceptr<int>) (temp_storage_bytes:int) (d_in:InputIterator<int>) (d_out:OutputIterator<int>) (scan_op:IScanOp<int>) (identity:'T) (num_items:int) (stream:CUstream) (debug_synchronous:bool) = 
 //    //scan_region_kernel scan_grid_size scan_region_config.block_threads 0 stream
 //    // -> d_in, d_out, d_tile_status, scan_op, identity, num_items, queue
 //    ()

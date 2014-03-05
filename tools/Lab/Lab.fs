@@ -61,7 +61,7 @@ open Alea.CUDA
 //let testItems x =
 //    match x with
 //    | STMD -> (fun (input:deviceptr<int>) (output:deviceptr<int>) -> Expr )
-//    | STSD -> (fun (input:int) (output:Ref<int>) -> Expr)
+//    | STSD -> (fun (input:'T) (output:Ref<'T>) -> Expr)
 
 //let __T<int>() = null
 //let __R<int>() = ref null

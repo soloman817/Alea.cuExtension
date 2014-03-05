@@ -152,7 +152,7 @@ module ExclusiveSum =
                             <|||    (temp_storage.BlockScanRaking, linear_tid, cached_segment)
                         ).ExclusiveSum.WithAggregate
                     | _ -> failwith "Invalid Template Parameters"
-                <@ fun (input:int) (output:Ref<int>) ->
+                <@ fun (input:'T) (output:Ref<'T>) ->
                     let block_aggregate = __local__.Variable()
                     %InternalBlockScan
                     <|| (input, output)
@@ -161,11 +161,11 @@ module ExclusiveSum =
 
         let private WithAggregate block_threads algorithm scan_op =
             fun temp_storage linear_tid cached_segment ->
-                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+                <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp block_threads algorithm scan_op =
             fun temp_storage linear_tid cached_segment ->
-                <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
+                <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
 
         let api block_threads algorithm scan_op =
             fun temp_storage linear_tid cached_segment ->
@@ -270,58 +270,58 @@ module ExclusiveScan =
 //    type WithAggregateAndCallbackOpFunctionExpr = Expr<int -> Ref<int> -> Ref<int> -> ScanOp -> Ref<int> -> Ref<int> -> unit>
     module SingleDatumPerThread =
         let private Default =
-            <@ fun (input:int) (output:Ref<int>) (identity:int) (scan_op:IScanOp) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (identity:'T) (scan_op:IScanOp<'T>) -> () @>
 
         let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
         module Identityless =
             let private Default =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) -> () @>
+                <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) -> () @>
 
             let private WithAggregate =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+                <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
             let private WithAggregateAndCallbackOp =
-                <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+                <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
     module MultipleDataPerThread =
         let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<'T>) -> () @>
 
         let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
         module Identityless =
             let private Default items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) -> () @>
 
             let private WithAggregate items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
             let private WithAggregateAndCallbackOp items_per_thread =
-                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+                <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
 module InclusiveSum =
 
     module SingleDatumPerThread =
         let private Default =
-            <@ fun (input:int) (output:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) -> () @>
 
         let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
     module MultipleDataPerThread =
@@ -339,24 +339,24 @@ module InclusiveScan =
 
     module SingleDatumPerThread =
         let private Default =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) -> () @>
 
         let private WithAggregate =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp =
-            <@ fun (input:int) (output:Ref<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:'T) (output:Ref<'T>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
     module MultipleDataPerThread =
         let private Default items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) -> () @>
 
         let private WithAggregate items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) -> () @>
 
         let private WithAggregateAndCallbackOp items_per_thread =
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int>) -> () @>
 
 
 module BlockScan =
@@ -874,17 +874,17 @@ module BlockScan =
 ////    module STSD =
 ////        // exclusive prefix sum operations
 ////        let exclusiveSum =
-////            fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
+////            fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
 ////
 ////        // exclusive prefix scan operations
 ////        let exclusiveScan =
-////            fun (input:int) (output:Ref<int>) (identity:Ref<int>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
+////            fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
 ////
 ////
 ////        module Identityless =
 ////            // exclusive prefix scan operations (identityless, single datum per thread)
 ////            let exclusiveScan =
-////                fun (input:int) (output:Ref<int>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()   
+////                fun (input:'T) (output:Ref<'T>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()   
 ////
 ////
 ////    module STMD =
@@ -908,11 +908,11 @@ module BlockScan =
 ////    module STSD =
 ////        // inclusive prefix sum operations
 ////        let inclusiveSum =
-////            fun (input:int) (output:Ref<int>) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
+////            fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
 ////
 ////        // inclusive prefix scan operations
 ////        let inclusiveScan =
-////            fun (input:int) (output:Ref<int>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
+////            fun (input:'T) (output:Ref<'T>) (scan_op:(int -> int -> int)) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int -> int> option) -> ()
 ////        
 ////
 ////    module STMD =

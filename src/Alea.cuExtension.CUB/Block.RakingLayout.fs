@@ -9,198 +9,161 @@ open Alea.cuExtension.CUB.Common
 open Alea.cuExtension.CUB.Utilities
 
 open Macro 
-//
-//[<RequireQualifiedAccess>]
-//type TempStorage = deviceptr<int>
-//
-//let TempStorage grid_elements = __shared__.Array(grid_elements)
-[<AutoOpen>]
-module TempStorage =
-    type API = deviceptr<int>
-    type TempStorage = API
-    let initialize grid_elements =
-        API(__null().Handle)
- //       Array.zeroCreate<int> grid_elements //|> __array_to_ptr
-        //<@ fun _ -> __shared__.Array(grid_elements) @>
+
+module Template =
+    [<AutoOpen>]
+    module Params =
+        [<Record>]
+        type API =
+            {
+                BLOCK_THREADS   : int
+                BLOCK_STRIPS    : int
+            }
+
+            [<ReflectedDefinition>]
+            member this.Get() = (this.BLOCK_THREADS, this.BLOCK_STRIPS)
+            
+            [<ReflectedDefinition>]
+            static member Init(block_threads, block_strips) = {BLOCK_THREADS = block_threads; BLOCK_STRIPS = block_strips}
+
+            [<ReflectedDefinition>]
+            static member Default(block_threads) = API.Init(block_threads, 1)
+            
+    [<AutoOpen>]
+    module Constants =
+            
+            type Constants =
+                {
+                    SHARED_ELEMENTS     : int
+                    MAX_RAKING_THREADS  : int
+                    SEGMENT_LENGTH      : int
+                    RAKING_THREADS      : int
+                    SEGMENT_PADDING     : int
+                    GRID_ELEMENTS       : int
+                    UNGUARDED           : bool
+                }
+
+                static member Init(block_threads, block_strips) =
+                    let shared_elements     = block_threads * block_strips
+                    let max_raking_threads  = CUB_MIN block_threads CUB_PTX_WARP_THREADS
+                    let segment_length      = (shared_elements + max_raking_threads - 1) / max_raking_threads
+                    let raking_threads      = (shared_elements + segment_length - 1) / segment_length
+                    let segment_padding     = if (CUB_PTX_SMEM_BANKS % segment_length = 0) then 1 else 0
+                    let grid_elements       = raking_threads * (segment_length + segment_padding)
+                    let unguarded           = (shared_elements % raking_threads = 0)
+                    {
+                        SHARED_ELEMENTS     = shared_elements
+                        MAX_RAKING_THREADS  = max_raking_threads
+                        SEGMENT_LENGTH      = max_raking_threads
+                        RAKING_THREADS      = raking_threads
+                        SEGMENT_PADDING     = segment_padding
+                        GRID_ELEMENTS       = grid_elements
+                        UNGUARDED           = unguarded
+                    }
+
+                static member Init(tp:Params.API) = Constants.Init(tp.BLOCK_THREADS, tp.BLOCK_STRIPS)
         
+        [<AutoOpen>]
+        module TempStorage =
+            [<Record>]
+            type API<'T> =
+                {
+                    mutable Ptr         : deviceptr<'T>
+                    mutable Length      : int
+                }
+
+                member this.Item
+                    with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx]
+                    and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
+
+
+    type _TemplateParams    = Params.API
+    type _TempStorage<'T>   = TempStorage.API<'T>
 
 
 module private Internal =
-    //type TempStorage = TempStorage.API
-    open TempStorage
+    open Template
 
-    module Constants =
-        let SHARED_ELEMENTS =
-            fun block_threads block_strips ->
-                block_threads * block_strips
-
-        let MAX_RAKING_THREADS =
-            fun block_threads _ ->
-                CUB_MIN block_threads CUB_PTX_WARP_THREADS
-
-        let SEGMENT_LENGTH = 
-            fun block_threads block_strips ->
-                let SHARED_ELEMENTS = (block_threads, block_strips) ||> SHARED_ELEMENTS
-                let MAX_RAKING_THREADS = (block_threads, block_strips) ||> MAX_RAKING_THREADS
-                (SHARED_ELEMENTS + MAX_RAKING_THREADS - 1) / MAX_RAKING_THREADS
-
-        let RAKING_THREADS =
-            fun block_threads block_strips ->
-                let SHARED_ELEMENTS = (block_threads, block_strips) ||> SHARED_ELEMENTS
-                let SEGMENT_LENGTH = (block_threads, block_strips) ||> SEGMENT_LENGTH
-                (SHARED_ELEMENTS + SEGMENT_LENGTH - 1) / SEGMENT_LENGTH
-
- 
-        let SEGMENT_PADDING =
-            fun block_threads block_strips ->
-                let SEGMENT_LENGTH = (block_threads, block_strips) ||> SEGMENT_LENGTH
-                if (CUB_PTX_SMEM_BANKS % SEGMENT_LENGTH = 0) then 1 else 0
-
-        let GRID_ELEMENTS =
-            fun block_threads block_strips ->
-                let RAKING_THREADS  = (block_threads, block_strips) ||> RAKING_THREADS
-                let SEGMENT_LENGTH  = (block_threads, block_strips) ||> SEGMENT_LENGTH
-                let SEGMENT_PADDING = (block_threads, block_strips) ||> SEGMENT_PADDING
-                RAKING_THREADS * (SEGMENT_LENGTH + SEGMENT_PADDING)
-
-        let UNGUARDED =
-            fun block_threads block_strips ->
-                let SHARED_ELEMENTS = (block_threads, block_strips) ||> SHARED_ELEMENTS
-                let RAKING_THREADS = (block_threads, block_strips) ||> RAKING_THREADS
-                (SHARED_ELEMENTS % RAKING_THREADS = 0)
-    
     module Sig =
         module PlacementPtr =
-            type DefaultExpr = Expr<TempStorage -> int -> deviceptr<int>>
-            type WithBlockStripsExpr = Expr<TempStorage -> int -> int -> deviceptr<int>>
+            type Default<'T>            = _TempStorage<'T> -> int -> deviceptr<'T>
+            type WithBlockStrips<'T>    = _TempStorage<'T> -> int -> int -> deviceptr<'T>
 
         module RakingPtr =
-            type DefaultExpr = Expr<TempStorage -> int -> deviceptr<int>>
+            type Default<'T> = _TempStorage<'T> -> int -> deviceptr<'T>
 
 
 
 module PlacementPtr =
+    open Template
     open Internal
 
-    type API =
+    [<Record>]
+    type API<'T> =
         {
-            Default         : Sig.PlacementPtr.DefaultExpr
-            WithBlockStrips : Sig.PlacementPtr.WithBlockStripsExpr
+            Default         : Sig.PlacementPtr.Default<'T>
+            WithBlockStrips : Sig.PlacementPtr.WithBlockStrips<'T>
         }
 
-    let private WithBlockStrips block_threads block_strips =
-        let SEGMENT_PADDING = (block_threads, block_strips) ||> Constants.SEGMENT_PADDING
-        let SEGMENT_LENGTH  = (block_threads, block_strips) ||> Constants.SEGMENT_LENGTH
-        <@ fun (temp_storage:TempStorage) (linear_tid:int) (block_strip:int) ->
-            let mutable offset = (block_strip * block_threads) + linear_tid
-            if SEGMENT_PADDING > 0 then offset <- offset + offset / SEGMENT_LENGTH
+    let [<ReflectedDefinition>] inline private WithBlockStrips (tp:_TemplateParams)
+        (temp_storage:_TempStorage<'T>) (linear_tid:int) (block_strip:int) =
+        let c = Constants.Init(tp)
+        let mutable offset = (block_strip * tp.BLOCK_THREADS) + linear_tid
+        if c.SEGMENT_PADDING > 0 then offset <- offset + offset / c.SEGMENT_LENGTH
 
-            temp_storage + offset
-        @>
+        temp_storage.Ptr + offset
+    
 
-    let private Default block_threads block_strips =
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (temp_storage:_TempStorage<'T>) (linear_tid:int) =
         let block_strip = 0
-        let WithBlockStrips = (block_threads, block_strips) ||> WithBlockStrips
-        <@ fun (temp_storage:TempStorage) (linear_tid:int) ->
-            (temp_storage, linear_tid, block_strip) |||> %WithBlockStrips
-        @>
+        WithBlockStrips tp temp_storage linear_tid block_strip
+        
 
-    let api block_threads block_strips =
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)=
         {
-            Default         =   Default
-                                <|| (block_threads, block_strips)
-
-            WithBlockStrips =   WithBlockStrips
-                                <|| (block_threads, block_strips)
+            Default         =   Default tp
+            WithBlockStrips =   WithBlockStrips tp
         }
 
 
 module RakingPtr =
+    open Template
     open Internal
 
-    type API =
+    [<Record>]
+    type API<'T> =
         {
-            Default : Sig.RakingPtr.DefaultExpr
+            Default : Sig.RakingPtr.Default<'T>
         }
 
-    let private Default block_threads block_strips =
-        let SEGMENT_LENGTH  = (block_threads, block_strips) ||> Constants.SEGMENT_LENGTH
-        let SEGMENT_PADDING = (block_threads, block_strips) ||> Constants.SEGMENT_PADDING
-
-        <@ fun (temp_storage:TempStorage) (linear_tid:int) ->
-            temp_storage + (linear_tid * (SEGMENT_LENGTH + SEGMENT_PADDING))
-        @>
-
-    let api block_threads block_strips =
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (temp_storage:_TempStorage<'T>) (linear_tid:int) =
+        let c = Constants.Init tp
+        temp_storage.Ptr + (linear_tid * (c.SEGMENT_LENGTH + c.SEGMENT_PADDING))
+        
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams) =
         {
-            Default =   Default
-                        <|| (block_threads, block_strips)
+            Default =   Default tp
         }
 
 
 module BlockRakingLayout =
+    open Template
     open Internal
 
-
-    type Constants =
+    [<Record>]
+    type API<'T> =
         {
-            SHARED_ELEMENTS     :   int
-            MAX_RAKING_THREADS  :   int
-            SEGMENT_LENGTH      :   int
-            RAKING_THREADS      :   int
-            SEGMENT_PADDING     :   int
-            GRID_ELEMENTS       :   int
-            UNGUARDED           :   int
+            PlacementPtr    : PlacementPtr.API<'T>
+            RakingPtr       : RakingPtr.API<'T>
         }
 
-    let private init block_threads block_strips =
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams) =
         {
-            SHARED_ELEMENTS     = (block_threads, block_strips) ||> Internal.Constants.SHARED_ELEMENTS
-            MAX_RAKING_THREADS  = (block_threads, block_strips) ||> Internal.Constants.MAX_RAKING_THREADS
-            SEGMENT_LENGTH      = (block_threads, block_strips) ||> Internal.Constants.SEGMENT_LENGTH
-            RAKING_THREADS      = (block_threads, block_strips) ||> Internal.Constants.RAKING_THREADS
-            SEGMENT_PADDING     = (block_threads, block_strips) ||> Internal.Constants.SEGMENT_PADDING
-            GRID_ELEMENTS       = (block_threads, block_strips) ||> Internal.Constants.GRID_ELEMENTS
-            UNGUARDED           = (block_threads, block_strips) ||> Internal.Constants.SHARED_ELEMENTS
+            PlacementPtr    = PlacementPtr.api tp
+            RakingPtr       = RakingPtr.api tp
         }
-
-    type API =
-        {
-            TempStorage     : TempStorage.API
-            Constants       : Constants
-            PlacementPtr    : PlacementPtr.API
-            RakingPtr       : RakingPtr.API
-        }
-
-    let api block_threads block_strips =
-        block_strips |> function
-        | None ->
-            let constants = (block_threads, 1) ||> init
-            {
-                TempStorage     =   constants.GRID_ELEMENTS |> TempStorage.initialize
-
-                Constants       =   constants
-
-                PlacementPtr    =   PlacementPtr.api
-                                    <|| (block_threads, 1)
-
-                RakingPtr       =   RakingPtr.api
-                                    <|| (block_threads, 1)
-            }
-
-        | Some block_strips ->
-            let constants = (block_threads, block_strips) ||> init
-            {
-                TempStorage     =   constants.GRID_ELEMENTS |> TempStorage.initialize
-
-                Constants       =   constants
-
-                PlacementPtr    =   PlacementPtr.api
-                                    <|| (block_threads, block_strips)
-
-                RakingPtr       =   RakingPtr.api
-                                    <|| (block_threads, block_strips)
-            }
 
 //
 //let inline placementPtr (block_threads:int) (block_strips:int) =

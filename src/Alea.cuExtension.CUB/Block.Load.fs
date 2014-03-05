@@ -12,418 +12,301 @@ open Macro
 open Vector
 
 
-type BlockLoadAlgorithm =
-    | BLOCK_LOAD_DIRECT
-    | BLOCK_LOAD_VECTORIZE
-    | BLOCK_LOAD_TRANSPOSE
-    | BLOCK_LOAD_WARP_TRANSPOSE
+module Template =
 
+    type BlockLoadAlgorithm =
+        | BLOCK_LOAD_DIRECT
+        | BLOCK_LOAD_VECTORIZE
+        | BLOCK_LOAD_TRANSPOSE
+        | BLOCK_LOAD_WARP_TRANSPOSE
 
-type TemplateParameters =
-    {
-        BLOCK_THREADS       : int
-        ITEMS_PER_THREAD    : int
-        ALGORITHM           : BlockLoadAlgorithm
-        WARP_TIME_SLICING   : bool
-    }
+    module Params =
+        [<Record>]
+        type API =
+            {
+                BLOCK_THREADS       : int
+                ITEMS_PER_THREAD    : int
+                ALGORITHM           : BlockLoadAlgorithm
+                WARP_TIME_SLICING   : bool
+            }
 
-    static member Default(block_threads, items_per_thread) =
-        {
-            BLOCK_THREADS       = block_threads
-            ITEMS_PER_THREAD    = items_per_thread
-            ALGORITHM           = BLOCK_LOAD_DIRECT
-            WARP_TIME_SLICING   = false
-        }
+            [<ReflectedDefinition>]
+            static member Default(block_threads, items_per_thread) =
+                {
+                    BLOCK_THREADS       = block_threads
+                    ITEMS_PER_THREAD    = items_per_thread
+                    ALGORITHM           = BLOCK_LOAD_DIRECT
+                    WARP_TIME_SLICING   = false
+                }
 
+    module ThreadFields = ()
 
+    type _TemplateParams = Params.API
 
 
 module private Internal =
     module Sig =
         module LoadDirectBlocked =
-            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+            type Default<'T>        = int -> deviceptr<'T> -> deviceptr<'T> -> unit
+            type Guarded<'T>        = int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit
+            type GuardedWithOOB<'T> = int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit
 
         module LoadDirectBlockedVectorized =
-            type DefaultExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
+            type Default<'T> = int -> deviceptr<'T> -> deviceptr<'T> -> unit
 
         module LoadDirectStriped =
-            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+            type Default<'T>        = LoadDirectBlocked.Default<'T>
+            type Guarded<'T>        = LoadDirectBlocked.Guarded<'T>
+            type GuardedWithOOB<'T> = LoadDirectBlocked.GuardedWithOOB<'T>
 
         module LoadDirectWarpStriped =
-            type DefaultExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> unit>
-            type GuardedExpr        = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> unit>
-            type GuardedWithOOBExpr = Expr<int -> deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+            type Default<'T>        = LoadDirectBlocked.Default<'T>
+            type Guarded<'T>        = LoadDirectBlocked.Guarded<'T>
+            type GuardedWithOOB<'T> = LoadDirectBlocked.GuardedWithOOB<'T>
 
         module LoadInternal =
-            type DefaultExpr        = Expr<deviceptr<int> -> deviceptr<int> -> unit>
-            type GuardedExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> unit>
-            type GuardedWithOOBExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int -> unit>
+            type Default<'T>        = deviceptr<'T> -> deviceptr<'T> -> unit
+            type Guarded<'T>        = deviceptr<'T> -> deviceptr<'T> -> int -> unit
+            type GuardedWithOOB<'T> = deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit
 
 
 module LoadDirectBlocked =
+    open Template
     open Internal
 
-    type API =
+    [<Record>]
+    type API<'T> =
         {
-            Default         : Sig.LoadDirectBlocked.DefaultExpr
-            Guarded         : Sig.LoadDirectBlocked.GuardedExpr
-            GuardedWithOOB  : Sig.LoadDirectBlocked.GuardedWithOOBExpr
+            Default         : Sig.LoadDirectBlocked.Default<'T>
+            Guarded         : Sig.LoadDirectBlocked.Guarded<'T>
+            GuardedWithOOB  : Sig.LoadDirectBlocked.GuardedWithOOB<'T>
         }
     
-    let private Default _ items_per_thread = 
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(linear_tid * items_per_thread) + ITEM]
-        @>
-
-    let private Guarded _ items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-            let bounds = valid_items - (linear_tid * items_per_thread)
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(linear_tid * items_per_thread) + ITEM]
-        @>
+    
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * tp.ITEMS_PER_THREAD) + ITEM]
         
-    let private GuardedWithOOB _ items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- oob_default
-            let bounds = valid_items - (linear_tid * items_per_thread)
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(linear_tid * items_per_thread) + ITEM]
-        @>
+    let [<ReflectedDefinition>] inline private Guarded (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+        let bounds = valid_items - (linear_tid * tp.ITEMS_PER_THREAD)
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * tp.ITEMS_PER_THREAD) + ITEM]
+        
+    let [<ReflectedDefinition>] inline private GuardedWithOOB (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
+        let bounds = valid_items - (linear_tid * tp.ITEMS_PER_THREAD)
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * tp.ITEMS_PER_THREAD) + ITEM]
 
 
-    let api block_threads items_per_thread  =
+    let [<ReflectedDefinition>] inline api<'T>(tp:_TemplateParams) =
         {
-            Default =           Default
-                                <|| (block_threads, items_per_thread)
-
-            Guarded =           Guarded
-                                <|| (block_threads, items_per_thread)
-
-            GuardedWithOOB =    GuardedWithOOB
-                                <|| (block_threads, items_per_thread)
+            Default =           Default tp
+            Guarded =           Guarded tp
+            GuardedWithOOB =    GuardedWithOOB tp
         }
 
 
 module LoadDirectBlockedVectorized =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            Default : Sig.LoadDirectBlockedVectorized.DefaultExpr
+            Default : Sig.LoadDirectBlockedVectorized.Default<'T>
         }
 
-    let private Default items_per_thread =
-        <@ fun (linear_tid:int) (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
-            let MAX_VEC_SIZE = CUB_MIN 4 items_per_thread
-            let VEC_SIZE = if (((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((items_per_thread % MAX_VEC_SIZE) = 0) then MAX_VEC_SIZE else 1
-            let VECTORS_PER_THREAD = items_per_thread / VEC_SIZE
-            let ptr = (block_ptr + (linear_tid * VEC_SIZE * VECTORS_PER_THREAD)) |> __ptr_reinterpret
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
+        let MAX_VEC_SIZE = CUB_MIN 4 tp.ITEMS_PER_THREAD
+        let VEC_SIZE = if (((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((tp.ITEMS_PER_THREAD % MAX_VEC_SIZE) = 0) then MAX_VEC_SIZE else 1
+        let VECTORS_PER_THREAD = tp.ITEMS_PER_THREAD / VEC_SIZE
+        let ptr = (block_ptr + (linear_tid * VEC_SIZE * VECTORS_PER_THREAD)) |> __ptr_reinterpret
 
-            let vec_items = __local__.Array<'Vector>(VECTORS_PER_THREAD) |> __array_to_ptr
+        let vec_items = __local__.Array<'Vector>(VECTORS_PER_THREAD) |> __array_to_ptr
 
-            for ITEM = 0 to (VECTORS_PER_THREAD - 1) do vec_items.[ITEM] <- ptr.[ITEM]
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- vec_items.[ITEM] //|> __ptr_to_obj
-        @>
+        for ITEM = 0 to (VECTORS_PER_THREAD - 1) do vec_items.[ITEM] <- ptr.[ITEM]
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- vec_items.[ITEM] //|> __ptr_to_obj
+        
 
     let private Guarded x = <@ fun x y z w -> () @>
     let private GuardedWithOOB x = <@ fun x y z w u -> () @>
 
 
-    let api _ items_per_thread  =
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams) =
         {
-            Default =           Default
-                                <| items_per_thread
-
-//            Guarded =           Guarded
-//                                <| items_per_thread
-//
-//            GuradedWithOOB =    GuardedWithOOB
-//                                <| items_per_thread
+            Default =           Default tp
         }
 
 
 module LoadDirectStriped =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            Default         : Sig.LoadDirectStriped.DefaultExpr
-            Guarded         : Sig.LoadDirectStriped.GuardedExpr
-            GuardedWithOOB  : Sig.LoadDirectStriped.GuardedWithOOBExpr
+            Default         : Sig.LoadDirectStriped.Default<'T>
+            Guarded         : Sig.LoadDirectStriped.Guarded<'T>
+            GuardedWithOOB  : Sig.LoadDirectStriped.GuardedWithOOB<'T>
         }
     
-    let private Default block_threads items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[(ITEM * block_threads) + linear_tid]
-        @>
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid]
 
-    let private Guarded block_threads items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-            let bounds = valid_items - linear_tid
-            for ITEM = 0 to (items_per_thread - 1) do 
-                if (ITEM * block_threads < bounds) then items.[ITEM] <- block_itr.[(ITEM * block_threads) + linear_tid]
-        @>
+    let [<ReflectedDefinition>] inline private Guarded (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+        let bounds = valid_items - linear_tid
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do 
+            if (ITEM * tp.BLOCK_THREADS < bounds) then items.[ITEM] <- block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid]
 
-    let private GuardedWithOOB block_threads items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- oob_default
-            let bounds = valid_items - linear_tid
-            for ITEM = 0 to (items_per_thread - 1) do 
-                if (ITEM * block_threads < bounds) then items.[ITEM] <- block_itr.[(ITEM * block_threads) + linear_tid]
-        @>
+    let [<ReflectedDefinition>] inline private GuardedWithOOB (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
+        let bounds = valid_items - linear_tid
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do 
+            if (ITEM * tp.BLOCK_THREADS < bounds) then items.[ITEM] <- block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid]
+    
 
-
-    let api block_threads items_per_thread  =  
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams) =
         {
-            Default =           Default
-                                <|| (block_threads, items_per_thread)
-
-            Guarded =           Guarded
-                                <|| (block_threads, items_per_thread)
-
-            GuardedWithOOB =    GuardedWithOOB
-                                <|| (block_threads, items_per_thread)
+            Default         =    Default tp
+            Guarded         =    Guarded tp
+            GuardedWithOOB  =    GuardedWithOOB tp
         }
 
     
 module LoadDirectWarpStriped =
+    open Template
     open Internal
 
-    type API =
+    [<Record>]
+    type API<'T> =
         {
-            Default         : Sig.LoadDirectWarpStriped.DefaultExpr
-            Guarded         : Sig.LoadDirectWarpStriped.GuardedExpr
-            GuardedWithOOB  : Sig.LoadDirectWarpStriped.GuardedWithOOBExpr
+            Default         : Sig.LoadDirectWarpStriped.Default<'T>
+            Guarded         : Sig.LoadDirectWarpStriped.Guarded<'T>
+            GuardedWithOOB  : Sig.LoadDirectWarpStriped.GuardedWithOOB<'T>
         }
 
 
-    let private Default _ items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) ->
-            let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
-            let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
-            let warp_offset = wid * CUB_PTX_WARP_THREADS * items_per_thread
+    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
+        let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
+        let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
+        let warp_offset = wid * CUB_PTX_WARP_THREADS * tp.ITEMS_PER_THREAD
 
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
-        @>
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
 
-    let private Guarded _ items_per_thread =
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-            let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
-            let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
-            let warp_offset = wid * CUB_PTX_WARP_THREADS * items_per_thread
-            let bounds = valid_items - warp_offset - tid
+    let [<ReflectedDefinition>] inline private Guarded (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+        let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
+        let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
+        let warp_offset = wid * CUB_PTX_WARP_THREADS * tp.ITEMS_PER_THREAD
+        let bounds = valid_items - warp_offset - tid
 
-            for ITEM = 0 to (items_per_thread - 1) do 
-                if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
-        @>
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do 
+            if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
         
-    let private GuardedWithOOB _ items_per_thread =        
-        <@ fun (linear_tid:int) (block_itr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-            for ITEM = 0 to (items_per_thread - 1) do items.[ITEM] <- oob_default
-            let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
-            let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
-            let warp_offset = wid * CUB_PTX_WARP_THREADS * items_per_thread
-            let bounds = valid_items - warp_offset - tid
+    let [<ReflectedDefinition>] inline private GuardedWithOOB (tp:_TemplateParams)
+        (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
+        let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
+        let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
+        let warp_offset = wid * CUB_PTX_WARP_THREADS * tp.ITEMS_PER_THREAD
+        let bounds = valid_items - warp_offset - tid
 
-            for ITEM = 0 to (items_per_thread - 1) do 
-                if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
-        @>
+        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do 
+            if ((ITEM * CUB_PTX_WARP_THREADS) < bounds) then items.[ITEM] <- block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)]
 
     
-    let api block_threads items_per_thread =
+    let [<ReflectedDefinition>] inline api (tp:_TemplateParams) =
         {
-            Default =           Default
-                                <|| (block_threads, items_per_thread)
-
-            Guarded =           Guarded
-                                <|| (block_threads, items_per_thread)
-
-            GuardedWithOOB =    GuardedWithOOB
-                                <|| (block_threads, items_per_thread)
+            Default =           Default tp
+            Guarded =           Guarded tp
+            GuardedWithOOB =    GuardedWithOOB tp
         }
 
 
 module private LoadInternal =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            Default         : Sig.LoadInternal.DefaultExpr
-            Guarded         : Sig.LoadInternal.GuardedExpr
-            GuardedWithOOB  : Sig.LoadInternal.GuardedWithOOBExpr
+            Default         : Sig.LoadInternal.Default<'T>
+            Guarded         : Sig.LoadInternal.Guarded<'T>
+            GuardedWithOOB  : Sig.LoadInternal.GuardedWithOOB<'T>
         }
 
     module BlockLoadDirect =
-        let Default block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlocked =
-                    (   LoadDirectBlocked.api
-                        <|| (block_threads, items_per_thread)
-                    ).Default
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
-                    %LoadDirectBlocked
-                    <|||    (linear_tid, block_ptr, items)
-                @>
+        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams)
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
+            (LoadDirectBlocked.api tp).Default linear_tid block_ptr items
 
-        let Guarded block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlocked = 
-                    (   LoadDirectBlocked.api
-                        <|| (block_threads, items_per_thread)
-                    ).Guarded
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-                    %LoadDirectBlocked
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|  (valid_items)
-                @>
-
-        let GuardedWithOOB block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlocked =
-                    (   LoadDirectBlocked.api
-                        <|| (block_threads, items_per_thread)
-                    ).GuardedWithOOB
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-                    %LoadDirectBlocked
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|| (valid_items, oob_default)
-                @>
-
+        let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams)
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+            (LoadDirectBlocked.api tp).Guarded linear_tid block_ptr items valid_items
+            
+        let [<ReflectedDefinition>] inline GuardedWithOOB (tp:_TemplateParams) 
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+            (LoadDirectBlocked.api tp).GuardedWithOOB linear_tid block_ptr items valid_items oob_default            
 
     module BlockLoadVectorized =
-        let Default block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlockedVectorized =  
-                    (   LoadDirectBlockedVectorized.api
-                        <|| (block_threads, items_per_thread)
-                    ).Default
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
-                    %LoadDirectBlockedVectorized
-                    <|||    (linear_tid, block_ptr, items)
-                @>
+        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams)
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
+            (LoadDirectBlockedVectorized.api tp).Default linear_tid block_ptr items
 
-        let Guarded block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlocked =
-                    (   LoadDirectBlocked.api
-                        <|| (block_threads, items_per_thread)
-                    ).Guarded
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-                    %LoadDirectBlocked
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|  (valid_items)
-                @>
-
-        let GuardedWithOOB block_threads items_per_thread _ =
-            fun _ linear_tid ->
-                let LoadDirectBlocked =
-                    (   LoadDirectBlocked.api
-                        <|| (block_threads, items_per_thread)
-                    ).GuardedWithOOB
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-                    %LoadDirectBlocked
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|| (valid_items, oob_default)
-                @>
-
+        let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams)
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+            (LoadDirectBlocked.api tp).Guarded linear_tid block_ptr items valid_items
+            
+        let [<ReflectedDefinition>] inline GuardedWithOOB (tp:_TemplateParams)
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+            (LoadDirectBlocked.api tp).GuardedWithOOB linear_tid block_ptr items valid_items oob_default
+            
 
     module BlockLoadTranspose =
-        let private StripedToBlocked block_threads items_per_thread warp_time_slicing =
-            fun temp_storage linear_tid ->
-                let stb =    
-                    (   BlockExchange.api
-                        <|||    (block_threads, items_per_thread, warp_time_slicing)
-                        <||     (temp_storage, linear_tid)
-                        <|||    (0, 0, 0)
-                    ).StripedToBlocked
-                if warp_time_slicing then stb.WithTimeslicing else stb.Default
-        
-        
-        let Default block_threads items_per_thread warp_time_slicing =
-            fun temp_storage linear_tid ->
+        let [<ReflectedDefinition>] inline private StripedToBlocked (tp:_TemplateParams)
+            (temp_storage:deviceptr<'T>) (linear_tid:int) =
+            let betp = Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams.Init(tp.BLOCK_THREADS, tp.ITEMS_PER_THREAD, tp.WARP_TIME_SLICING)
+            let tf = Alea.cuExtension.CUB.Block.Exchange.Template._ThreadFields<'T>.Uninitialized<'T>(betp)
+            if tp.WARP_TIME_SLICING then 
+                (BlockExchange.api tp).StripedToBlocked.WithTimeslicing 
+            else 
+                (BlockExchange.api tp).StripedToBlocked.Default
                 
-                let StripedToBlocked =  StripedToBlocked
-                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
-                                        <||     (temp_storage, linear_tid)
+        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams)
+            (temp_storage:deviceptr<'T>) (linear_tid:int)
+            (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
+                (LoadDirectStriped.api tp).Default linear_tid block_ptr items
+                (StripedToBlocked tp temp_storage linear_tid) items
                 
-                let LoadDirectStriped =  
-                    (   LoadDirectStriped.api
-                        <|| (block_threads, items_per_thread)
-                    ).Default
 
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) ->
-                    %LoadDirectStriped
-                    <|||    (linear_tid, block_ptr, items)
-                    
-                    %StripedToBlocked
-                    <|      (items)
-                @>
+        let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams)
+            (temp_storage:deviceptr<'T>) (linear_tid:int)
+            (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+                (LoadDirectStriped.api tp).Guarded linear_tid block_ptr items valid_items
+                (StripedToBlocked tp temp_storage linear_tid) items
 
-        let Guarded block_threads items_per_thread warp_time_slicing =
-            fun temp_storage linear_tid ->
-                
-                let StripedToBlocked =  StripedToBlocked
-                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
-                                        <||     (temp_storage, linear_tid)
-                
-                let LoadDirectStriped =  
-                    (   LoadDirectStriped.api
-                        <|| (block_threads, items_per_thread)
-                    ).Guarded
-
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) ->
-                    %LoadDirectStriped
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|  (valid_items)
-
-                    %StripedToBlocked
-                    <|      (items)
-                @>
-
-        let GuardedWithOOB block_threads items_per_thread warp_time_slicing =
-            fun temp_storage linear_tid ->
-                
-                let StripedToBlocked =  StripedToBlocked
-                                        <|||    (block_threads, items_per_thread, warp_time_slicing)
-                                        <||     (temp_storage, linear_tid)
-                
-                let LoadDirectStriped =  
-                    (   LoadDirectStriped.api
-                        <|| (block_threads, items_per_thread)
-                    ).GuardedWithOOB
-
-                <@ fun (block_ptr:deviceptr<int>) (items:deviceptr<int>) (valid_items:int) (oob_default:int) ->
-                    %LoadDirectStriped
-                    <|  (linear_tid)
-                    <|| (block_ptr, items)
-                    <|| (valid_items, oob_default)
-                    %StripedToBlocked
-                    <|      (items)
-                @>
+        let [<ReflectedDefinition>] inline GuardedWithOOB (tp:_TemplateParams)
+            (temp_storage:deviceptr<'T>) (linear_tid:int)
+            (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+                (LoadDirectStriped.api tp).GuardedWithOOB linear_tid block_ptr items valid_items oob_default
+                (StripedToBlocked tp temp_storage linear_tid) items
 
 
     module BlockLoadWarpTranspose =
-        let private WARP_THREADS block_threads =
+        let [<ReflectedDefinition>] inline private WARP_THREADS block_threads =
             ((block_threads % CUB_PTX_WARP_THREADS) = 0) |> function
             | false -> failwith "BLOCK_THREADS must be a multiple of WARP_THREADS"
             | true -> CUB_PTX_WARP_THREADS
 
-        let private WarpStripedToBlocked block_threads items_per_thread warp_time_slicing =
-            fun temp_storage linear_tid ->
-                let wstb =    
-                    (   BlockExchange.api
-                        <|||    (block_threads, items_per_thread, warp_time_slicing)
-                        <||     (temp_storage, linear_tid)
-                        <|||    (0, 0, 0)
-                    ).WarpStripedToBlocked
-                if warp_time_slicing then wstb.WithTimeslicing else wstb.Default
+        let [<ReflectedDefinition>] inline private WarpStripedToBlocked (tp:_TemplateParams)
+            (temp_storage:deviceptr<'T>) (linear_tid:int) =
+            if tp.WARP_TIME_SLICING then
+                (BlockExchange.api tp temp_storage linear_tid).WarpStripedToBlocked.WithTimeslicing
+            else
+                (BlockExchange.api tp temp_storage linear_tid).WarpStripedToBlocked.Default
 
         let Default block_threads items_per_thread warp_time_slicing =
             fun temp_storage linear_tid ->
