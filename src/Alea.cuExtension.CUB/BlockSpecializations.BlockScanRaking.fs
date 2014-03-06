@@ -30,7 +30,7 @@ module Template =
                     MEMOIZE         = memoize
                 }
 
-    let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API<'T>) = BlockRakingLayout.API<'T>.Init(tp.BLOCK_THREADS)
+    let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API) = BlockRakingLayout.API<'T>.Init(tp.BLOCK_THREADS)
 
     [<AutoOpen>]
     module Constants =
@@ -44,10 +44,10 @@ module Template =
             }
             
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API<'T>) =
+            static member Init(tp:Params.API) =
                 let warps               = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
-                let raking_threads      = (BlockRakingLayout tp).Constants.RAKING_THREADS
-                let segment_length      = (BlockRakingLayout tp).Constants.SEGMENT_LENGTH
+                let raking_threads      = (BlockRakingLayout template).Constants.RAKING_THREADS
+                let segment_length      = (BlockRakingLayout template).Constants.SEGMENT_LENGTH
                 let warp_synchronous    = (tp.BLOCK_THREADS = raking_threads)
                 {
                     WARPS               = warps
@@ -56,8 +56,8 @@ module Template =
                     WARP_SYNCHRONOUS    = warp_synchronous
                 }
 
-    let [<ReflectedDefinition>] inline WarpScan (tp:Params.API<'T>) = 
-        let c = Constants.API.Init tp
+    let [<ReflectedDefinition>] inline WarpScan (tp:Params.API) = 
+        let c = Constants.API.Init template
         WarpScan.API<'T>.Create(1, c.RAKING_THREADS)
 
     [<AutoOpen>]
@@ -72,9 +72,9 @@ module Template =
 
             [<ReflectedDefinition>]
             static member inline Init(block_threads, memoize, scan_op) =
-                let tp = Params.API<'T>.Init(block_threads, memoize, scan_op)
-                let WarpScan = WarpScan tp
-                let BlockRakingLayout = BlockRakingLayout tp
+                let template = Params.API.Init(block_threads, memoize, scan_op)
+                let WarpScan = WarpScan template
+                let BlockRakingLayout = BlockRakingLayout template
                 let b_a = __shared__.Variable<'T>()
                 {
                     warp_scan       = WarpScan.ThreadFields.temp_storage
@@ -83,7 +83,7 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member inline Init(tp:Params.API<'T>) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE, tp.scan_op)
+            static member inline Init(tp:Params.API) = API<'T>.Init(tp.BLOCK_THREADS, template.MEMOIZE, template.scan_op)
 
 
     [<AutoOpen>]
@@ -98,8 +98,8 @@ module Template =
 
             [<ReflectedDefinition>]
             static member Init(block_threads, memoize, scan_op, temp_storage, linear_tid) =
-                let tp = Params.API<'T>.Init(block_threads, memoize, scan_op)
-                let c = Constants.API.Init tp
+                let template = Params.API.Init(block_threads, memoize, scan_op)
+                let c = Constants.API.Init template
                 let cs = __local__.Array<'T>(c.SEGMENT_LENGTH)
                 {
                     temp_storage    = temp_storage
@@ -108,15 +108,15 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API<'T>, temp_storage, linear_tid) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE, tp.scan_op, temp_storage, linear_tid)
+            static member Init(tp:Params.API, temp_storage, linear_tid) = API<'T>.Init(tp.BLOCK_THREADS, template.MEMOIZE, template.scan_op, temp_storage, linear_tid)
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API<'T>) = API<'T>.Init(tp, (TempStorage.API<'T>.Init tp), 0)
+            static member Init(tp:Params.API) = API<'T>.Init(tp, (TempStorage.API<'T>.Init template), 0)
 
                         
 
 
-    type _TemplateParams<'T>    = Params.API<'T>
+    type _TemplateParams<'T>    = Params.API
     type _Constants             = Constants.API
     type _TempStorage<'T>       = TempStorage.API<'T>
     type _ThreadFields<'T>      = ThreadFields.API<'T>
@@ -166,25 +166,25 @@ module GuardedReduce =
             Default : Sig.GuardedReduce.Default<'T>
         }
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+        
         (raking_ptr:deviceptr<'T>) (raking_partial:'T) =
-        let c = _Constants.Init tp
-        let UNGUARDED = (BlockRakingLayout tp).Constants.UNGUARDED
+        let c = _Constants.Init template
+        let UNGUARDED = (BlockRakingLayout template).Constants.UNGUARDED
         let mutable raking_partial = raking_partial
-        let scan_op = tp.scan_op.op
+        let scan_op = template.scan_op.op
 
         for i = 0 to (c.SEGMENT_LENGTH - 1) do
-            if UNGUARDED || (((tf.linear_tid * c.SEGMENT_LENGTH) + i) < tp.BLOCK_THREADS) then
+            if UNGUARDED || (((tf.linear_tid * c.SEGMENT_LENGTH) + i) < template.BLOCK_THREADS) then
                 let addend = raking_ptr.[i]
                 raking_partial <- (raking_partial, addend) ||> scan_op
         raking_partial
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
             {
-                Default =   Default tp tf
+                Default =   Default template tf
             }
 
 
@@ -197,29 +197,29 @@ module Upsweep =
             Default : Sig.Upsweep.Default<'T>
         }
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) () =
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+         () =
         
-        let c = _Constants.Init tp
+        let c = _Constants.Init template
         
-        let smem_raking_ptr =   (BlockRakingLayout tp).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
+        let smem_raking_ptr =   (BlockRakingLayout template).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
         let mutable raking_ptr = __local__.Array(c.SEGMENT_LENGTH) |> __array_to_ptr
 
-        if tp.MEMOIZE then 
+        if template.MEMOIZE then 
             for i = 0 to (c.SEGMENT_LENGTH - 1) do tf.cached_segment.[i] <- smem_raking_ptr.[i]
             raking_ptr <- tf.cached_segment |> __array_to_ptr
         else
             raking_ptr <- smem_raking_ptr
 
         let raking_partial = raking_ptr.[0]
-        (GuardedReduce.api tp tf).Default raking_ptr raking_partial
+        (GuardedReduce.api template tf).Default raking_ptr raking_partial
 
     
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
-            let d = Default tp tf
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
+            let d = Default template tf
             {
-                Default =   Default tp tf
+                Default =   Default template tf
             }
 
 module ExclusiveDownsweep =
@@ -232,15 +232,15 @@ module ExclusiveDownsweep =
             WithApplyPrefix : Sig.ExclusiveDownsweep.WithApplyPrefix<'T>
         }
 
-    let [<ReflectedDefinition>] inline WithApplyPrefix (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithApplyPrefix (template:_Template<'T>)
+        
         (raking_partial:'T) (apply_prefix:bool) =
-        let c = _Constants.Init tp
-//        let ThreadScanExclusive = (ThreadScanExclusive.api c.SEGMENT_LENGTH tp.scan_op).WithApplyPrefix
+        let c = _Constants.Init template
+//        let ThreadScanExclusive = (ThreadScanExclusive.api c.SEGMENT_LENGTH template.scan_op).WithApplyPrefix
 //       
-//        let smem_raking_ptr =   (BlockRakingLayout tp).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
+//        let smem_raking_ptr =   (BlockRakingLayout template).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
 //                
-//        let raking_ptr = if tp.MEMOIZE then tf.cached_segment |> __array_to_ptr else smem_raking_ptr
+//        let raking_ptr = if template.MEMOIZE then tf.cached_segment |> __array_to_ptr else smem_raking_ptr
 //                
 //        ThreadScanExclusive
 //        <|| (raking_ptr, raking_ptr)
@@ -248,22 +248,22 @@ module ExclusiveDownsweep =
 //        <|  (apply_prefix)
 //        |> ignore
 //
-//        if tp.MEMOIZE then
+//        if template.MEMOIZE then
 //            for i = 0 to (c.SEGMENT_LENGTH - 1) do smem_raking_ptr.[i] <- tf.cached_segment.[i]
 //            
         ()
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>) 
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>) 
+        
         (raking_partial:'T) =
-        WithApplyPrefix tp tf raking_partial true
+        WithApplyPrefix template tf raking_partial true
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
             {
-                Default         =   Default tp tf
-                WithApplyPrefix =   WithApplyPrefix tp tf
+                Default         =   Default template tf
+                WithApplyPrefix =   WithApplyPrefix template tf
             }
 
 module InclusiveDownsweep = ()
@@ -278,15 +278,15 @@ module ExclusiveScan =
             WithAggregateAndCallbackOp  : Sig.ExclusiveScan.WithAggregateAndCallbackOp<'T>
         }
 
-    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+        
         (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-        let c = _Constants.Init tp
+        let c = _Constants.Init template
 
-        let WarpScan            = (WarpScan tp).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveScan.WithAggregate
-        let PlacementPtr        = (BlockRakingLayout tp).PlacementPtr.Default
-        let Upsweep             = (Upsweep.api tp tf).Default
-        let ExclusiveDownsweep  = (ExclusiveDownsweep.api tp tf).Default
+        let WarpScan            = (WarpScan template).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveScan.WithAggregate
+        let PlacementPtr        = (BlockRakingLayout template).PlacementPtr.Default
+        let Upsweep             = (Upsweep.api template tf).Default
+        let ExclusiveDownsweep  = (ExclusiveDownsweep.api template tf).Default
                 
         if c.WARP_SYNCHRONOUS then
             WarpScan input output !identity block_aggregate
@@ -312,15 +312,15 @@ module ExclusiveScan =
             block_aggregate := tf.temp_storage.block_aggregate
 
 
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
+        
         (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
             {
-                WithAggregate               =   WithAggregate tp tf
-                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp tp tf
+                WithAggregate               =   WithAggregate template tf
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp template tf
             }
 
 module ExclusiveSum =
@@ -333,15 +333,15 @@ module ExclusiveSum =
             WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOp<'T>
         }
 
-    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+        
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-        let c = _Constants.Init tp
+        let c = _Constants.Init template
 
-        let WarpScan            = (WarpScan tp).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveSum.WithAggregate
-        let PlacementPtr        = (BlockRakingLayout tp).PlacementPtr.Default
-        let Upsweep             = (Upsweep.api tp tf).Default
-        let ExclusiveDownsweep  = (ExclusiveDownsweep.api tp tf).Default
+        let WarpScan            = (WarpScan template).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveSum.WithAggregate
+        let PlacementPtr        = (BlockRakingLayout template).PlacementPtr.Default
+        let Upsweep             = (Upsweep.api template tf).Default
+        let ExclusiveDownsweep  = (ExclusiveDownsweep.api template tf).Default
 
     
         if c.WARP_SYNCHRONOUS then
@@ -367,16 +367,16 @@ module ExclusiveSum =
             block_aggregate := tf.temp_storage.block_aggregate
     
 
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
+        
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
             {
-                WithAggregate               =   WithAggregate tp tf
+                WithAggregate               =   WithAggregate template tf
 
-                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp tp tf
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp template tf
             }
 
 
@@ -393,20 +393,20 @@ module BlockScanRaking =
 
         [<ReflectedDefinition>]
         static member Create(block_threads, memoize, scan_op) =
-            let tp = _TemplateParams<'T>.Init(block_threads, memoize, scan_op)            
+            let template = _TemplateParams<'T>.Init(block_threads, memoize, scan_op)            
             let tf = _ThreadFields<'T>.Init(tp)
             {
-                ExclusiveSum    =   ExclusiveSum.api tp tf
-                ExclusiveScan   =   ExclusiveScan.api tp tf
+                ExclusiveSum    =   ExclusiveSum.api template tf
+                ExclusiveScan   =   ExclusiveScan.api template tf
             }
 
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>)
+         =
             {
-                ExclusiveSum    =   ExclusiveSum.api tp tf
-                ExclusiveScan   =   ExclusiveScan.api tp tf
+                ExclusiveSum    =   ExclusiveSum.api template tf
+                ExclusiveScan   =   ExclusiveScan.api template tf
             }
 
 //    member this.GuardedReduce(raking_ptr:deviceptr<int>, scan_op:IScanOp, raking_partial:int) = //, iteration:bool) =    

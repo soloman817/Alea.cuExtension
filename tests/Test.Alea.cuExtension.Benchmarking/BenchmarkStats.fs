@@ -93,8 +93,8 @@ module TeslaK20c =
     module ModernGPU =
         module ScanStats =
             let notes = ""
-            let tp = testParameters(Scan)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(Scan)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             let int32_stats = [(  433.734,     5.205 );     // 10k
                                    (  702.083,     8.425 );     // 50k
                                    ( 1898.394,    22.781 );     // 100k
@@ -121,8 +121,8 @@ module TeslaK20c =
 
         module BulkRemoveStats =
             let notes = ""
-            let tp = testParameters(BulkRemove)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(BulkRemove)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             let int32_stats = [  (  439.238,      3.514);
                                                    ( 1435.891,     11.487);
                                                    ( 2951.152,     23.609);
@@ -171,8 +171,8 @@ module TeslaK20c =
     
         module BulkInsertStats =
             let notes = ""
-            let tp = testParameters(BulkInsert)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(BulkInsert)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             let int32_stats = [ (  486.572,      4.866);
                                                   ( 1659.098,     16.591);
                                                   ( 2772.436,     27.724);
@@ -221,10 +221,10 @@ module TeslaK20c =
 
 
         module IntervalExpandStats =
-            let tp = testParameters(IntervalMove)            
+            lettemplate= testParameters(IntervalMove)            
             module AvgSegLength25 =
                 let notes = "Average segment length of 25 elements."
-                let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+                let sourceCounts, nIterations = template.SourceCounts, template.Iterations
 
                 let int32_stats = [ ]
 
@@ -238,7 +238,7 @@ module TeslaK20c =
 
             module ConstCountChangingExpandRate =
                 let notes = "Constant 10M count and changing expand rate."
-                let termList = tp.Terms
+                let termList = template.Terms
                 let sourceCounts = Array.init termList.Length (fun _ -> 10000000)
                 let nIterations = Array.init termList.Length (fun _ -> 300)
 
@@ -253,10 +253,10 @@ module TeslaK20c =
                 let fourTypeStatsList = [int32_stats; int64_stats; float32_stats; float64_stats]
 
         module IntervalMoveStats =
-            let tp = testParameters(IntervalMove)            
+            lettemplate= testParameters(IntervalMove)            
             module AvgSegLength25 =
                 let notes = "Average segment length of 25 elements."
-                let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+                let sourceCounts, nIterations = template.SourceCounts, template.Iterations
 
                 let int32_stats = [ ]
 
@@ -270,7 +270,7 @@ module TeslaK20c =
 
             module ConstCountChangingExpandRate =
                 let notes = "Constant 10M count and changing expand rate."
-                let termList = tp.Terms
+                let termList = template.Terms
                 let sourceCounts = Array.init termList.Length (fun _ -> 10000000)
                 let nIterations = Array.init termList.Length (fun _ -> 300)
 
@@ -323,8 +323,8 @@ module GF560Ti =
 
         module ScanStats =
             let notes = ""
-            let tp = testParameters(Scan)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(Scan)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
 
             let int32_stats = [ ( 522.294,     6.268);    
                                     (1409.874,    16.918);     
@@ -350,8 +350,8 @@ module GF560Ti =
 
         module BulkRemoveStats =
             let notes = ""
-            let tp = testParameters(BulkRemove)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(BulkRemove)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             let int32_stats = [    (  802.967,      6.424);
                                              ( 2479.822,     19.839);
                                              ( 3336.508,     26.692);
@@ -400,8 +400,8 @@ module GF560Ti =
 
         module BulkInsertStats =
             let notes = ""
-            let tp = testParameters(BulkInsert)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(BulkInsert)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
 
             let int32_stats = [( 856.817,      8.568);
                                          (2043.384,     20.434);
@@ -450,8 +450,8 @@ module GF560Ti =
             let fourTypeStatsList = [int32_stats; int64_stats; float32_stats; float64_stats]
 
         module SortedSearchStats =
-            let tp = testParameters(SortedSearch)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(SortedSearch)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             module SS1 = 
                 let notes = "Aka sorted search 1" // fix later
                 let int32_stats = [   (  709.298,      3.546);
@@ -552,8 +552,8 @@ module GF560Ti =
 
 
         module MergeStats =
-            let tp = testParameters(Merge)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(Merge)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             module Keys =
                 let notes = ""
                 let int32_stats = [  (  743.271,    5.946);
@@ -603,8 +603,8 @@ module GF560Ti =
                                             ( 2217.574,   70.962) ]
 
         module LoadBalanceStats =
-            let tp = testParameters(LoadBalance)
-            let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+            lettemplate= testParameters(LoadBalance)
+            let sourceCounts, nIterations = template.SourceCounts, template.Iterations
             module Regular =
                 let notes = ""
                 let int32_stats = [ (  895.387,   3.582);
@@ -633,8 +633,8 @@ module GF560Ti =
                                         ( 7756.576,  31.026) ]
 
         module IntervalExpandStats =
-            let tp = testParameters(IntervalMove)
-            let sourceCounts, nIterations, termList = tp.SourceCounts, tp.Iterations, tp.Terms
+            lettemplate= testParameters(IntervalMove)
+            let sourceCounts, nIterations, termList = template.SourceCounts, template.Iterations, template.Terms
             let constCounts = List.init termList.Length (fun _ -> 10000000)
             let constIterations = List.init termList.Length (fun _ -> 300)
             
@@ -745,14 +745,14 @@ module GF560Ti =
 
 
         module IntervalMoveStats =
-            let tp = testParameters(IntervalMove)
-            let sourceCounts, nIterations, termList = tp.SourceCounts, tp.Iterations, tp.Terms
+            lettemplate= testParameters(IntervalMove)
+            let sourceCounts, nIterations, termList = template.SourceCounts, template.Iterations, template.Terms
             let constCounts = List.init termList.Length (fun _ -> 10000000)
             let constIterations = List.init termList.Length (fun _ -> 300)
 
             module AvgSegLength25 =
                 let notes = "Average segment length of 25 elements."
-                let sourceCounts, nIterations = tp.SourceCounts, tp.Iterations
+                let sourceCounts, nIterations = template.SourceCounts, template.Iterations
 
                 let int32_stats = [    (  842.971,    7.148);
                                                                 ( 2204.996,   18.698);

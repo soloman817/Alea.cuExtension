@@ -24,7 +24,7 @@ type TempStorage<'T> =
 
     [<ReflectedDefinition>]
     static member Init(block_threads, items_per_thread, warp_time_slicing, algorithm, scan_op) =
-        let scantp = Alea.cuExtension.CUB.Block.Scan.Template._TemplateParams<'T>.Init(block_threads, algorithm, scan_op)
+        let scantp = Alea.cuExtension.CUB.Block.Scan.Template._TemplateParams.Init(block_threads, algorithm, scan_op)
         {
             load = Alea.cuExtension.CUB.Block.Load.Template._TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
             store = Alea.cuExtension.CUB.Block.Store.Template._TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)

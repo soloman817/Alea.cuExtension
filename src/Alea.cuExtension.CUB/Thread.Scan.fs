@@ -26,7 +26,7 @@ open Alea.cuExtension.CUB.Common
 //                }
 //
 //
-//    type _TemplateParams<'T> = Params.API<'T>
+//    type _TemplateParams<'T> = Params.API
 
 ////type ScanOp<'T> = 'T -> 'T -> 'T
 //module private Internal =
@@ -109,7 +109,7 @@ module ThreadScanExclusive =
         member this.WithApplyPrefix = WithApplyPrefix this.LENGTH
 
 //    let [<ReflectedDefinition>] api (length:int) (scan_op:'T -> 'T -> 'T) : API<'T> =
-//        let tp = _TemplateParams<'T>.Init(length) //, scan_op)
+//        lettemplate= _TemplateParams<'T>.Init(length) //, scan_op)
 //        {
 //            Default                 =   Default length scan_op
 //            WithApplyPrefixDefault  =   WithApplyPrefixDefault length scan_op
@@ -133,10 +133,10 @@ module ThreadScanExclusive =
 //            Default (this.TemplateParams.LENGTH) (scan_op.op) 
 //                0 0 input output prefix
 //    let api2 (length:int) : Template<API2<'T>> = cuda {
-//        let tp = _TemplateParams<'T>.Init(length) //, scan_op)
-//        let! _Default = <@ Default tp  @> |> Compiler.DefineFunction
-//        let! _WithApplyPrefixDefault = <@ WithApplyPrefixDefault tp  @> |> Compiler.DefineFunction
-//        let! _WithApplyPrefix = <@ WithApplyPrefix tp  @> |> Compiler.DefineFunction
+//        lettemplate= _TemplateParams<'T>.Init(length) //, scan_op)
+//        let! _Default = <@ Defaulttemplate @> |> Compiler.DefineFunction
+//        let! _WithApplyPrefixDefault = <@ WithApplyPrefixDefaulttemplate @> |> Compiler.DefineFunction
+//        let! _WithApplyPrefix = <@ WithApplyPrefixtemplate @> |> Compiler.DefineFunction
 //
 //        return {Default = _Default; WithApplyPrefixDefault = _WithApplyPrefixDefault; WithApplyPrefix = _WithApplyPrefix}
 //    }

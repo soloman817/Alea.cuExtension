@@ -26,24 +26,48 @@ module Template =
     [<AutoOpen>]
     module Params =
         [<Record>]
-        type API<'T> =
+        type API =
             {
                 LOGICAL_WARPS           : int
-                LOGICAL_WARP_THREADS    : int
-                scan_op                 : IScanOp<'T> //('T -> 'T -> 'T)
+                LOGICAL_WARP_THREADS    : int                
             }
 
             [<ReflectedDefinition>]
-            member this.Get() = (this.LOGICAL_WARPS, this.LOGICAL_WARP_THREADS, this.scan_op)
+            member this.Get() = (this.LOGICAL_WARPS, this.LOGICAL_WARP_THREADS)
 
             [<ReflectedDefinition>]
-            static member inline Init(logical_warps, logical_warp_threads, scan_op) =
+            static member inline Init(logical_warps, logical_warp_threads) =
                 {
                     LOGICAL_WARPS           = logical_warps
                     LOGICAL_WARP_THREADS    = logical_warp_threads
-                    scan_op                 = scan_op
                 }
 
+    [<AutoOpen>]
+    module Constants =
+        [<Record>]
+        type API =
+            {
+                POW_OF_TWO          : bool
+                STEPS               : int
+                HALF_WARP_THREADS   : int
+                WARP_SMEM_ELEMENTS  : int
+            }
+
+            [<ReflectedDefinition>]
+            static member Init(logical_warp_threads:int) =
+                let pow_of_two          = ((logical_warp_threads &&& (logical_warp_threads - 1)) = 0)
+                let steps               = logical_warp_threads |> log2
+                let half_warp_threads   = 1 <<< (steps - 1)
+                let warp_smem_elements  = logical_warp_threads + half_warp_threads
+                {
+                    POW_OF_TWO          = pow_of_two
+                    STEPS               = steps
+                    HALF_WARP_THREADS   = half_warp_threads
+                    WARP_SMEM_ELEMENTS  = warp_smem_elements
+                }
+
+            [<ReflectedDefinition>]
+            static member Init(tp:Params.API) = API.Init(tp.LOGICAL_WARP_THREADS)
 
     [<AutoOpen>]
     module TempStorage =
@@ -81,10 +105,7 @@ module Template =
                     WARP_SMEM_ELEMENTS  = 0
                 }
 
-        type TempStorage<'T> = API<'T>
-
-
-    
+ 
     [<AutoOpen>]
     module ThreadFields =
         [<Record>]
@@ -107,79 +128,60 @@ module Template =
                 }
 
             [<ReflectedDefinition>] 
-            static member inline Init<'T>(logical_warps, warp_smem_elements, warp_id, lane_id) =
-                API<'T>.Init(TempStorage.Init(logical_warps, warp_smem_elements), warp_id, lane_id)
+            static member inline Init(logical_warps, warp_smem_elements, warp_id, lane_id) =
+                API<'T>.Init(TempStorage.API<'T>.Init(logical_warps, warp_smem_elements), warp_id, lane_id)
             
             [<ReflectedDefinition>] 
-            static member inline Init<'T>(logical_warps, warp_smem_elements) =
-                API<'T>.Init(TempStorage.Init(logical_warps, warp_smem_elements), 0, 0)
+            static member inline Init(logical_warps, warp_smem_elements) =
+                API<'T>.Init(TempStorage.API<'T>.Init(logical_warps, warp_smem_elements), 0, 0)
                 
 
             [<ReflectedDefinition>]
-            static member inline Uninitialized<'T>() =
+            static member inline Uninitialized() =
                 {
-                    temp_storage    = TempStorage<'T>.Uninitialized<'T>()
+                    temp_storage    = TempStorage.API<'T>.Uninitialized<'T>()
                     warp_id         = 0
                     lane_id         = 0
                 }
 
-    type _TemplateParams<'T>    = Params.API<'T>
+    type _TemplateParams        = Params.API
     type _TempStorage<'T>       = TempStorage.API<'T>
     type _ThreadFields<'T>      = ThreadFields.API<'T>
+
+    [<Record>]
+    type API<'T> =
+        {
+            mutable Params          : Params.API
+            mutable Constants       : Constants.API
+            mutable ThreadFields    : ThreadFields.API<'T>
+        }
+
+        [<ReflectedDefinition>]
+        static member Init(logical_warps, logical_warp_threads) =
+            let tp  = Params.API.Init(logical_warps, logical_warp_threads)
+            let c   = Constants.API.Init(tp)
+            let tf  = ThreadFields.API<'T>.Uninitialized()
+            {
+                Params          = tp
+                Constants       = c
+                ThreadFields    = tf
+            }
+
+
+type _Template<'T> = Template.API<'T>
 
 
 module private Internal =
     open Template
 
-    module Constants =
-        
-        let POW_OF_TWO =
-            fun logical_warp_threads -> ((logical_warp_threads &&& (logical_warp_threads - 1)) = 0)
-
-        /// The number of warp scan steps
-        let STEPS =
-            fun logical_warp_threads ->
-                logical_warp_threads |> log2
-
-        /// The number of threads in half a warp
-        let HALF_WARP_THREADS =
-            fun logical_warp_threads ->
-                let STEPS = logical_warp_threads |> STEPS
-                1 <<< (STEPS - 1)
-
-        /// The number of shared memory elements per warp
-        let WARP_SMEM_ELEMENTS =
-            fun logical_warp_threads ->
-                logical_warp_threads + (logical_warp_threads |> HALF_WARP_THREADS)
-
-        
-    module Sig =
-        module InclusiveSum =
-            type Default<'T>        = 'T -> Ref<'T> -> unit
-            type WithAggregate<'T>  = 'T -> Ref<'T> -> Ref<'T> -> unit
-                
-        module InclusiveScan =
-            type Default<'T>        = InclusiveSum.Default<'T>
-            type WithAggregate<'T>  = InclusiveSum.WithAggregate<'T>
-
-        module ExclusiveScan =
-            type Default<'T>        = 'T -> Ref<'T> -> 'T -> unit
-            type WithAggregate<'T>  = 'T -> Ref<'T> -> 'T -> Ref<'T> -> unit
-
-            module Identityless =
-                type Default<'T>        = 'T -> Ref<'T> -> unit
-                type WithAggregate<'T>  = 'T -> Ref<'T> -> Ref<'T> -> unit
-                
-        type Broadcast<'T> = 'T -> int -> 'T
-
     module InitIdentity =
     
-        let [<ReflectedDefinition>] inline True<'T> (tf:_ThreadFields<'T>) =
+        let [<ReflectedDefinition>] inline True<'T>  =
             let threadStore = STORE_VOLATILE |> ThreadStore
             let identity = ZeroInitialize()
             ()
             
-        let [<ReflectedDefinition>] inline False (tf:_ThreadFields<'T>) =
+        let [<ReflectedDefinition>] inline False<'T>  =
             ()
 
         let api has_identity = if has_identity then True else False
@@ -213,8 +215,7 @@ module private Internal =
 
 
 
-    let [<ReflectedDefinition>] inline BasicScan has_identity share_final (scan_op:IScanOp<'T>) (partial:'T) =
-        let scan_op = scan_op.op
+    let [<ReflectedDefinition>] inline BasicScan has_identity share_final (scan_op:'T -> 'T -> 'T) (partial:'T) =
         __null() |> __ptr_to_obj 
         
 
@@ -223,171 +224,141 @@ module InclusiveSum =
     open Template
     open Internal
 
-    [<Record>]
-    type API<'T> =
-        {
-            Default         : Sig.InclusiveSum.Default<'T>
-            WithAggregate   : Sig.InclusiveSum.WithAggregate<'T>
-        }
 
 
-    let [<ReflectedDefinition>] inline Default<'T> (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) 
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)         
         (input:'T) (output:Ref<'T>) =
             let has_identity = true //PRIMITIVE()
-            let initIdentity = 
-                InitIdentity.api 
-                <|| (has_identity, tf)
-            let basicScan = (has_identity, false, tp.scan_op) |||> BasicScan
+//            let initIdentity = 
+//                InitIdentity.api 
+//                <|| (has_identity, tf)
+            let basicScan = (has_identity, false, scan_op) |||> BasicScan
             
-            initIdentity
-            output := (input, tp.scan_op) ||> basicScan
+            //initIdentity
+            output := (input, scan_op) ||> basicScan
     
-    let [<ReflectedDefinition>] inline WithAggregate<'T> (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        
-        let warp_smem_elements = tp.LOGICAL_WARP_THREADS |> Constants.WARP_SMEM_ELEMENTS
+        let LOGICAL_WARPS       = template.Params.LOGICAL_WARPS
+        let WARP_SMEM_ELEMENTS  = template.Constants.WARP_SMEM_ELEMENTS
+        let warp_id             = template.ThreadFields.warp_id
+        let temp_storage        = template.ThreadFields.temp_storage
         let has_identity = true //PRIMITIVE()
-        let initIdentity = 
-            InitIdentity.api 
-            <|  has_identity
-            <|  tf
+//        let initIdentity = 
+//            InitIdentity.api 
+//            <|  has_identity
+//            <|  tf
 
-        let basicScan = (has_identity, true, tp.scan_op) |||> BasicScan
+        let basicScan = (has_identity, true, scan_op) |||> BasicScan
         let threadLoad = LOAD_VOLATILE |> ThreadLoad
     
         //(%initIdentity)()
         output := input |> basicScan
         //@TODO
 //            let w_a : 'T = tf.temp_storage.[(warp_smem_elements - 1) + warp_id * logical_warps]
-        warp_aggregate := tf.temp_storage.[(warp_smem_elements - 1) + tf.warp_id * tp.LOGICAL_WARPS] //|> __obj_reinterpret |> %threadLoad //(w_a |> __unbox) // |> %threadLoad  
+        warp_aggregate := temp_storage.[(WARP_SMEM_ELEMENTS - 1) + warp_id * LOGICAL_WARPS] //|> __obj_reinterpret |> %threadLoad //(w_a |> __unbox) // |> %threadLoad  
     
+    [<Record>]
+    type API<'T> =
+        {
+            template : _Template<'T>
+        }
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
-            {
-                Default         =   Default tp tf
-                WithAggregate   =   WithAggregate tp tf
-            }
+        [<ReflectedDefinition>] member this.Default         = Default this.template
+        [<ReflectedDefinition>] member this.WithAggregate   = WithAggregate this.template
             
+        [<ReflectedDefinition>]
+        static member Init(template:_Template<'T>) = { template = template }
+
 
 module InclusiveScan =
     open Template
     open Internal
 
-    type API<'T> =
-        {
-            Default         : Sig.InclusiveScan.Default<'T>
-            WithAggregate   : Sig.InclusiveScan.WithAggregate<'T>
-        }    
-    
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)        
         (input:'T) (output:Ref<'T>) =
         ()
 
-    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         ()
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
-            {
-                Default         =   Default tp tf
-                WithAggregate   =   WithAggregate tp tf
-            }
+    [<Record>]
+    type API<'T> =
+        {
+            template : _Template<'T>
+        }
+
+        [<ReflectedDefinition>] member this.Default         = Default this.template
+        [<ReflectedDefinition>] member this.WithAggregate   = WithAggregate this.template
+            
+        [<ReflectedDefinition>]
+        static member Init(template:_Template<'T>) = { template = template }
 
 
 module ExclusiveScan =
     open Template
     open Internal
-    
-    type API<'T> =
-        {
-            Default             : Sig.ExclusiveScan.Default<'T>
-            Default_NoID        : Sig.ExclusiveScan.Identityless.Default<'T>
-            WithAggregate       : Sig.ExclusiveScan.WithAggregate<'T>
-            WithAggregate_NoID  : Sig.ExclusiveScan.Identityless.WithAggregate<'T>
-        }
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)  
         (input:'T) (output:Ref<'T>) (identity:'T) =
         ()
 
-    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+        (scan_op:'T -> 'T -> 'T)  
         (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
         ()
 
     module private Identityless =
-        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
-            (tf:_ThreadFields<'T>)
+        let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+            (scan_op:'T -> 'T -> 'T)  
             (input:'T) (output:Ref<'T>) =
             ()
 
-        let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
-            (tf:_ThreadFields<'T>)
+        let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
+            (scan_op:'T -> 'T -> 'T) 
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>)=
             ()
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
-            {
-                Default             =   Default tp tf
-                Default_NoID        =   Identityless.Default tp tf
-                WithAggregate       =   WithAggregate tp tf
-                WithAggregate_NoID  =    Identityless.WithAggregate tp tf
-            }
+    [<Record>]
+    type API<'T> =
+        {
+            template : _Template<'T>
+        }
+
+        [<ReflectedDefinition>] member this.Default             = Default this.template
+        [<ReflectedDefinition>] member this.Default_NoID        = Default this.template
+        [<ReflectedDefinition>] member this.WithAggregate       = WithAggregate this.template
+        [<ReflectedDefinition>] member this.WithAggregate_NoID  = Default this.template
+
+        [<ReflectedDefinition>]
+        static member Init(template:_Template<'T>) = { template = template }
 
 
 module WarpScanSmem =
     open Template
     open Internal
 
+
     [<Record>]
-    type Constants =
-        {
-            POW_OF_TWO          : bool
-            STEPS               : int
-            HALF_WARP_THREADS   : int
-            WARP_SMEM_ELEMENTS  : int
-        }
-
-        [<ReflectedDefinition>]
-        static member Init(logical_warp_threads) =
-            {
-                POW_OF_TWO          = logical_warp_threads |> Constants.POW_OF_TWO
-                STEPS               = logical_warp_threads |> Constants.STEPS
-                HALF_WARP_THREADS   = logical_warp_threads |> Constants.HALF_WARP_THREADS
-                WARP_SMEM_ELEMENTS  = logical_warp_threads |> Constants.WARP_SMEM_ELEMENTS
-            }
-
     type API<'T> =
         {
-            Constants       : Constants            
-            InclusiveScan   : InclusiveScan.API<'T>
-            InclusiveSum    : InclusiveSum.API<'T>
-            ExclusiveScan   : ExclusiveScan.API<'T>
-            Broadcast       : Internal.Sig.Broadcast<'T>
+            template : _Template<'T>
         }
 
-    
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
-        (tf:_ThreadFields<'T>) =
-            let c = Constants.Init tp.LOGICAL_WARP_THREADS
-            {
-                Constants       =   Constants.Init tp.LOGICAL_WARP_THREADS
-                InclusiveScan   =   InclusiveScan.api tp tf
-                InclusiveSum    =   InclusiveSum.api tp tf
-                ExclusiveScan   =   ExclusiveScan.api tp tf
-                Broadcast       =   Broadcast tf.temp_storage.Ptr tf.warp_id tf.lane_id
-            }
+        [<ReflectedDefinition>] member this.InclusiveScan   = InclusiveScan.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.InclusiveSum    = InclusiveSum.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.ExclusiveScan   = ExclusiveScan.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.Broadcast       = Broadcast this.template.ThreadFields.temp_storage.Ptr this.template.ThreadFields.warp_id this.template.ThreadFields.lane_id
 
-
-
+        [<ReflectedDefinition>]
+        static member Init(template:_Template<'T>) = { template = template }
 
 
 //let inline _TempStorage() =

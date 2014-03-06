@@ -60,7 +60,7 @@ module Template =
                     UNGUARDED           = unguarded
                 }
 
-            static member Init(tp:Params.API<'T>) = API.Init(tp.BLOCK_THREADS, tp.BLOCK_STRIPS)
+            static member Init(tp:Params.API) = API.Init(tp.BLOCK_THREADS, template.BLOCK_STRIPS)
     
        
     [<AutoOpen>]
@@ -83,7 +83,7 @@ module Template =
                 { Ptr = ptr; Length = grid_elements}
 
 
-    type _TemplateParams<'T>    = Params.API<'T>
+    type _TemplateParams<'T>    = Params.API
     type _Constants             = Constants.API
     type _TempStorage<'T>       = TempStorage.API<'T>
 
@@ -112,25 +112,25 @@ module PlacementPtr =
             WithBlockStrips : Sig.PlacementPtr.WithBlockStrips<'T>
         }
 
-    let [<ReflectedDefinition>] inline WithBlockStrips (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithBlockStrips (template:_Template<'T>)
         (temp_storage:_TempStorage<'T>) (linear_tid:int) (block_strip:int) =
         let c = _Constants.Init(tp)
-        let mutable offset = (block_strip * tp.BLOCK_THREADS) + linear_tid
+        let mutable offset = (block_strip * template.BLOCK_THREADS) + linear_tid
         if c.SEGMENT_PADDING > 0 then offset <- offset + offset / c.SEGMENT_LENGTH
 
         temp_storage.Ptr + offset
     
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (temp_storage:_TempStorage<'T>) (linear_tid:int) =
         let block_strip = 0
-        WithBlockStrips tp temp_storage linear_tid block_strip
+        WithBlockStrips template temp_storage linear_tid block_strip
         
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)=
+    let [<ReflectedDefinition>] api (template:_Template<'T>)=
         {
-            Default         =   Default tp
-            WithBlockStrips =   WithBlockStrips tp
+            Default         =   Default template
+            WithBlockStrips =   WithBlockStrips template
         }
 
 
@@ -144,14 +144,14 @@ module RakingPtr =
             Default : Sig.RakingPtr.Default<'T>
         }
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (temp_storage:_TempStorage<'T>) (linear_tid:int) =
-        let c = _Constants.Init tp
+        let c = _Constants.Init template
         temp_storage.Ptr + (linear_tid * (c.SEGMENT_LENGTH + c.SEGMENT_PADDING))
         
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+    let [<ReflectedDefinition>] api (template:_Template<'T>) =
         {
-            Default =   Default tp
+            Default =   Default template
         }
 
 
@@ -170,34 +170,34 @@ module BlockRakingLayout =
 
         [<ReflectedDefinition>]
         static member Init(block_threads, block_strips) =
-            let tp = _TemplateParams.Init(block_threads, block_strips)
-            let c = _Constants.Init tp
+            let template = _TemplateParams.Init(block_threads, block_strips)
+            let c = _Constants.Init template
             {
                 Constants       = c
                 TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
-                PlacementPtr    = PlacementPtr.api tp
-                RakingPtr       = RakingPtr.api tp
+                PlacementPtr    = PlacementPtr.api template
+                RakingPtr       = RakingPtr.api template
             }
 
         [<ReflectedDefinition>]
         static member Init(block_threads) =
-            let tp = _TemplateParams.Default(block_threads)
-            let c = _Constants.Init tp
+            let template = _TemplateParams.Default(block_threads)
+            let c = _Constants.Init template
             {
                 Constants       = c
                 TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
-                PlacementPtr    = PlacementPtr.api tp
-                RakingPtr       = RakingPtr.api tp
+                PlacementPtr    = PlacementPtr.api template
+                RakingPtr       = RakingPtr.api template
             }
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
-        let c = _Constants.Init tp
+    let [<ReflectedDefinition>] api (template:_Template<'T>) =
+        let c = _Constants.Init template
         {
             Constants       = c
             TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
-            PlacementPtr    = PlacementPtr.api tp
-            RakingPtr       = RakingPtr.api tp
+            PlacementPtr    = PlacementPtr.api template
+            RakingPtr       = RakingPtr.api template
         }
 
 //

@@ -23,7 +23,7 @@ module Template =
                     reduction_op    = reduction_op
                 }
 
-    type _TemplateParams<'T> = Params.API<'T>
+    type _TemplateParams<'T> = Params.API
 
 module ThreadReduce =
     open Template
@@ -35,27 +35,27 @@ module ThreadReduce =
             WithPrefix : deviceptr<'T> -> 'T -> 'T
         }
 
-    let [<ReflectedDefinition>] inline WithPrefix (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithPrefix (template:_Template<'T>)
         (input:deviceptr<'T>) (prefix:'T) =
-        let reduction_op = tp.reduction_op.op
+        let reduction_op = template.reduction_op.op
         let mutable addend = input.[0]
         let mutable prefix = (prefix, addend) ||> reduction_op
 
-        for i = 1 to tp.LENGTH - 1 do
+        for i = 1 to template.LENGTH - 1 do
             addend <- input.[i]
             prefix <- (prefix, addend) ||> reduction_op
 
         prefix
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (input:deviceptr<'T>) =
-        WithPrefix tp input input.[0]
+        WithPrefixtemplateinput input.[0]
 
     let [<ReflectedDefinition>] api (length:int) (reduction_op:IReductionOp<'T>) =
-        let tp = _TemplateParams<'T>.Init(length, reduction_op)
+        lettemplate= _TemplateParams<'T>.Init(length, reduction_op)
         {
-            Default     = Default tp
-            WithPrefix  = WithPrefix tp
+            Default     = Default template
+            WithPrefix  = WithPrefix template
         }
             
 //let threadReduce length reduction_op =

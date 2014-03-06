@@ -11,7 +11,7 @@ let N = 32
 
 //let [<ReflectedDefinition>] inline Default (length:int) (scan_op:'T -> 'T -> 'T)
 //    (inclusive:'T) (exclusive:'T) (input:deviceptr<'T>) (output:deviceptr<'T>) =
-//        //let scan_op = tp.scan_op
+//        //let scan_op = template.scan_op
 //        let mutable addend = input.[0]
 //        let mutable inclusive = inclusive
 //        output.[0] <- exclusive
@@ -29,7 +29,7 @@ let N = 32
 let ``thread scan : verification`` () =
     let inline template (length:int) = cuda {
         //let scan_op = (scan_op ADD 0)
-        //let tp = Thread.Scan.Template._TemplateParams<int>.Init length
+        //lettemplate= Thread.Scan.Template._TemplateParams<int>.Init length
         //let! threadScan = <@ fun () -> Default length (+) @> |> Compiler.DefineFunction
         let! kernel = 
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->

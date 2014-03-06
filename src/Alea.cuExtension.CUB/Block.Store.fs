@@ -49,12 +49,12 @@ module Template =
 
             [<ReflectedDefinition>]
             static member Init(block_threads, items_per_thread, warp_time_slicing) =
-                let tp = Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
+                let template = Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams.Init(block_threads, items_per_thread, warp_time_slicing)
                 {
                     BlockExchangeStorage = Alea.cuExtension.CUB.Block.Exchange.Template._TempStorage<'T>.Uninitialized(tp)
                 }
 
-    type _TemplateParams<'T>    = Params.API<'T>
+    type _TemplateParams<'T>    = Params.API
     type _TempStorage<'T>       = TempStorage.API<'T>
 
 
@@ -93,20 +93,20 @@ module StoreDirectBlocked =
 //        }
 
 
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
-            for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do block_itr.[(linear_tid * tp.ITEMS_PER_THREAD) + ITEM] <- items.[ITEM]
+            for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do block_itr.[(linear_tid * template.ITEMS_PER_THREAD) + ITEM] <- items.[ITEM]
         
-    let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-        for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do
+        for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do
             if ITEM + (linear_tid *tp.ITEMS_PER_THREAD) < valid_items then
                 block_itr.[(linear_tid *tp.ITEMS_PER_THREAD) + ITEM] <- items.[ITEM]
 
-//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)  =
+//    let [<ReflectedDefinition>] api (template:_Template<'T>)  =
 //        {
-//            Default =           Default tp
-//            Guarded =           Guarded tp
+//            Default =           Default template
+//            Guarded =           Guarded template
 //        }
 
 
@@ -120,17 +120,17 @@ module StoreDirectBlockedVectorized =
 //            Guarded : Sig.StoreDirectBlockedVectorized.Guarded<'T>
 //        }
             
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
         let MAX_VEC_SIZE = (4,tp.ITEMS_PER_THREAD) ||> CUB_MIN
         let VEC_SIZE = if ((((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((tp.ITEMS_PER_THREAD % MAX_VEC_SIZE) = 0)) then MAX_VEC_SIZE else 1
-        let VECTORS_PER_THREAD = tp.ITEMS_PER_THREAD / VEC_SIZE
+        let VECTORS_PER_THREAD = template.ITEMS_PER_THREAD / VEC_SIZE
         ()
 
 
-//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//    let [<ReflectedDefinition>] api (template:_Template<'T>) =
 //        {
-//            Default =   Default tp
+//            Default =   Default template
 //            Guarded =   (StoreDirectBlocked.Guarded
 //        }
 
@@ -145,22 +145,22 @@ module StoreDirectStriped =
 //            Guarded : Sig.StoreDirectStriped.Guarded<'T>
 //        }
             
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
-        for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid] <- items.[ITEM]
+        for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do block_itr.[(ITEM * template.BLOCK_THREADS) + linear_tid] <- items.[ITEM]
         
 
-    let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-        for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do
-            if ((ITEM * tp.BLOCK_THREADS) + linear_tid) < valid_items then
-                block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid] <- items.[ITEM]
+        for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do
+            if ((ITEM * template.BLOCK_THREADS) + linear_tid) < valid_items then
+                block_itr.[(ITEM * template.BLOCK_THREADS) + linear_tid] <- items.[ITEM]
     
 
-//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//    let [<ReflectedDefinition>] api (template:_Template<'T>) =
 //        {
-//            Default =           Default tp
-//            Guarded =           Guarded tp
+//            Default =           Default template
+//            Guarded =           Guarded template
 //        }
 
 
@@ -174,29 +174,29 @@ module StoreDirectWarpStriped =
 //            Guarded : Sig.StoreDirectWarpStriped.Guarded<'T>
 //        }
             
-    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
         let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
         let wid = linear_tid >>> CUB_PTX_WARP_THREADS
-        let warp_offset = wid * CUB_PTX_WARP_THREADS * tp.ITEMS_PER_THREAD
+        let warp_offset = wid * CUB_PTX_WARP_THREADS * template.ITEMS_PER_THREAD
             
-        for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)] <- items.[ITEM]
+        for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)] <- items.[ITEM]
             
     
-    let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
         let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
         let wid = linear_tid >>> CUB_PTX_WARP_THREADS
         let warp_offset = wid * CUB_PTX_WARP_THREADS *tp.ITEMS_PER_THREAD
             
-        for ITEM = 0 to tp.ITEMS_PER_THREAD - 1 do
+        for ITEM = 0 to template.ITEMS_PER_THREAD - 1 do
             if (warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS) < valid_items) then
                 block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)] <- items.[ITEM]
 
-//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//    let [<ReflectedDefinition>] api (template:_Template<'T>) =
 //        {
-//            Default =           Default tp
-//            Guarded =           Guarded tp
+//            Default =           Default template
+//            Guarded =           Guarded template
 //        }
 
 module private StoreInternal =
@@ -210,55 +210,55 @@ module private StoreInternal =
         }
 
     module BlockStoreDirect =
-        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectBlocked.Default tp linear_tid block_ptr items
+            StoreDirectBlocked.Default template linear_tid block_ptr items
 
-        let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectBlocked.Guarded tp linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded template linear_tid block_ptr items valid_items
 
 
     module BlockStoreVectorized =
-        let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectBlockedVectorized.Default tp linear_tid block_ptr items
+            StoreDirectBlockedVectorized.Default template linear_tid block_ptr items
 
-        let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectBlocked.Guarded tp linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded template linear_tid block_ptr items valid_items
 
 
             
     module BlockStoreTranspose =
         
-        let [<ReflectedDefinition>] inline BlockedToStriped (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline BlockedToStriped (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int) =
                 let bts =    
                     (   BlockExchange.api
-                        <|  Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams<'T>.Init(tp.BLOCK_THREADS, tp.ITEMS_PER_THREAD, tp.WARP_TIME_SLICING)
+                        <|  Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams.Init(tp.BLOCK_THREADS, template.ITEMS_PER_THREAD, template.WARP_TIME_SLICING)
                         <|  Alea.cuExtension.CUB.Block.Exchange.Template._ThreadFields<'T>.Init<'T>(temp_storage.BlockExchangeStorage, linear_tid, 0, 0, 0)
                     ).BlockedToStriped
-                if tp.WARP_TIME_SLICING then bts.WithTimeslicing else bts.Default
+                if template.WARP_TIME_SLICING then bts.WithTimeslicing else bts.Default
         
         
-        let [<ReflectedDefinition>] inline Default  (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Default  (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             
-            StoreDirectStriped.Default tp linear_tid block_ptr items
-            BlockedToStriped tp temp_storage linear_tid items
+            StoreDirectStriped.Default template linear_tid block_ptr items
+            BlockedToStriped template temp_storage linear_tid items
 
-        let [<ReflectedDefinition>] inline Guarded  (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Guarded  (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             
-            StoreDirectStriped.Guarded tp linear_tid block_ptr items valid_items
-            BlockedToStriped tp temp_storage linear_tid items
+            StoreDirectStriped.Guarded template linear_tid block_ptr items valid_items
+            BlockedToStriped template temp_storage linear_tid items
 
 
     module BlockStoreWarpTranspose =
@@ -268,26 +268,26 @@ module private StoreInternal =
             | false -> failwith "BLOCK_THREADS must be a multiple of WARP_THREADS"
             | true -> CUB_PTX_WARP_THREADS
 
-        let [<ReflectedDefinition>] inline BlockedToWarpStriped  (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline BlockedToWarpStriped  (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int) =
                 let wbts =    
                     (   BlockExchange.api
-                        <|  Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams<'T>.Init(tp.BLOCK_THREADS, tp.ITEMS_PER_THREAD, tp.WARP_TIME_SLICING)
+                        <|  Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams.Init(tp.BLOCK_THREADS, template.ITEMS_PER_THREAD, template.WARP_TIME_SLICING)
                         <|  Alea.cuExtension.CUB.Block.Exchange.Template._ThreadFields<'T>.Init<'T>(temp_storage.BlockExchangeStorage, linear_tid, 0, 0, 0)
                     ).BlockedToWarpStriped
-                if tp.WARP_TIME_SLICING then wbts.WithTimeslicing else wbts.Default
+                if template.WARP_TIME_SLICING then wbts.WithTimeslicing else wbts.Default
 
-        let [<ReflectedDefinition>] inline Default  (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Default  (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectWarpStriped.Default tp linear_tid block_ptr items
-            BlockedToWarpStriped tp temp_storage linear_tid items
+            StoreDirectWarpStriped.Default template linear_tid block_ptr items
+            BlockedToWarpStriped template temp_storage linear_tid items
 
-        let [<ReflectedDefinition>] inline Guarded  (tp:_TemplateParams<'T>)
+        let [<ReflectedDefinition>] inline Guarded  (template:_Template<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectWarpStriped.Guarded tp linear_tid block_ptr items valid_items
-            BlockedToWarpStriped tp temp_storage linear_tid items
+            StoreDirectWarpStriped.Guarded template linear_tid block_ptr items valid_items
+            BlockedToWarpStriped template temp_storage linear_tid items
 
 module BlockStore =
     open Template
@@ -303,35 +303,35 @@ module BlockStore =
 
         [<ReflectedDefinition>]
         static member Create(block_threads, items_per_thread, algorithm, warp_time_slicing) =
-            let tp = _TemplateParams<'T>.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
+            let template = _TemplateParams<'T>.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
             let temp_storage, _Default, _Guarded =
                 let ts = _TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
                 algorithm |> function
                 | BLOCK_STORE_DIRECT ->
                     (
                         ts,
-                        StoreInternal.BlockStoreDirect.Default tp,
-                        StoreInternal.BlockStoreDirect.Guarded tp
+                        StoreInternal.BlockStoreDirect.Default template,
+                        StoreInternal.BlockStoreDirect.Guarded template
                     )
                 | BLOCK_STORE_VECTORIZE ->
                     (   
                         ts,
-                        StoreInternal.BlockStoreVectorized.Default tp,                        
-                        StoreInternal.BlockStoreVectorized.Guarded tp
+                        StoreInternal.BlockStoreVectorized.Default template,                        
+                        StoreInternal.BlockStoreVectorized.Guarded template
                     )
 
                 | BLOCK_STORE_TRANSPOSE ->
                     (   
                         ts,
-                        StoreInternal.BlockStoreTranspose.Default tp ts,                        
-                        StoreInternal.BlockStoreTranspose.Guarded tp ts
+                        StoreInternal.BlockStoreTranspose.Default template ts,                        
+                        StoreInternal.BlockStoreTranspose.Guarded template ts
                     )
 
                 | BLOCK_STORE_WARP_TRANSPOSE ->
                     (   
                         ts,
-                        StoreInternal.BlockStoreWarpTranspose.Default tp ts,                    
-                        StoreInternal.BlockStoreWarpTranspose.Guarded tp ts      
+                        StoreInternal.BlockStoreWarpTranspose.Default template ts,                    
+                        StoreInternal.BlockStoreWarpTranspose.Guarded template ts      
                     )
             {
                 TempStorage = _TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
@@ -339,7 +339,7 @@ module BlockStore =
                 Guarded     = _Guarded
             }
 
-//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//    let [<ReflectedDefinition>] api (template:_Template<'T>) =
 //        let warp_time_slicing = if warp_time_slicing.IsNone then false else warp_time_slicing.Value
 //        fun temp_storage linear_tid ->
 //            let _Default, _Guarded =
@@ -557,7 +557,7 @@ module BlockStore =
 //    {
 //        // Template Parameters
 //        BLOCK_THREADS       : int
-//       tp.ITEMS_PER_THREAD    : int
+//       template.ITEMS_PER_THREAD    : int
 //        ALGORITHM           : BlockStoreAlgorithm
 //        WARP_TIME_SLICING   : bool
 //        ThreadFields        : ThreadFields
@@ -607,7 +607,7 @@ module BlockStore =
 //    static member Create(block_threads:int,tp.ITEMS_PER_THREAD:int, algorithm:BlockStoreAlgorithm, warp_time_slicing:bool) =
 //        {
 //            BLOCK_THREADS       = block_threads
-//           tp.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
+//           template.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
 //            ALGORITHM           = algorithm
 //            WARP_TIME_SLICING   = warp_time_slicing
 //            ThreadFields        = ThreadFields.Default()
@@ -617,7 +617,7 @@ module BlockStore =
 //    static member Create(block_threads:int,tp.ITEMS_PER_THREAD:int, algorithm:BlockStoreAlgorithm) =
 //        {
 //            BLOCK_THREADS       = block_threads
-//           tp.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
+//           template.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
 //            ALGORITHM           = algorithm
 //            WARP_TIME_SLICING   = false
 //            ThreadFields        = ThreadFields.Default()
@@ -627,7 +627,7 @@ module BlockStore =
 //    static member Create(block_threads:int,tp.ITEMS_PER_THREAD:int) =
 //        {
 //            BLOCK_THREADS       = block_threads
-//           tp.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
+//           template.ITEMS_PER_THREAD    =tp.ITEMS_PER_THREAD
 //            ALGORITHM           = BLOCK_STORE_DIRECT
 //            WARP_TIME_SLICING   = false
 //            ThreadFields        = ThreadFields.Default()
