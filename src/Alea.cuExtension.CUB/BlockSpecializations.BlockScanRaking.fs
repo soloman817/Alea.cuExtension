@@ -20,8 +20,7 @@ module Template =
         type API<'T> =
             {
                 BLOCK_THREADS   : int
-                MEMOIZE         : bool
-                scan_op         : IScanOp<'T>   
+                MEMOIZE         : bool   
             }
 
             [<ReflectedDefinition>]
@@ -29,7 +28,6 @@ module Template =
                 {
                     BLOCK_THREADS   = block_threads
                     MEMOIZE         = memoize
-                    scan_op         = scan_op
                 }
 
     let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API<'T>) = BlockRakingLayout.API<'T>.Init(tp.BLOCK_THREADS)
@@ -60,7 +58,7 @@ module Template =
 
     let [<ReflectedDefinition>] inline WarpScan (tp:Params.API<'T>) = 
         let c = Constants.API.Init tp
-        WarpScan.API<'T>.Create(1, c.RAKING_THREADS, tp.scan_op)
+        WarpScan.API<'T>.Create(1, c.RAKING_THREADS)
 
     [<AutoOpen>]
     module TempStorage =

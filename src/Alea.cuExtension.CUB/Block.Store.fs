@@ -86,11 +86,11 @@ module StoreDirectBlocked =
     open Template
     open Internal
 
-    type API<'T> =
-        {
-            Default : Sig.StoreDirectBlocked.Default<'T>
-            Guarded : Sig.StoreDirectBlocked.Guarded<'T>
-        }
+//    type API<'T> =
+//        {
+//            Default : Sig.StoreDirectBlocked.Default<'T>
+//            Guarded : Sig.StoreDirectBlocked.Guarded<'T>
+//        }
 
 
     let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
@@ -103,22 +103,22 @@ module StoreDirectBlocked =
             if ITEM + (linear_tid *tp.ITEMS_PER_THREAD) < valid_items then
                 block_itr.[(linear_tid *tp.ITEMS_PER_THREAD) + ITEM] <- items.[ITEM]
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)  =
-        {
-            Default =           Default tp
-            Guarded =           Guarded tp
-        }
+//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)  =
+//        {
+//            Default =           Default tp
+//            Guarded =           Guarded tp
+//        }
 
 
 module StoreDirectBlockedVectorized =
     open Template
     open Internal
 
-    type API<'T> =
-        {
-            Default : Sig.StoreDirectBlockedVectorized.Default<'T>
-            Guarded : Sig.StoreDirectBlockedVectorized.Guarded<'T>
-        }
+//    type API<'T> =
+//        {
+//            Default : Sig.StoreDirectBlockedVectorized.Default<'T>
+//            Guarded : Sig.StoreDirectBlockedVectorized.Guarded<'T>
+//        }
             
     let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
@@ -128,22 +128,22 @@ module StoreDirectBlockedVectorized =
         ()
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
-        {
-            Default =   Default tp
-            Guarded =   (StoreDirectBlocked.api tp).Guarded
-        }
+//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//        {
+//            Default =   Default tp
+//            Guarded =   (StoreDirectBlocked.Guarded
+//        }
 
 
 module StoreDirectStriped =
     open Template
     open Internal
 
-    type API<'T> =
-        {
-            Default : Sig.StoreDirectStriped.Default<'T>
-            Guarded : Sig.StoreDirectStriped.Guarded<'T>
-        }
+//    type API<'T> =
+//        {
+//            Default : Sig.StoreDirectStriped.Default<'T>
+//            Guarded : Sig.StoreDirectStriped.Guarded<'T>
+//        }
             
     let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
@@ -157,22 +157,22 @@ module StoreDirectStriped =
                 block_itr.[(ITEM * tp.BLOCK_THREADS) + linear_tid] <- items.[ITEM]
     
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
-        {
-            Default =           Default tp
-            Guarded =           Guarded tp
-        }
+//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//        {
+//            Default =           Default tp
+//            Guarded =           Guarded tp
+//        }
 
 
 module StoreDirectWarpStriped =
     open Template
     open Internal
 
-    type API<'T> =
-        {
-            Default : Sig.StoreDirectWarpStriped.Default<'T>
-            Guarded : Sig.StoreDirectWarpStriped.Guarded<'T>
-        }
+//    type API<'T> =
+//        {
+//            Default : Sig.StoreDirectWarpStriped.Default<'T>
+//            Guarded : Sig.StoreDirectWarpStriped.Guarded<'T>
+//        }
             
     let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
@@ -193,11 +193,11 @@ module StoreDirectWarpStriped =
             if (warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS) < valid_items) then
                 block_itr.[warp_offset + tid + (ITEM * CUB_PTX_WARP_THREADS)] <- items.[ITEM]
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
-        {
-            Default =           Default tp
-            Guarded =           Guarded tp
-        }
+//    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
+//        {
+//            Default =           Default tp
+//            Guarded =           Guarded tp
+//        }
 
 module private StoreInternal =
     open Template
@@ -213,24 +213,24 @@ module private StoreInternal =
         let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            (StoreDirectBlocked.api tp).Default linear_tid block_ptr items
+            StoreDirectBlocked.Default tp linear_tid block_ptr items
 
         let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            (StoreDirectBlocked.api tp).Guarded linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded tp linear_tid block_ptr items valid_items
 
 
     module BlockStoreVectorized =
         let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            (StoreDirectBlockedVectorized.api tp).Default linear_tid block_ptr items
+            StoreDirectBlockedVectorized.Default tp linear_tid block_ptr items
 
         let [<ReflectedDefinition>] inline Guarded (tp:_TemplateParams<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            (StoreDirectBlocked.api tp).Guarded linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded tp linear_tid block_ptr items valid_items
 
 
             
@@ -250,15 +250,15 @@ module private StoreInternal =
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             
-            (StoreDirectStriped.api tp).Default linear_tid block_ptr items
-            (BlockedToStriped tp temp_storage linear_tid) items
+            StoreDirectStriped.Default tp linear_tid block_ptr items
+            BlockedToStriped tp temp_storage linear_tid items
 
         let [<ReflectedDefinition>] inline Guarded  (tp:_TemplateParams<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             
-            (StoreDirectStriped.api tp).Guarded linear_tid block_ptr items valid_items
-            (BlockedToStriped tp temp_storage linear_tid) items
+            StoreDirectStriped.Guarded tp linear_tid block_ptr items valid_items
+            BlockedToStriped tp temp_storage linear_tid items
 
 
     module BlockStoreWarpTranspose =
@@ -280,14 +280,14 @@ module private StoreInternal =
         let [<ReflectedDefinition>] inline Default  (tp:_TemplateParams<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            (StoreDirectWarpStriped.api tp).Default linear_tid block_ptr items
-            (BlockedToWarpStriped tp temp_storage linear_tid) items
+            StoreDirectWarpStriped.Default tp linear_tid block_ptr items
+            BlockedToWarpStriped tp temp_storage linear_tid items
 
         let [<ReflectedDefinition>] inline Guarded  (tp:_TemplateParams<'T>)
             (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            (StoreDirectWarpStriped.api tp).Guarded linear_tid block_ptr items valid_items
-            (BlockedToWarpStriped tp temp_storage linear_tid) items
+            StoreDirectWarpStriped.Guarded tp linear_tid block_ptr items valid_items
+            BlockedToWarpStriped tp temp_storage linear_tid items
 
 module BlockStore =
     open Template

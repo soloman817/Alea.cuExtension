@@ -8,6 +8,13 @@ open Alea.CUDA.Utilities
 open NUnit.Framework
 
 open Alea.cuExtension.CUB.Block
+//
+//[<Test>]
+//let ``block load verification`` () =
+//    let template = cuda {
+//        let BlockLoad = BlockLoad.API<int>.Create()
+//    
+//    }
 
 //
 //let blockLoad = Load.blockLoad

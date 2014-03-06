@@ -45,7 +45,7 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(block_threads, algorithm, scan_op) =
+            static member Init(block_threads, algorithm) =
                 {
                     BLOCK_THREADS   = block_threads
                     ALGORITHM       = algorithm
@@ -75,10 +75,10 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(block_threads, memoize, scan_op) =
+            static member Init(block_threads, memoize) =
                 {
                     BlockScanWarpScan   = Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanWarpScans.Template._TempStorage.Uninitialized()
-                    BlockScanRaking     = Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanRaking.Template._TempStorage.Init(block_threads, memoize, scan_op)
+                    BlockScanRaking     = Alea.cuExtension.CUB.Block.BlockSpecializations.BlockScanRaking.Template._TempStorage.Init(block_threads, memoize)
                 }
 
             [<ReflectedDefinition>]
