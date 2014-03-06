@@ -104,7 +104,7 @@ type __ptx__ private () =
     
     [<BFI>]     static member BFI(x,y,bit,numBits) = bfi x y bit numBits
     //[<ShuffleUp>] 
-    static member inline ShuffleUp(input:'T, src_offset:int) =
+    static member ShuffleUp(input:'T, src_offset:int) =
         let SHFL_C = 0
          
         let WORDS = (sizeof<'T> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>

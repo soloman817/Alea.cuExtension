@@ -11,7 +11,7 @@ open Alea.cuExtension.CUB.Utilities
 open Alea.cuExtension.CUB.Thread
 
 
-let inline private Broadcast (temp_storage:deviceptr<'T>) (warp_id:int) (lane_id:int) 
+let inline Broadcast (temp_storage:deviceptr<'T>) (warp_id:int) (lane_id:int) 
     (input:'T) (src_lane:int) =
     let threadStore = STORE_VOLATILE |> ThreadStore
     let threadLoad  = LOAD_DEFAULT |> ThreadLoad
@@ -174,12 +174,12 @@ module private Internal =
 
     module InitIdentity =
     
-        let [<ReflectedDefinition>] inline private True<'T> (tf:_ThreadFields<'T>) =
+        let [<ReflectedDefinition>] inline True<'T> (tf:_ThreadFields<'T>) =
             let threadStore = STORE_VOLATILE |> ThreadStore
             let identity = ZeroInitialize()
             ()
             
-        let [<ReflectedDefinition>] inline private False (tf:_ThreadFields<'T>) =
+        let [<ReflectedDefinition>] inline False (tf:_ThreadFields<'T>) =
             ()
 
         let api has_identity = if has_identity then True else False
@@ -231,7 +231,7 @@ module InclusiveSum =
         }
 
 
-    let [<ReflectedDefinition>] inline private Default<'T> (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default<'T> (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) 
         (input:'T) (output:Ref<'T>) =
             let has_identity = true //PRIMITIVE()
@@ -243,7 +243,7 @@ module InclusiveSum =
             initIdentity
             output := (input, tp.scan_op) ||> basicScan
     
-    let [<ReflectedDefinition>] inline private WithAggregate<'T> (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate<'T> (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         
@@ -264,7 +264,7 @@ module InclusiveSum =
         warp_aggregate := tf.temp_storage.[(warp_smem_elements - 1) + tf.warp_id * tp.LOGICAL_WARPS] //|> __obj_reinterpret |> %threadLoad //(w_a |> __unbox) // |> %threadLoad  
     
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 Default         =   Default tp tf
@@ -282,17 +282,17 @@ module InclusiveScan =
             WithAggregate   : Sig.InclusiveScan.WithAggregate<'T>
         }    
     
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) =
         ()
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         ()
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 Default         =   Default tp tf
@@ -312,12 +312,12 @@ module ExclusiveScan =
             WithAggregate_NoID  : Sig.ExclusiveScan.Identityless.WithAggregate<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (identity:'T) =
         ()
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
         ()
@@ -333,7 +333,7 @@ module ExclusiveScan =
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>)=
             ()
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 Default             =   Default tp tf
@@ -375,7 +375,7 @@ module WarpScanSmem =
         }
 
     
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             let c = Constants.Init tp.LOGICAL_WARP_THREADS
             {

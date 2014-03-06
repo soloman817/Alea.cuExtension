@@ -7,16 +7,20 @@ open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Block
 
+type BlockLoadAlgorithm     = Alea.cuExtension.CUB.Block.Load.Template.BlockLoadAlgorithm
+type BlockStoreAlgorithm    = Alea.cuExtension.CUB.Block.Store.Template.BlockStoreAlgorithm
+type BlockScanAlgorithm     = Alea.cuExtension.CUB.Block.Scan.Template.BlockScanAlgorithm
+
 type BlockScanRegionPolicy =
     {
-        BLOCK_THREADS : int
-        ITEMS_PER_THREAD : int
-        LOAD_ALGORITHM  : BlockLoadAlgorithm
-        LOAD_WARP_TIME_SLICING : bool
-        LOAD_MODIFIER   : CacheLoadModifier
-        STORE_ALGORITHM : BlockStoreAlgorithm
+        BLOCK_THREADS           : int
+        ITEMS_PER_THREAD        : int
+        LOAD_ALGORITHM          : BlockLoadAlgorithm
+        LOAD_WARP_TIME_SLICING  : bool
+        LOAD_MODIFIER           : CacheLoadModifier
+        STORE_ALGORITHM         : BlockStoreAlgorithm
         STORE_WARP_TIME_SLICING : bool           
-        SCAN_ALGORITHM  : BlockScanAlgorithm 
+        SCAN_ALGORITHM          : BlockScanAlgorithm 
     }
 
     static member Create(   block_threads, 

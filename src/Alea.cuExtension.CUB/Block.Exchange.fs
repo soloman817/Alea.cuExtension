@@ -14,7 +14,7 @@ open Ptx
 module Template =
     [<AutoOpen>]
     module Params =
-        type API =
+        type API<'T> =
             {
                 BLOCK_THREADS       :   int
                 ITEMS_PER_THREAD    :   int
@@ -34,7 +34,7 @@ module Template =
 
             [<ReflectedDefinition>]
             static member Default(block_threads, items_per_thread) = 
-                API.Init(block_threads, items_per_thread, false)
+                API<'T>.Init<'T>(block_threads, items_per_thread, false)
     
     [<AutoOpen>]
     module Constants =
@@ -57,7 +57,7 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API) =
+            static member Init(tp:Params.API<'T>) =
                 let log_warp_threads            = CUB_PTX_LOG_WARP_THREADS
                 let warp_threads                = 1 <<< log_warp_threads
                 let warps                       = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
@@ -101,7 +101,7 @@ module Template =
                 and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
 
             [<ReflectedDefinition>]
-            static member Uninitialized<'T>(tp:Params.API) =
+            static member Uninitialized(tp:Params.API<'T>) =
                 let c = Constants.API.Init tp
                 let length = c.TIME_SLICED_ITEMS + c.PADDING_ITEMS
                 let s = __shared__.Array(length)
@@ -120,7 +120,7 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(temp_storage:TempStorage.API<'T>, linear_tid, warp_lane, warp_id, warp_offset) =
+            static member Init<'T>(temp_storage:TempStorage.API<'T>, linear_tid, warp_lane, warp_id, warp_offset) =
                 {
                     temp_storage    = temp_storage
                     linear_tid      = linear_tid
@@ -130,12 +130,12 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API) = API<_>.Init(TempStorage.API<'T>.Uninitialized<'T>(tp), 0, 0, 0, 0)
+            static member Init(tp:Params.API<'T>) = API<'T>.Init<'T>(TempStorage.API<'T>.Uninitialized<'T>(tp), 0, 0, 0, 0)
 
-    type _TemplateParams    = Params.API
-    type _Constants         = Constants.API
-    type _TempStorage<'T>   = TempStorage.API<'T>
-    type _ThreadFields<'T>  = ThreadFields.API<'T>
+    type _TemplateParams<'T>    = Params.API<'T>
+    type _Constants             = Constants.API
+    type _TempStorage<'T>       = TempStorage.API<'T>
+    type _ThreadFields<'T>      = ThreadFields.API<'T>
 
 module private Internal =
     module Sig =
@@ -156,8 +156,8 @@ module private Internal =
             type WithTimeslicing<'T>    = BlockToStriped.WithTimeslicing<'T>
 
         module ScatterToBlocked =
-            type Default<'T>            = deviceptr<'T> -> deviceptr<'T> -> unit
-            type WithTimeslicing<'T>    = deviceptr<'T> -> deviceptr<'T> -> unit
+            type Default<'T>            = deviceptr<'T> -> deviceptr<int> -> unit
+            type WithTimeslicing<'T>    = deviceptr<'T> -> deviceptr<int> -> unit
 
         module ScatterToStriped =
             type Default<'T>            = ScatterToBlocked.Default<'T>
@@ -174,7 +174,7 @@ module BlockedToStriped =
             WithTimeslicing     : Sig.BlockToStriped.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -191,7 +191,7 @@ module BlockedToStriped =
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
             items.[ITEM] <- tf.temp_storage.[item_offset]
 
-    let [<ReflectedDefinition>] inline private WithTimeslicing (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -225,7 +225,7 @@ module BlockedToStriped =
             items.[ITEM] <- temp_items.[ITEM]
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 Default         =   Default tp tf
@@ -243,7 +243,7 @@ module BlockedToWarpStriped =
             WithTimeslicing     : Sig.BlockToWarpStriped.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -257,7 +257,7 @@ module BlockedToWarpStriped =
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
             items.[ITEM] <- tf.temp_storage.[item_offset]
 
-    let [<ReflectedDefinition>] inline private WithTimeslicing (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -276,7 +276,7 @@ module BlockedToWarpStriped =
                     items.[ITEM] <- tf.temp_storage.[item_offset]
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             Default         =   Default tp tf
@@ -294,7 +294,7 @@ module StripedToBlocked =
             WithTimeslicing     : Sig.StripedToBlocked.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -311,7 +311,7 @@ module StripedToBlocked =
             items.[ITEM] <- tf.temp_storage.[item_offset]
             
 
-    let [<ReflectedDefinition>] inline private WithTimeslicing (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -345,7 +345,7 @@ module StripedToBlocked =
             items.[ITEM] <- temp_items.[ITEM]
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             Default         =   Default tp tf
@@ -363,7 +363,7 @@ module WarpStripedToBlocked =
             WithTimeslicing     : Sig.WarpStripedToBlocked.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -377,7 +377,7 @@ module WarpStripedToBlocked =
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
             items.[ITEM] <- tf.temp_storage.[item_offset]
 
-    let [<ReflectedDefinition>] inline private WithTimeslicing (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) =
         let c = _Constants.Init tp
@@ -396,7 +396,7 @@ module WarpStripedToBlocked =
                     items.[ITEM] <- tf.temp_storage.[item_offset]
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             Default         =   Default tp tf
@@ -414,7 +414,7 @@ module ScatterToBlocked =
             WithTimeslicing     : Sig.ScatterToBlocked.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
         let c = _Constants.Init tp
@@ -431,11 +431,11 @@ module ScatterToBlocked =
             items.[ITEM] <- tf.temp_storage.[item_offset]
 
 
-    let [<ReflectedDefinition>] inline private WithTimeslicing (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
         let c = _Constants.Init tp
-        let temp_items = __local__.Array(tp.ITEMS_PER_THREAD)
+        let temp_items = __local__.Array<'T>(tp.ITEMS_PER_THREAD)
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             __syncthreads()
 
@@ -460,7 +460,7 @@ module ScatterToBlocked =
             items.[ITEM] <- temp_items.[ITEM]
 
 
-    let [<ReflectedDefinition>] api (tp:_TemplateParams) 
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) 
         (tf:_ThreadFields<'T>) =
         {
             Default         =   Default tp tf
@@ -478,7 +478,7 @@ module ScatterToStriped =
             WithTimeslicing     : Sig.ScatterToStriped.WithTimeslicing<'T>
         }
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
             let c = _Constants.Init tp
@@ -495,7 +495,7 @@ module ScatterToStriped =
                 items.[ITEM] <- tf.temp_storage.[item_offset]
 
 
-    let private WithTimeslicing (tp:_TemplateParams)
+    let private WithTimeslicing (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
             let c = _Constants.Init tp
@@ -528,7 +528,7 @@ module ScatterToStriped =
                 items.[ITEM] <- temp_items.[ITEM]
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 Default         =   Default tp tf
@@ -539,6 +539,7 @@ module ScatterToStriped =
 module BlockExchange =
     open Template
 
+    [<Record>]
     type API<'T> =
         {
             BlockedToStriped        : BlockedToStriped.API<'T>
@@ -549,7 +550,20 @@ module BlockExchange =
             ScatterToStriped        : ScatterToStriped.API<'T>
         }
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams)
+//        [<ReflectedDefinition>]
+//        static member Create(block_threads, items_per_thread, warp_time_slicing) =
+//            let tp = _TemplateParams<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
+//            let tf = _ThreadFields<'T>.Init(tp)
+//            {
+//                BlockedToStriped        =   BlockedToStriped.api tp tf
+//                BlockedToWarpStriped    =   BlockedToWarpStriped.api tp tf
+//                StripedToBlocked        =   StripedToBlocked.api tp tf
+//                WarpStripedToBlocked    =   WarpStripedToBlocked.api tp tf                                                            
+//                ScatterToBlocked        =   ScatterToBlocked.api tp tf
+//                ScatterToStriped        =   ScatterToStriped.api tp tf
+//            }
+
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
             {
                 BlockedToStriped        =   BlockedToStriped.api tp tf
@@ -963,7 +977,7 @@ module BlockExchange =
 ////        BlockExchange.Init(block_threads, items_per_thread, false)
 ////
 ////
-//////let inline privateStorage() = cuda { return! <@ fun (n:int) -> __shared__.Array(n) |> __array_to_ptr @> |> Compiler.DefineFunction }
+//////let inlineStorage() = cuda { return! <@ fun (n:int) -> __shared__.Array(n) |> __array_to_ptr @> |> Compiler.DefineFunction }
 ////
 //[<Record>]
 //type ThreadFields =

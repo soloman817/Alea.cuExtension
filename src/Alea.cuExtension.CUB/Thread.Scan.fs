@@ -7,33 +7,49 @@ open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 
-module private Internal =
-    module Sig =
-        module ThreadScanExclusive =
-            type DefaultExpr                = Expr<int -> int -> deviceptr<int> -> deviceptr<int> -> int>
-            type WithApplyPrefixDefaultExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int>
-            type WithApplyPrefixExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> bool -> int>
-            
-       
-        module ThreadScanInclusive =
-            type WithPrefixExpr             = Expr<int -> deviceptr<int> -> deviceptr<int> -> int>
-            type DefaultExpr                = Expr<deviceptr<int> -> deviceptr<int> -> int>
-            type WithApplyPrefixDefaultExpr = Expr<deviceptr<int> -> deviceptr<int> -> int -> int>
-            type WithApplyPrefixExpr        = Expr<deviceptr<int> -> deviceptr<int> -> int -> bool -> int>
+
+//module Template =   
+//    [<AutoOpen>]
+//    module Params = 
+//        [<Record>]
+//        type API<'T> =
+//            {
+//                LENGTH  : int
+//                //scan_op : 'T -> 'T -> 'T //IScanOp<'T>
+//            }
+//
+//            [<ReflectedDefinition>]
+//            static member Init(length) = //, scan_op) =
+//                {
+//                    LENGTH  = length
+//                    //scan_op = scan_op
+//                }
+//
+//
+//    type _TemplateParams<'T> = Params.API<'T>
+
+////type ScanOp<'T> = 'T -> 'T -> 'T
+//module private Internal =
+//    module Sig =
+//        module ThreadScanExclusive =
+//            type Default<'T>                = 'T -> 'T -> deviceptr<'T> -> deviceptr<'T> -> 'T
+//            type WithApplyPrefixDefault<'T> = deviceptr<'T> -> deviceptr<'T> -> 'T -> 'T
+//            type WithApplyPrefix<'T>        = deviceptr<'T> -> deviceptr<'T> -> 'T -> bool -> 'T
+//            
+//       
+//        module ThreadScanInclusive =
+//            type WithPrefix<'T>             = 'T -> deviceptr<'T> -> deviceptr<'T> -> 'T
+//            type Default<'T>                = deviceptr<'T> -> deviceptr<'T> -> 'T
+//            type WithApplyPrefixDefault<'T> = ThreadScanExclusive.WithApplyPrefixDefault<'T>
+//            type WithApplyPrefix<'T>        = ThreadScanExclusive.WithApplyPrefix<'T>
 
 module ThreadScanExclusive =
-    open Internal
+//    open Template
+//    open Internal
 
-    type API =
-        {
-            Default                 : Sig.ThreadScanExclusive.DefaultExpr
-            WithApplyPrefixDefault  : Sig.ThreadScanExclusive.WithApplyPrefixDefaultExpr
-            WithApplyPrefix         : Sig.ThreadScanExclusive.WithApplyPrefixExpr
-        }
 
-    let private Default length (scan_op:IScanOp<'T>) =
-        let scan_op = scan_op.op
-        <@ fun (inclusive:int) (exclusive:int) (input:deviceptr<int>) (output:deviceptr<int>) ->
+    let [<ReflectedDefinition>] inline Default (length:int) (scan_op:'T -> 'T -> 'T)
+        (inclusive:'T) (exclusive:'T) (input:deviceptr<'T>) (output:deviceptr<'T>) =
             let mutable addend = input.[0]
             let mutable inclusive = inclusive
             output.[0] <- exclusive
@@ -41,57 +57,89 @@ module ThreadScanExclusive =
 
             for i = 1 to (length - 1) do
                 addend <- input.[i]
-                inclusive <- (exclusive, addend) ||> %scan_op
+                inclusive <- (exclusive, addend) ||> scan_op
                 output.[i] <- exclusive
                 exclusive <- inclusive
 
             inclusive
-        @>
 
 
-    let private WithApplyPrefixDefault length (scan_op:IScanOp<'T>) =
+    let [<ReflectedDefinition>] inline WithApplyPrefixDefault (length:int) (scan_op:'T -> 'T -> 'T)
+        (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) =
         let apply_prefix = true
-        let Default = (length, scan_op) ||> Default
-        let scan_op = scan_op.op
-        <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) ->
-            let mutable inclusive = input.[0]
-            if apply_prefix then inclusive <- (prefix, inclusive) ||> %scan_op
+        let mutable inclusive = input.[0]
+        if apply_prefix then inclusive <- (prefix, inclusive) ||> scan_op
 
-            output.[0] <- prefix
-            let exclusive = inclusive
+        output.[0] <- prefix
+        let exclusive = inclusive
 
-            %Default
-            <|| (inclusive, exclusive)
-            <|| (input, output)
-        @>
+        Default length scan_op inclusive exclusive input output
+        
 
-    let private WithApplyPrefix length (scan_op:IScanOp<'T>) =
-        let Default = (length, scan_op) ||> Default
-        let scan_op = scan_op.op
-        <@ fun (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) (apply_prefix:bool) ->
-            let mutable inclusive = input.[0]
-            if apply_prefix then inclusive <- (prefix, inclusive) ||> %scan_op
+    let [<ReflectedDefinition>] inline WithApplyPrefix (length:int) (scan_op:'T -> 'T -> 'T)
+        (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) (apply_prefix:bool) =
+        
+        let mutable inclusive = input.[0]
+        if apply_prefix then inclusive <- (prefix, inclusive) ||> scan_op
 
-            output.[0] <- prefix
-            let exclusive = inclusive
+        output.[0] <- prefix
+        let exclusive = inclusive
+        
+        Default length scan_op inclusive exclusive input output
 
-            %Default
-            <|| (inclusive, exclusive)
-            <|| (input, output)
-        @>
-
-
-    let api length scan_op =
+    [<Record>]
+    type API<'T> =
         {
-            Default                 =   Default
-                                        <|| (length, scan_op)
-
-            WithApplyPrefixDefault  =   WithApplyPrefixDefault
-                                        <|| (length, scan_op)
-
-            WithApplyPrefix         =   WithApplyPrefix
-                                        <|| (length, scan_op)
+            LENGTH : int
         }
+
+        [<ReflectedDefinition>]
+        static member Init(length) =
+            {
+                LENGTH = length
+            }
+
+        [<ReflectedDefinition>]
+        member this.Default = Default this.LENGTH
+
+        [<ReflectedDefinition>]
+        member this.WithApplyPrefixDefault = WithApplyPrefixDefault this.LENGTH
+
+        [<ReflectedDefinition>]
+        member this.WithApplyPrefix = WithApplyPrefix this.LENGTH
+
+//    let [<ReflectedDefinition>] api (length:int) (scan_op:'T -> 'T -> 'T) : API<'T> =
+//        let tp = _TemplateParams<'T>.Init(length) //, scan_op)
+//        {
+//            Default                 =   Default length scan_op
+//            WithApplyPrefixDefault  =   WithApplyPrefixDefault length scan_op
+//            WithApplyPrefix         =   WithApplyPrefix length scan_op
+//        }
+
+//    [<Record>]
+//    type API3<'T> =
+//        {
+//            TemplateParams : _TemplateParams<'T>
+//        }
+//
+//        [<ReflectedDefinition>]
+//        static member Init(length) =
+//            {
+//                TemplateParams = _TemplateParams<'T>.Init(length)
+//            }
+//
+//        [<ReflectedDefinition>]
+//        member inline this.Default(scan_op:IScanOp<_>, input:deviceptr<_>, output:deviceptr<_>, prefix:'T) =
+//            Default (this.TemplateParams.LENGTH) (scan_op.op) 
+//                0 0 input output prefix
+//    let api2 (length:int) : Template<API2<'T>> = cuda {
+//        let tp = _TemplateParams<'T>.Init(length) //, scan_op)
+//        let! _Default = <@ Default tp  @> |> Compiler.DefineFunction
+//        let! _WithApplyPrefixDefault = <@ WithApplyPrefixDefault tp  @> |> Compiler.DefineFunction
+//        let! _WithApplyPrefix = <@ WithApplyPrefix tp  @> |> Compiler.DefineFunction
+//
+//        return {Default = _Default; WithApplyPrefixDefault = _WithApplyPrefixDefault; WithApplyPrefix = _WithApplyPrefix}
+//    }
 
 
 module ThreadScanInclusive = ()

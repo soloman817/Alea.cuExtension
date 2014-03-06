@@ -13,7 +13,7 @@ open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Warp
 
 
-let [<ReflectedDefinition>] inline private Broadcast<'T> logical_warp_threads (input:'T) (src_lane:int) =
+let [<ReflectedDefinition>] inline Broadcast<'T> logical_warp_threads (input:'T) (src_lane:int) =
     (logical_warp_threads |> __ptx__.ShuffleBroadcast)
     <|| (input, src_lane)
     
@@ -163,7 +163,7 @@ module InclusiveScan =
         
 
     [<ReflectedDefinition>]
-    let inline private Default (tp:_TemplateParams<'T>)
+    let inline Default (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) =
         let inclusiveScan = WithAggregate tp
         let scan_op = tp.scan_op.op
@@ -171,7 +171,7 @@ module InclusiveScan =
         inclusiveScan input output warp_aggregate
     
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>) =
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
         {
             Default         = Default tp
             WithAggregate   = WithAggregate tp
@@ -219,7 +219,7 @@ module InclusiveSum =
     let [<InclusiveSumPtx>] private inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
 
     
-    let [<ReflectedDefinition>] inline private SingleShfl (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline SingleShfl (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
         
         let STEPS = tp.LOGICAL_WARP_THREADS |> Constants.STEPS
@@ -233,7 +233,7 @@ module InclusiveSum =
         warp_aggregate := (!output, tp.LOGICAL_WARP_THREADS - 1) ||> broadcast
         
 
-    let [<ReflectedDefinition>] inline private MultiShfl (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline MultiShfl (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         ()
         
@@ -308,7 +308,7 @@ module InclusiveSum =
     let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
 
     
-    let [<ReflectedDefinition>] inline private ULongLongSpecialized (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline ULongLongSpecialized (tp:_TemplateParams<'T>)
         (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) =
         
         let STEPS = tp.LOGICAL_WARP_THREADS |> Constants.STEPS
@@ -322,7 +322,7 @@ module InclusiveSum =
         warp_aggregate := (!output, tp.LOGICAL_WARP_THREADS - 1) ||> broadcast
 
     [<ReflectedDefinition>]
-    let inline private Generic (tp:_TemplateParams<'T>)
+    let inline Generic (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         let inclusiveSum = if sizeof<'T> <= sizeof<uint32> then SingleShfl tp else MultiShfl tp
         
@@ -330,7 +330,7 @@ module InclusiveSum =
         
 
     [<ReflectedDefinition>]
-    let inline private Default (tp:_TemplateParams<'T>)
+    let inline Default (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) =
         let inclusiveSum = Generic tp
         
@@ -339,7 +339,7 @@ module InclusiveSum =
     
 
     
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>) =
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
         {
             Default                 = Default tp
             Generic                 = Generic tp
@@ -363,7 +363,7 @@ module ExclusiveScan =
             WithAggregate_NoID  : Sig.ExclusiveScan.Identityless.WithAggregate<'T>
         }
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
         
         let inclusiveScan = (InclusiveScan.api tp).WithAggregate
@@ -379,7 +379,7 @@ module ExclusiveScan =
         ()
 
     
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (input:'T) (output:Ref<'T>) (identity:'T) =
         let exclusiveScan = WithAggregate tp
     
@@ -414,7 +414,7 @@ module ExclusiveScan =
             <|  warp_aggregate
         
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>) =
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) =
         {
             Default             = Default tp
             Default_NoID        = Identityless.Default tp
@@ -451,7 +451,7 @@ module WarpScanShfl =
             Broadcast       : Internal.Sig.Broadcast<'T>
         }
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>) (tf:_ThreadFields<'T>) =
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>) (tf:_ThreadFields<'T>) =
         {
             Constants       = Constants.Init tp.LOGICAL_WARP_THREADS
             InclusiveScan   = InclusiveScan.api tp

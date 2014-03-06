@@ -20,17 +20,15 @@ module Template =
         type API<'T> =
             {
                 BLOCK_THREADS   : int
-                scan_op         : IScanOp<'T>
             }
 
             [<ReflectedDefinition>]
-            member this.Get() = (this.BLOCK_THREADS, this.scan_op)
+            member this.Get() = (this.BLOCK_THREADS)
 
             [<ReflectedDefinition>]
             static member inline Init(block_threads, scan_op) =
                 {
                     BLOCK_THREADS   = block_threads
-                    scan_op         = scan_op
                 }
 
     [<AutoOpen>]
@@ -158,8 +156,9 @@ module private Internal =
 
     let [<ReflectedDefinition>] inline WarpScan (tp:_TemplateParams<'T>) =
         let WARPS = (_Constants.Init(tp)).WARPS
-        Alea.cuExtension.CUB.Warp.Scan.Template._TemplateParams<'T>.Init(WARPS, CUB_PTX_WARP_THREADS, tp.scan_op)
-        |>  WarpScan.api
+        Alea.cuExtension.CUB.Warp.Scan.WarpScan.api
+        <|  Alea.cuExtension.CUB.Warp.Scan.Template._TemplateParams<'T>.Init(WARPS, CUB_PTX_WARP_THREADS, tp.scan_op)
+        
         
 
 module ApplyWarpAggregates =
@@ -174,7 +173,7 @@ module ApplyWarpAggregates =
         }
 
 
-    let [<ReflectedDefinition>] inline private Default (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) =
         let c = _Constants.Init tp.BLOCK_THREADS
@@ -186,11 +185,11 @@ module ApplyWarpAggregates =
         
         for WARP = 1 to c.WARPS - 1 do
             if tf.warp_id = WARP then
-                partial := if lane_valid then (!block_aggregate, !partial) ||> %scan_op else !block_aggregate
-            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> %scan_op
+                partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
+            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> scan_op
 
 
-    let [<ReflectedDefinition>] inline private WithLaneValidation (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithLaneValidation (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool) = 
         let scan_op = tp.scan_op.op
@@ -203,12 +202,12 @@ module ApplyWarpAggregates =
 
         for WARP = 1 to c.WARPS - 1 do
             if tf.warp_id = WARP then
-                partial := if lane_valid then (!block_aggregate, !partial) ||> %scan_op else !block_aggregate
-            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> %scan_op
+                partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
+            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> scan_op
         
         
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             Default             =   Default tp tf
@@ -228,7 +227,7 @@ module ExclusiveSum =
             WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOp<'T>
         }
         
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
         let warp_aggregate = __local__.Variable()
@@ -236,7 +235,7 @@ module ExclusiveSum =
         (ApplyWarpAggregates.api tp tf).WithLaneValidation output !warp_aggregate block_aggregate (tf.lane_id > 0)
 
 
-    let [<ReflectedDefinition>] inline private WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
         let scan_op = tp.scan_op.op
@@ -249,10 +248,10 @@ module ExclusiveSum =
 
         __syncthreads()
 
-        output := (!tf.temp_storage.block_prefix, !output) ||> %scan_op
+        output := (!tf.temp_storage.block_prefix, !output) ||> scan_op
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         { 
             WithAggregate =                 WithAggregate tp tf
@@ -275,11 +274,11 @@ module ExclusiveScan =
         }
 
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) = ()
 
-    let [<ReflectedDefinition>] inline private WithAggregateAndCallbackOp  (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)       
         (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
@@ -294,7 +293,7 @@ module ExclusiveScan =
             (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         { 
             WithAggregate =                     WithAggregate tp tf
@@ -314,15 +313,15 @@ module InclusiveSum =
             WithAggregateAndCallbackOp  : Sig.InclusiveSum.WithAggregateAndCallbackOp<'T>
         }
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
 
-    let [<ReflectedDefinition>] inline private WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             WithAggregate =                 WithAggregate tp tf
@@ -341,15 +340,15 @@ module InclusiveScan =
         }
 
 
-    let [<ReflectedDefinition>] inline private WithAggregate (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
 
-    let [<ReflectedDefinition>] inline private WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>)
         (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-    let [<ReflectedDefinition>] inline api (tp:_TemplateParams<'T>)
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
         (tf:_ThreadFields<'T>) =
         {
             WithAggregate =                 WithAggregate tp tf

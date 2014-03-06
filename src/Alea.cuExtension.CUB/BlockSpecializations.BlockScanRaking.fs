@@ -12,405 +12,403 @@ open Alea.cuExtension.CUB.Warp
 open Alea.cuExtension.CUB.Block
 
 
+module Template =   
+    
+    [<AutoOpen>]
+    module Params =
+        [<Record>]
+        type API<'T> =
+            {
+                BLOCK_THREADS   : int
+                MEMOIZE         : bool
+                scan_op         : IScanOp<'T>   
+            }
 
-module TempStorage =
-    type API =
-        {
-            warp_scan               :   Alea.cuExtension.CUB.Warp.Scan.TempStorage.API
-            raking_grid             :   Alea.cuExtension.CUB.Block.RakingLayout.TempStorage.API
-            mutable block_aggregate :   int
-        }
+            [<ReflectedDefinition>]
+            static member Init(block_threads, memoize, scan_op) =
+                {
+                    BLOCK_THREADS   = block_threads
+                    MEMOIZE         = memoize
+                    scan_op         = scan_op
+                }
 
-    let unitialized grid_elements =
-        {
-            warp_scan       = Alea.cuExtension.CUB.Warp.Scan.TempStorage.uninitialized()
-            raking_grid     = (grid_elements |> Alea.cuExtension.CUB.Block.RakingLayout.TempStorage.initialize)
-            block_aggregate = 0
-        }
+    let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API<'T>) = BlockRakingLayout.API<'T>.Init(tp.BLOCK_THREADS)
 
+    [<AutoOpen>]
+    module Constants =
+        [<Record>]
+        type API =
+            {
+                WARPS               : int
+                RAKING_THREADS      : int
+                SEGMENT_LENGTH      : int
+                WARP_SYNCHRONOUS    : bool
+            }
+            
+            [<ReflectedDefinition>]
+            static member Init(tp:Params.API<'T>) =
+                let warps               = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
+                let raking_threads      = (BlockRakingLayout tp).Constants.RAKING_THREADS
+                let segment_length      = (BlockRakingLayout tp).Constants.SEGMENT_LENGTH
+                let warp_synchronous    = (tp.BLOCK_THREADS = raking_threads)
+                {
+                    WARPS               = warps
+                    RAKING_THREADS      = raking_threads
+                    SEGMENT_LENGTH      = segment_length
+                    WARP_SYNCHRONOUS    = warp_synchronous
+                }
+
+    let [<ReflectedDefinition>] inline WarpScan (tp:Params.API<'T>) = 
+        let c = Constants.API.Init tp
+        WarpScan.API<'T>.Create(1, c.RAKING_THREADS, tp.scan_op)
+
+    [<AutoOpen>]
+    module TempStorage =
+        [<Record>]
+        type API<'T> =
+            {
+                mutable warp_scan               :   Alea.cuExtension.CUB.Warp.Scan.Template._TempStorage<'T>
+                mutable raking_grid             :   Alea.cuExtension.CUB.Block.RakingLayout.Template._TempStorage<'T>
+                mutable block_aggregate         :   'T
+            }
+
+            [<ReflectedDefinition>]
+            static member inline Init(block_threads, memoize, scan_op) =
+                let tp = Params.API<'T>.Init(block_threads, memoize, scan_op)
+                let WarpScan = WarpScan tp
+                let BlockRakingLayout = BlockRakingLayout tp
+                let b_a = __shared__.Variable<'T>()
+                {
+                    warp_scan       = WarpScan.ThreadFields.temp_storage
+                    raking_grid     = BlockRakingLayout.TempStorage
+                    block_aggregate = !b_a
+                }
+
+            [<ReflectedDefinition>]
+            static member inline Init(tp:Params.API<'T>) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE, tp.scan_op)
+
+
+    [<AutoOpen>]
+    module ThreadFields =
+        [<Record>]
+        type API<'T> =
+            {
+                mutable temp_storage    : TempStorage.API<'T>
+                mutable linear_tid      : int
+                mutable cached_segment  : 'T[]
+            }
+
+            [<ReflectedDefinition>]
+            static member Init(block_threads, memoize, scan_op, temp_storage, linear_tid) =
+                let tp = Params.API<'T>.Init(block_threads, memoize, scan_op)
+                let c = Constants.API.Init tp
+                let cs = __local__.Array<'T>(c.SEGMENT_LENGTH)
+                {
+                    temp_storage    = temp_storage
+                    linear_tid      = linear_tid
+                    cached_segment  = cs
+                }
+
+            [<ReflectedDefinition>]
+            static member Init(tp:Params.API<'T>, temp_storage, linear_tid) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE, tp.scan_op, temp_storage, linear_tid)
+
+            [<ReflectedDefinition>]
+            static member Init(tp:Params.API<'T>) = API<'T>.Init(tp, (TempStorage.API<'T>.Init tp), 0)
+
+                        
+
+
+    type _TemplateParams<'T>    = Params.API<'T>
+    type _Constants             = Constants.API
+    type _TempStorage<'T>       = TempStorage.API<'T>
+    type _ThreadFields<'T>      = ThreadFields.API<'T>
 
 module private Internal =
-    type TempStorage = TempStorage.API
+    open Template
 
-    let BlockRakingLayout =
-        fun block_threads ->
-            (block_threads, None) ||> BlockRakingLayout.api
-
-    module Constants =
-        let WARPS =
-            fun block_threads ->
-                (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
-
-        let RAKING_THREADS = 
-            fun block_threads ->
-                (block_threads |> BlockRakingLayout).Constants.RAKING_THREADS
-            
-        let SEGMENT_LENGTH =
-            fun block_threads ->
-                (block_threads |> BlockRakingLayout).Constants.SEGMENT_LENGTH
-
-        let WARP_SYNCHRONOUS = 
-            fun block_threads ->
-                block_threads = (block_threads |> RAKING_THREADS)
 
     module Sig =
         module Upsweep =
-            type DefaultExpr = Expr<unit -> int>
+            type Default<'T> = unit -> 'T
 
         module GuardedReduce =
-            type DefaultExpr = Expr<deviceptr<int> -> int -> int>
+            type Default<'T> = deviceptr<'T> -> 'T -> 'T
 
         module ExclusiveDownsweep =
-            type DefaultExpr        = Expr<int -> unit>
-            type WithApplyPrefix    = Expr<int -> bool -> unit>
+            type Default<'T>            = 'T -> unit
+            type WithApplyPrefix<'T>    = 'T -> bool -> unit
 
         module ExclusiveScan =
-            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> unit>
-            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+            type WithAggregate<'T>              = 'T -> Ref<'T> -> Ref<'T> -> Ref<'T> -> unit
+            type WithAggregateAndCallbackOp<'T> = 'T -> Ref<'T> -> Ref<'T> -> Ref<'T> -> Ref<'T -> 'T> -> unit
 
             module Identityless =
-                type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
-                type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+                type WithAggregate<'T>              = 'T -> Ref<'T> -> Ref<'T> -> unit
+                type WithAggregateAndCallbackOp<'T> = 'T -> Ref<'T> -> Ref<'T> -> Ref<'T -> 'T> -> unit
 
         module ExclusiveSum =
-            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
-            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int -> int> -> unit>
+            type WithAggregate<'T>              = ExclusiveScan.Identityless.WithAggregate<'T>
+            type WithAggregateAndCallbackOp<'T> = ExclusiveScan.Identityless.WithAggregateAndCallbackOp<'T>
 
         module InclusiveScan =
-            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
-            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregate<'T>              = ExclusiveSum.WithAggregate<'T>
+            type WithAggregateAndCallbackOp<'T> = ExclusiveSum.WithAggregateAndCallbackOp<'T>
 
         module InclusiveSum =
-            type WithAggregateExpr              = Expr<int -> Ref<int> -> Ref<int> -> unit>
-            type WithAggregateAndCallbackOpExpr = Expr<int -> Ref<int> -> Ref<int> -> Ref<int> -> unit>
+            type WithAggregate<'T>              = InclusiveScan.WithAggregate<'T>
+            type WithAggregateAndCallbackOp<'T> = InclusiveScan.WithAggregateAndCallbackOp<'T>
 
-
-
-    let WarpScan block_threads scan_op =
-        fun temp_storage warp_id lane_id ->
-            let RAKING_THREADS = block_threads |> Constants.RAKING_THREADS
-            WarpScan.api
-            <|||    (1, RAKING_THREADS, scan_op)
-            <|||    (temp_storage, warp_id, lane_id)
 
 module GuardedReduce =
+    open Template
     open Internal
     // Need to do Attribute unrolling stuff
-    type API =
+    type API<'T> =
         {
-            Default : Sig.GuardedReduce.DefaultExpr
+            Default : Sig.GuardedReduce.Default<'T>
         }
 
-    let private Default block_threads (scan_op:IScanOp<'T>) =
-        let SEGMENT_LENGTH = block_threads |> Constants.SEGMENT_LENGTH
-        let UNGUARDED      = (block_threads |> BlockRakingLayout).Constants.UNGUARDED
-        let scan_op = scan_op.op
-        fun _ linear_tid ->
-            <@ fun (raking_ptr:deviceptr<int>) (raking_partial:int) ->
-                let mutable raking_partial = raking_partial
-                for i = 0 to (SEGMENT_LENGTH - 1) do
-                    if (UNGUARDED <> 0) || (((linear_tid * SEGMENT_LENGTH) + i) < block_threads) then
-                        let addend = raking_ptr.[i]
-                        raking_partial <- (raking_partial, addend) ||> %scan_op
-                raking_partial
-            @>
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (raking_ptr:deviceptr<'T>) (raking_partial:'T) =
+        let c = _Constants.Init tp
+        let UNGUARDED = (BlockRakingLayout tp).Constants.UNGUARDED
+        let mutable raking_partial = raking_partial
+        let scan_op = tp.scan_op.op
 
-    let api block_threads scan_op =
-        fun temp_storage linear_tid ->
+        for i = 0 to (c.SEGMENT_LENGTH - 1) do
+            if UNGUARDED || (((tf.linear_tid * c.SEGMENT_LENGTH) + i) < tp.BLOCK_THREADS) then
+                let addend = raking_ptr.[i]
+                raking_partial <- (raking_partial, addend) ||> scan_op
+        raking_partial
+
+
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
             {
-                Default =   Default
-                            <|| (block_threads, scan_op)
-                            <|| (temp_storage, linear_tid)
+                Default =   Default tp tf
             }
 
 
-module Upsweep = 
+module Upsweep =
+    open Template 
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            Default : Sig.Upsweep.DefaultExpr
+            Default : Sig.Upsweep.Default<'T>
         }
 
-    let private Default block_threads memoize scan_op =
-        let SEGMENT_LENGTH = block_threads |> Constants.SEGMENT_LENGTH
-        fun (temp_storage:TempStorage) linear_tid (cached_segment:deviceptr<int>) ->
-            let RakingPtr = (block_threads |> BlockRakingLayout).RakingPtr.Default
-            let GuardedReduce = (GuardedReduce.api
-                                 <||    (block_threads, scan_op)
-                                 <||    (temp_storage, linear_tid)).Default
-            <@ fun _ ->
-                let smem_raking_ptr =   %RakingPtr
-                                        <|| (temp_storage.raking_grid, linear_tid)
-                
-                let mutable raking_ptr = __local__.Array(SEGMENT_LENGTH) |> __array_to_ptr
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) () =
+        
+        let c = _Constants.Init tp
+        
+        let smem_raking_ptr =   (BlockRakingLayout tp).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
+        let mutable raking_ptr = __local__.Array(c.SEGMENT_LENGTH) |> __array_to_ptr
 
-                if memoize then 
-                    for i = 0 to (SEGMENT_LENGTH - 1) do cached_segment.[i] <- smem_raking_ptr.[i]
-                    raking_ptr <- cached_segment
-                else
-                    raking_ptr <- smem_raking_ptr
+        if tp.MEMOIZE then 
+            for i = 0 to (c.SEGMENT_LENGTH - 1) do tf.cached_segment.[i] <- smem_raking_ptr.[i]
+            raking_ptr <- tf.cached_segment |> __array_to_ptr
+        else
+            raking_ptr <- smem_raking_ptr
 
-                let raking_partial = raking_ptr.[0]
+        let raking_partial = raking_ptr.[0]
+        (GuardedReduce.api tp tf).Default raking_ptr raking_partial
 
-                %GuardedReduce
-                <|| (raking_ptr, raking_partial)
-            @>
-
-    let api block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
+    
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
+            let d = Default tp tf
             {
-                Default =   Default
-                            <|||    (block_threads, memoize, scan_op)
-                            <|||    (temp_storage, linear_tid, cached_segment)
+                Default =   Default tp tf
             }
 
 module ExclusiveDownsweep =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            Default         : Sig.ExclusiveDownsweep.DefaultExpr
-            WithApplyPrefix : Sig.ExclusiveDownsweep.WithApplyPrefix
+            Default         : Sig.ExclusiveDownsweep.Default<'T>
+            WithApplyPrefix : Sig.ExclusiveDownsweep.WithApplyPrefix<'T>
         }
 
-    let private WithApplyPrefix block_threads memoize scan_op =
-        let SEGMENT_LENGTH      = block_threads |> Constants.SEGMENT_LENGTH
-        let ThreadScanExclusive = ( ThreadScanExclusive.api
-                                    <|| (SEGMENT_LENGTH, scan_op)).WithApplyPrefix 
-        
-        fun (temp_storage:TempStorage) linear_tid cached_segment ->
-            let RakingPtr = (block_threads |> BlockRakingLayout).RakingPtr.Default
-            <@ fun (raking_partial:int) (apply_prefix:bool) ->
-                let smem_raking_ptr =   %RakingPtr
-                                        <|| (temp_storage.raking_grid, linear_tid)
-                
-                let raking_ptr = if memoize then cached_segment else smem_raking_ptr
-                
-                %ThreadScanExclusive
-                <|| (raking_ptr, raking_ptr)
-                <|  (raking_partial)
-                <|  (apply_prefix)
-                |> ignore
+    let [<ReflectedDefinition>] inline WithApplyPrefix (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (raking_partial:'T) (apply_prefix:bool) =
+        let c = _Constants.Init tp
+//        let ThreadScanExclusive = (ThreadScanExclusive.api c.SEGMENT_LENGTH tp.scan_op).WithApplyPrefix
+//       
+//        let smem_raking_ptr =   (BlockRakingLayout tp).RakingPtr.Default tf.temp_storage.raking_grid tf.linear_tid
+//                
+//        let raking_ptr = if tp.MEMOIZE then tf.cached_segment |> __array_to_ptr else smem_raking_ptr
+//                
+//        ThreadScanExclusive
+//        <|| (raking_ptr, raking_ptr)
+//        <|  (raking_partial)
+//        <|  (apply_prefix)
+//        |> ignore
+//
+//        if tp.MEMOIZE then
+//            for i = 0 to (c.SEGMENT_LENGTH - 1) do smem_raking_ptr.[i] <- tf.cached_segment.[i]
+//            
+        ()
 
-                if memoize then
-                    for i = 0 to (SEGMENT_LENGTH - 1) do smem_raking_ptr.[i] <- cached_segment.[i]
-            
-            @>
+    let [<ReflectedDefinition>] inline Default (tp:_TemplateParams<'T>) 
+        (tf:_ThreadFields<'T>)
+        (raking_partial:'T) =
+        WithApplyPrefix tp tf raking_partial true
 
-    let private Default block_threads memoize scan_op =
-        let SEGMENT_LENGTH      = block_threads |> Constants.SEGMENT_LENGTH
-        let ThreadScanExclusive = ( ThreadScanExclusive.api
-                                    <|| (SEGMENT_LENGTH, scan_op)).WithApplyPrefix 
-        fun temp_storage linear_tid cached_segment ->
-            let WithApplyPrefix =   WithApplyPrefix
-                                    <|||    (block_threads, memoize, scan_op)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
-            
-            <@ fun (raking_partial:int) ->
-                (raking_partial, true) ||> %WithApplyPrefix
-            @>
 
-    let api block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
             {
-                Default         =   Default
-                                    <|||    (block_threads, memoize, scan_op)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
-
-                WithApplyPrefix =   WithApplyPrefix
-                                    <|||    (block_threads, memoize, scan_op)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
+                Default         =   Default tp tf
+                WithApplyPrefix =   WithApplyPrefix tp tf
             }
 
 module InclusiveDownsweep = ()
 
 module ExclusiveScan =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            WithAggregate               : Sig.ExclusiveScan.WithAggregateExpr
-            WithAggregateAndCallbackOp  : Sig.ExclusiveScan.WithAggregateAndCallbackOpExpr
+            WithAggregate               : Sig.ExclusiveScan.WithAggregate<'T>
+            WithAggregateAndCallbackOp  : Sig.ExclusiveScan.WithAggregateAndCallbackOp<'T>
         }
 
-    let private WithAggregate block_threads memoize scan_op =
-        let RAKING_THREADS      = block_threads |> Constants.RAKING_THREADS 
-        let WARP_SYNCHRONOUS    = block_threads |> Constants.WARP_SYNCHRONOUS
-        let BlockRakingLayout   = block_threads |> BlockRakingLayout
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+        let c = _Constants.Init tp
 
-        fun (temp_storage:TempStorage) linear_tid cached_segment ->
-            let WarpScan = 
-                (   Internal.WarpScan
-                    <||  (block_threads, scan_op)
-                    <||| (temp_storage.warp_scan, 0, linear_tid)
-                ).ExclusiveScan.WithAggregate
-            
-            let PlacementPtr   = BlockRakingLayout.PlacementPtr.Default
-            
-            let Upsweep =   
-                (   Upsweep.api
-                    <|||    (block_threads, memoize, scan_op)
-                    <|||    (temp_storage, linear_tid, cached_segment)
-                ).Default
-            
-            let ExclusiveDownsweep =
-                (   ExclusiveDownsweep.api
-                    <|||    (block_threads, memoize, scan_op)
-                    <|||    (temp_storage, linear_tid, cached_segment)
-                ).Default
+        let WarpScan            = (WarpScan tp).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveScan.WithAggregate
+        let PlacementPtr        = (BlockRakingLayout tp).PlacementPtr.Default
+        let Upsweep             = (Upsweep.api tp tf).Default
+        let ExclusiveDownsweep  = (ExclusiveDownsweep.api tp tf).Default
+                
+        if c.WARP_SYNCHRONOUS then
+            WarpScan input output !identity block_aggregate
+        else
+            let placement_ptr = PlacementPtr tf.temp_storage.raking_grid tf.linear_tid
+            placement_ptr.[0] <- input
 
-            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (block_aggregate:Ref<int>) ->
-                if WARP_SYNCHRONOUS then
-                    %WarpScan
-                    <|| (input, output)
-                    <|  !identity
-                    <|  block_aggregate
-                else
-                    let placement_ptr = %PlacementPtr
-                                        <|| (temp_storage.raking_grid, linear_tid)
-                    placement_ptr.[0] <- input
+            __syncthreads()
 
-                    __syncthreads()
+            if tf.linear_tid < c.RAKING_THREADS then
+                let raking_partial = Upsweep()
+                WarpScan
+                <|| (raking_partial, ref raking_partial)
+                <|  !identity
+                <|  ref tf.temp_storage.block_aggregate
 
-                    if linear_tid < RAKING_THREADS then
-                        let raking_partial = (%Upsweep)()
-                        %WarpScan
-                        <|| (raking_partial, ref raking_partial)
-                        <|  !identity
-                        <|  ref temp_storage.block_aggregate
+                ExclusiveDownsweep raking_partial
 
-                        raking_partial |> %ExclusiveDownsweep
+            __syncthreads()
 
-                    __syncthreads()
+            output := placement_ptr.[0]
 
-                    output := placement_ptr.[0]
+            block_aggregate := tf.temp_storage.block_aggregate
 
-                    block_aggregate := temp_storage.block_aggregate
-            @>
 
-    let private WithAggregateAndCallbackOp block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
-            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) ->
-                ()
-            @>
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-    let api block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
             {
-                WithAggregate               =   WithAggregate
-                                                <|||    (block_threads, memoize, scan_op)
-                                                <|||    (temp_storage, linear_tid, cached_segment)
-
-                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
-                                                <|||    (block_threads, memoize, scan_op)
-                                                <|||    (temp_storage, linear_tid, cached_segment)
+                WithAggregate               =   WithAggregate tp tf
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp tp tf
             }
 
 module ExclusiveSum =
+    open Template
     open Internal
 
-    type API =
+    type API<'T> =
         {
-            WithAggregate               : Sig.ExclusiveSum.WithAggregateExpr
-            WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOpExpr
+            WithAggregate               : Sig.ExclusiveSum.WithAggregate<'T>
+            WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOp<'T>
         }
 
-    let private WithAggregate block_threads memoize scan_op =
-        let WARP_SYNCHRONOUS    = block_threads |> Constants.WARP_SYNCHRONOUS
-        let RAKING_THREADS      = block_threads |> Constants.RAKING_THREADS
-        
-        fun (temp_storage:TempStorage) linear_tid cached_segment ->
-            let WarpScan =
-                (   Internal.WarpScan
-                    <||     (block_threads, scan_op)
-                    <|||    (temp_storage.warp_scan, 0, linear_tid)
-                ).ExclusiveSum.WithAggregate
+    let [<ReflectedDefinition>] inline WithAggregate (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+        let c = _Constants.Init tp
 
-            let PlacementPtr =
-                (   Internal.BlockRakingLayout
-                    <|  (block_threads)
-                ).PlacementPtr.Default
+        let WarpScan            = (WarpScan tp).Init(tf.temp_storage.warp_scan, 0, tf.linear_tid).ExclusiveSum.WithAggregate
+        let PlacementPtr        = (BlockRakingLayout tp).PlacementPtr.Default
+        let Upsweep             = (Upsweep.api tp tf).Default
+        let ExclusiveDownsweep  = (ExclusiveDownsweep.api tp tf).Default
 
-            let Upsweep =
-                (   Upsweep.api
-                    <|||    (block_threads, memoize, scan_op)
-                    <|||    (temp_storage, linear_tid, cached_segment)
-                ).Default
+    
+        if c.WARP_SYNCHRONOUS then
+            WarpScan input output block_aggregate
+        else
+            let placement_ptr = PlacementPtr tf.temp_storage.raking_grid tf.linear_tid
+            placement_ptr.[0] <- input
 
-            let ExclusiveDownsweep =
-                (   ExclusiveDownsweep.api
-                    <|||    (block_threads, memoize, scan_op)
-                    <|||    (temp_storage, linear_tid, cached_segment)
-                ).Default
+            __syncthreads()
 
-            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) ->
-                if WARP_SYNCHRONOUS then
-                    %WarpScan
-                    <|| (input, output)
-                    <|  (block_aggregate)
-                else
-                    let placement_ptr = %PlacementPtr
-                                        <|| (temp_storage.raking_grid, linear_tid)
-                    placement_ptr.[0] <- input
+            if tf.linear_tid < c.RAKING_THREADS then
+                let raking_partial = Upsweep()
+                WarpScan
+                <|| (raking_partial, ref raking_partial)
+                <|  ref tf.temp_storage.block_aggregate
 
-                    __syncthreads()
+                ExclusiveDownsweep raking_partial
 
-                    if linear_tid < RAKING_THREADS then
-                        let raking_partial = (%Upsweep)()
-                        %WarpScan
-                        <|| (raking_partial, ref raking_partial)
-                        <|  ref temp_storage.block_aggregate
+            __syncthreads()
 
-                        raking_partial |> %ExclusiveDownsweep
+            output := placement_ptr.[0]
 
-                    __syncthreads()
+            block_aggregate := tf.temp_storage.block_aggregate
+    
 
-                    output := placement_ptr.[0]
+    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>)
+        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
 
-                    block_aggregate := temp_storage.block_aggregate
-            @>
-
-    let private WithAggregateAndCallbackOp block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
-            <@ fun (input:'T) (output:Ref<'T>) (block_aggregate:Ref<int>) (block_prefix_callback_op:Ref<int -> int>) -> () @>
-
-    let api block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
             {
-                WithAggregate               =   WithAggregate
-                                                <|||    (block_threads, memoize, scan_op)
-                                                <|||    (temp_storage, linear_tid, cached_segment)
+                WithAggregate               =   WithAggregate tp tf
 
-
-                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp
-                                                <|||    (block_threads, memoize, scan_op)
-                                                <|||    (temp_storage, linear_tid, cached_segment)
+                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp tp tf
             }
 
 
 module BlockScanRaking =
+    open Template
     open Internal
 
-    type API =
+    [<Record>]
+    type API<'T> =
         {
-            ExclusiveSum    : ExclusiveSum.API
-            ExclusiveScan   : ExclusiveScan.API
+            ExclusiveSum    : ExclusiveSum.API<'T>
+            ExclusiveScan   : ExclusiveScan.API<'T>
         }
 
-
-
-    let api block_threads memoize scan_op =
-        fun temp_storage linear_tid cached_segment ->
+        [<ReflectedDefinition>]
+        static member Create(block_threads, memoize, scan_op) =
+            let tp = _TemplateParams<'T>.Init(block_threads, memoize, scan_op)            
+            let tf = _ThreadFields<'T>.Init(tp)
             {
-                ExclusiveSum    =   ExclusiveSum.api
-                                    <|||    (block_threads, memoize, scan_op)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
+                ExclusiveSum    =   ExclusiveSum.api tp tf
+                ExclusiveScan   =   ExclusiveScan.api tp tf
+            }
 
-                ExclusiveScan   =   ExclusiveScan.api
-                                    <|||    (block_threads, memoize, scan_op)
-                                    <|||    (temp_storage, linear_tid, cached_segment)
 
+
+    let [<ReflectedDefinition>] api (tp:_TemplateParams<'T>)
+        (tf:_ThreadFields<'T>) =
+            {
+                ExclusiveSum    =   ExclusiveSum.api tp tf
+                ExclusiveScan   =   ExclusiveScan.api tp tf
             }
 
 //    member this.GuardedReduce(raking_ptr:deviceptr<int>, scan_op:IScanOp, raking_partial:int) = //, iteration:bool) =    
@@ -521,7 +519,7 @@ module BlockScanRaking =
 //        let RAKING_THREADS = raking_threads
 //        let WARP_SYNCHRONOUS = warp_synchronous
 //        let WarpScan = Alea.cuExtension.CUB.Warp.Scan.ExclusiveScan
-//        fun (temp_storage:TempStorage) (linear_tid:int) ->
+//        fun (temp_storage:_TempStorage<'T>) (linear_tid:int) ->
 //            <@ fun (input:'T) (output:Ref<'T>) (identity:Ref<int>) (scan_op:IScanOp<'T>) (block_aggregate:Ref<int>) ->
 //                
 //
