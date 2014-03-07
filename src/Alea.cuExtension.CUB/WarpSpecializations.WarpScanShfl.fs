@@ -74,16 +74,13 @@ module Template =
             [<ReflectedDefinition>]
             static member inline Uninitialized<'T>() = { Ptr = __null<'T>() }
         
-        type TempStorage<'T> = API<'T>
-
-
     
     [<AutoOpen>]
     module ThreadFields =
         [<Record>]
         type API<'T> =
             {
-                mutable temp_storage    : TempStorage<'T>
+                mutable temp_storage    : TempStorage.API<'T>
                 mutable warp_id         : int
                 mutable lane_id         : int
             }
@@ -101,11 +98,11 @@ module Template =
 
             [<ReflectedDefinition>]
             static member inline Init<'T>(warp_id, lane_id) =
-                API<'T>.Init(TempStorage<'T>.Uninitialized<'T>(), warp_id, lane_id)
+                API<'T>.Init(TempStorage.API<'T>.Uninitialized(), warp_id, lane_id)
 
             [<ReflectedDefinition>]
             static member inline Uninitialized<'T>() =
-                API<'T>.Init(TempStorage<'T>.Uninitialized<'T>(), 0, 0)
+                API<'T>.Init(TempStorage.API<'T>.Uninitialized(), 0, 0)
 
 
     type _TemplateParams    = Params.API
@@ -135,23 +132,10 @@ module Template =
 
 
 type _Template<'T> = Template.API<'T>
-
-module private Internal =
-    module Constants =
-        let STEPS = 
-            fun logical_warp_threads ->
-                logical_warp_threads |> log2
-
-        let SHFL_C =
-            fun logical_warp_threads ->
-                let STEPS = logical_warp_threads |> STEPS
-                ((-1 <<< STEPS) &&& 31) <<< 8
-
-                
+               
 
 module InclusiveScan =
     open Template
-    open Internal
 
 
     [<ReflectedDefinition>]
@@ -196,7 +180,6 @@ module InclusiveScan =
 
 module InclusiveSum =
     open Template
-    open Internal
 
 
     [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
@@ -267,7 +250,6 @@ module InclusiveSum =
                 | _ -> None
 
     let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
-
     
     let [<ReflectedDefinition>] private Float32Specialized (template:_Template<'T>)
         (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) =
@@ -313,7 +295,6 @@ module InclusiveSum =
                 | _ -> None
 
     let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
-
     
     let [<ReflectedDefinition>] inline ULongLongSpecialized (template:_Template<'T>)
         (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) =
@@ -329,16 +310,14 @@ module InclusiveSum =
             
         warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
 
-    [<ReflectedDefinition>]
-    let inline Generic (template:_Template<'T>)
+    let [<ReflectedDefinition>] inline Generic (template:_Template<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         let inclusiveSum = if sizeof<'T> <= sizeof<uint32> then SingleShfl template else MultiShfl template
         
         (input, output, warp_aggregate) |||> inclusiveSum
         
 
-    [<ReflectedDefinition>]
-    let inline Default (template:_Template<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (input:'T) (output:Ref<'T>) =
         let inclusiveSum = Generic template
         
@@ -365,8 +344,6 @@ module InclusiveSum =
 
 module ExclusiveScan =
     open Template
-    open Internal
-
 
     let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
         (scan_op:'T -> 'T -> 'T)
@@ -425,7 +402,6 @@ module ExclusiveScan =
 
 module WarpScanShfl =
     open Template
-    open Internal
 
 
     [<Record>]

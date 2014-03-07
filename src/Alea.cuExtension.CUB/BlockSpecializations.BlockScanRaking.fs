@@ -17,20 +17,22 @@ module Template =
     [<AutoOpen>]
     module Params =
         [<Record>]
-        type API<'T> =
+        type API =
             {
                 BLOCK_THREADS   : int
                 MEMOIZE         : bool   
             }
 
             [<ReflectedDefinition>]
-            static member Init(block_threads, memoize, scan_op) =
+            static member Init(block_threads, memoize) =
                 {
                     BLOCK_THREADS   = block_threads
                     MEMOIZE         = memoize
                 }
 
-    let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API) = BlockRakingLayout.API<'T>.Init(tp.BLOCK_THREADS)
+    let [<ReflectedDefinition>] inline BlockRakingLayout (tp:Params.API) = 
+        let template = RakingLayout._Template<'T>.Init(tp.BLOCK_THREADS)
+        BlockRakingLayout.API<'T>.Init(template)
 
     [<AutoOpen>]
     module Constants =
@@ -46,8 +48,8 @@ module Template =
             [<ReflectedDefinition>]
             static member Init(tp:Params.API) =
                 let warps               = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
-                let raking_threads      = (BlockRakingLayout template).Constants.RAKING_THREADS
-                let segment_length      = (BlockRakingLayout template).Constants.SEGMENT_LENGTH
+                let raking_threads      = (BlockRakingLayout tp).template.Constants.RAKING_THREADS
+                let segment_length      = (BlockRakingLayout tp).template.Constants.SEGMENT_LENGTH
                 let warp_synchronous    = (tp.BLOCK_THREADS = raking_threads)
                 {
                     WARPS               = warps
@@ -57,8 +59,9 @@ module Template =
                 }
 
     let [<ReflectedDefinition>] inline WarpScan (tp:Params.API) = 
-        let c = Constants.API.Init template
-        WarpScan.API<'T>.Create(1, c.RAKING_THREADS)
+        let template = Scan._Template.Init(1, (BlockRakingLayout tp).template.Constants.RAKING_THREADS)
+        WarpScan.API<'T>.Init(template)
+
 
     [<AutoOpen>]
     module TempStorage =
@@ -71,19 +74,19 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member inline Init(block_threads, memoize, scan_op) =
-                let template = Params.API.Init(block_threads, memoize, scan_op)
+            static member inline Init(block_threads, memoize) =
+                let template = Params.API.Init(block_threads, memoize)
                 let WarpScan = WarpScan template
                 let BlockRakingLayout = BlockRakingLayout template
                 let b_a = __shared__.Variable<'T>()
                 {
-                    warp_scan       = WarpScan.ThreadFields.temp_storage
-                    raking_grid     = BlockRakingLayout.TempStorage
+                    warp_scan       = WarpScan.template.ThreadFields.temp_storage
+                    raking_grid     = BlockRakingLayout.template.TempStorage
                     block_aggregate = !b_a
                 }
 
             [<ReflectedDefinition>]
-            static member inline Init(tp:Params.API) = API<'T>.Init(tp.BLOCK_THREADS, template.MEMOIZE, template.scan_op)
+            static member inline Init(tp:Params.API) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE)
 
 
     [<AutoOpen>]
@@ -97,8 +100,8 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(block_threads, memoize, scan_op, temp_storage, linear_tid) =
-                let template = Params.API.Init(block_threads, memoize, scan_op)
+            static member Init(block_threads, memoize, temp_storage, linear_tid) =
+                let template = Params.API.Init(block_threads, memoize)
                 let c = Constants.API.Init template
                 let cs = __local__.Array<'T>(c.SEGMENT_LENGTH)
                 {
@@ -108,22 +111,39 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API, temp_storage, linear_tid) = API<'T>.Init(tp.BLOCK_THREADS, template.MEMOIZE, template.scan_op, temp_storage, linear_tid)
+            static member Init(tp:Params.API, temp_storage, linear_tid) = API<'T>.Init(tp.BLOCK_THREADS, tp.MEMOIZE, temp_storage, linear_tid)
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API) = API<'T>.Init(tp, (TempStorage.API<'T>.Init template), 0)
-
-                        
+            static member Init(tp:Params.API) = API<'T>.Init(tp, TempStorage.API<'T>.Init(tp), 0)
 
 
-    type _TemplateParams<'T>    = Params.API
+    type _TemplateParams        = Params.API
     type _Constants             = Constants.API
     type _TempStorage<'T>       = TempStorage.API<'T>
     type _ThreadFields<'T>      = ThreadFields.API<'T>
 
+    [<Record>]
+    type API<'T> =
+        {
+            mutable Params          : Params.API
+            mutable Constants       : Constants.API
+            mutable ThreadFields    : ThreadFields.API<'T>
+        }
+
+        [<ReflectedDefinition>] 
+        static member Init(block_threads, memoize) =
+            let tp  = Params.API.Init(block_threads, memoize)
+            let c   = Constants.API.Init(tp)
+            let tf  = ThreadFields.API<'T>.Init(tp)
+            {
+                Params          = tp
+                Constants       = c
+                ThreadFields    = tf
+            }
+
+
 module private Internal =
     open Template
-
 
     module Sig =
         module Upsweep =
@@ -158,7 +178,7 @@ module private Internal =
 
 
 module GuardedReduce =
-    open Template
+    //open Template
     open Internal
     // Need to do Attribute unrolling stuff
     type API<'T> =
@@ -167,13 +187,12 @@ module GuardedReduce =
         }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
+        (scan_op:'T -> 'T -> 'T)
         (raking_ptr:deviceptr<'T>) (raking_partial:'T) =
-        let c = _Constants.Init template
-        let UNGUARDED = (BlockRakingLayout template).Constants.UNGUARDED
+        let SEGMENT_LENGTH = template.Constants.SEGMENT_LENGTH
+        let UNGUARDED = (BlockRakingLayout template.Params).template.Constants.UNGUARDED //(BlockRakingLayout template).Constants.UNGUARDED
         let mutable raking_partial = raking_partial
-        let scan_op = template.scan_op.op
-
+        
         for i = 0 to (c.SEGMENT_LENGTH - 1) do
             if UNGUARDED || (((tf.linear_tid * c.SEGMENT_LENGTH) + i) < template.BLOCK_THREADS) then
                 let addend = raking_ptr.[i]

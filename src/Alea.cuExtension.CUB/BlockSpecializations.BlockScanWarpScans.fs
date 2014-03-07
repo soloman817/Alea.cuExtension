@@ -39,11 +39,8 @@ module Template =
                 WARPS : int
             }
 
-            [<ReflectedDefinition>]
-            static member Init(block_threads) = { WARPS = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
-
-            [<ReflectedDefinition>]
-            static member Init(tp:Params.API) = { WARPS = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
+            [<ReflectedDefinition>] static member Init(block_threads) = { WARPS = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
+            [<ReflectedDefinition>] static member Init(tp:Params.API) = { WARPS = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
 
 
     [<AutoOpen>]
@@ -59,8 +56,7 @@ module Template =
                 with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx] 
                 and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
 
-            [<ReflectedDefinition>]
-            static member inline Uninitialized<'T>() = { Ptr = __null<'T>(); Length = 0}
+            [<ReflectedDefinition>] static member inline Uninitialized<'T>() = { Ptr = __null<'T>(); Length = 0}
 
             [<ReflectedDefinition>]
             static member inline Init<'T>(length:int) =
@@ -77,10 +73,10 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member inline Uninitialized<'T>() =
+            static member inline Uninitialized() =
                 { 
-                    warp_scan       = Alea.cuExtension.CUB.Warp.Scan.Template._TempStorage<'T>.Uninitialized<'T>()
-                    warp_aggregates = WarpAggregates<'T>.Uninitialized<'T>()
+                    warp_scan       = Alea.cuExtension.CUB.Warp.Scan.Template._TempStorage<'T>.Uninitialized()
+                    warp_aggregates = WarpAggregates<'T>.Uninitialized()
                     block_prefix    = __null() |> __ptr_to_ref
                 }
     
@@ -108,7 +104,7 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member Uninitialized<'T>() = API<'T>.Init(TempStorage.API<'T>.Uninitialized<'T>(),0,0,0)
+            static member Uninitialized() = API<'T>.Init(TempStorage.API<'T>.Uninitialized(),0,0,0)
 
     type _TemplateParams        = Params.API
     type _Constants             = Constants.API
@@ -129,10 +125,9 @@ module private Internal =
     open Template
 
     let [<ReflectedDefinition>] inline WarpScan (template:_Template<'T>) =
-        let WARPS = template.Constants.WARPS
-        Alea.cuExtension.CUB.Warp.Scan.WarpScan.api
-        <|  Alea.cuExtension.CUB.Warp.Scan.Template._TemplateParams.Init(WARPS, CUB_PTX_WARP_THREADS, template.scan_op)
         
+        let WARPS = template.Constants.WARPS
+        WarpScan.API<'T>.Init(template:_)
         
 
 module ApplyWarpAggregates =
@@ -143,32 +138,36 @@ module ApplyWarpAggregates =
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
          (scan_op:'T -> 'T -> 'T)
         (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) =
-        let c = _Constants.Init template.BLOCK_THREADS
+        let temp_storage = template.ThreadFields.temp_storage
+        let WARPS = template.Constants.WARPS
+        let warp_id = template.ThreadFields.warp_id
         let lane_valid = true
-        tf.temp_storage.warp_aggregates.[tf.warp_id] <- warp_aggregate
+        temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
         __syncthreads()
-        block_aggregate := tf.temp_storage.warp_aggregates.[0]
+        block_aggregate := temp_storage.warp_aggregates.[0]
         
-        for WARP = 1 to c.WARPS - 1 do
-            if tf.warp_id = WARP then
+        for WARP = 1 to WARPS - 1 do
+            if warp_id = WARP then
                 partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> scan_op
+            block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
 
 
     let [<ReflectedDefinition>] inline WithLaneValidation (template:_Template<'T>)
-         (scan_op:'T -> 'T -> 'T)
+        (scan_op:'T -> 'T -> 'T)
         (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool) = 
-        let c = _Constants.Init template
-        tf.temp_storage.warp_aggregates.[tf.warp_id] <- warp_aggregate
+        let WARPS = template.Constants.WARPS
+        let temp_storage = template.ThreadFields.temp_storage
+        let warp_id = template.ThreadFields.warp_id
+        temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
 
         __syncthreads()
 
-        block_aggregate := tf.temp_storage.warp_aggregates.[0]
+        block_aggregate := temp_storage.warp_aggregates.[0]
 
-        for WARP = 1 to c.WARPS - 1 do
-            if tf.warp_id = WARP then
+        for WARP = 1 to WARPS - 1 do
+            if warp_id = WARP then
                 partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-            block_aggregate := (!block_aggregate, tf.temp_storage.warp_aggregates.[WARP]) ||> scan_op
+            block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
         
     [<Record>]
     type API<'T> =
