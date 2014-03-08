@@ -139,7 +139,7 @@ module InclusiveScan =
 
 
     [<ReflectedDefinition>]
-    let private WithAggregate (template:_Template<'T>)
+    let inline WithAggregate (template:_Template<'T>)
         (scan_op:'T -> 'T -> 'T)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         let STEPS = template.Constants.STEPS
@@ -204,7 +204,7 @@ module InclusiveSum =
                         }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx>] private inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
+    let [<InclusiveSumPtx>] inline inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
 
     
     let [<ReflectedDefinition>] inline SingleShfl (template:_Template<'T>)
@@ -294,7 +294,7 @@ module InclusiveSum =
                         }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
+    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
     
     let [<ReflectedDefinition>] inline ULongLongSpecialized (template:_Template<'T>)
         (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) =

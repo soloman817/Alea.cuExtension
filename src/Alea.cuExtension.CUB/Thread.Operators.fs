@@ -47,14 +47,16 @@ type IReductionOp<'T> = IScanOp<'T>
 //        member this.max = <@ max @>
 //    }
 
+let foo x y = x + y
+
 let inline scan_op (opkind:OpKind) (id:'T) =
     opkind |> function
     | ADD -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
-    | SUB -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
-    | MUL -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
-    | DIV -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
-    | MIN -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
-    | MAX -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x + y }
+    | SUB -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x - y }
+    | MUL -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x * y }
+    | DIV -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> x / y }
+    | MIN -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> min x y }
+    | MAX -> { new IScanOp<'T> with member this.op = fun (x:'T) (y:'T) -> max x y }
 
 
 //let inline scan_op (opkind:OpKind) (id:'T) =

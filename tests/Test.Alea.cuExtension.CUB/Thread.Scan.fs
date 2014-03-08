@@ -24,46 +24,46 @@ let N = 32
 //            exclusive <- inclusive
 //
 //        inclusive
-
-[<Test>]
-let ``thread scan : verification`` () =
-    let inline template (length:int) = cuda {
-        //let scan_op = (scan_op ADD 0)
-        //lettemplate= Thread.Scan.Template._TemplateParams<int>.Init length
-        //let! threadScan = <@ fun () -> Default length (+) @> |> Compiler.DefineFunction
-        let! kernel = 
-            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
-                let tid = threadIdx.x
-                let ThreadScan = ThreadScanExclusive.API3<int>.Init(length)
-                let inclusive = ThreadScan.Default (+) 0 0 input output
-                //let inclusive = threadScan.WithApplyPrefixDefault.Invoke (+) input output input.[0]
-                //let inclusive = threadScan.Invoke() 0 0 input output
-                //let inclusive = (%foo) 0 0 input output
-                //let inclusive = Default length (+) 0 0 input output
-                ()
-            @> |> Compiler.DefineKernel
-
-        return Entry(fun program ->
-            let worker = program.Worker    
-            let kernel = program.Apply kernel
-
-            fun (input:int[]) ->
-                use input = worker.Malloc(input)
-                use output = worker.Malloc(input.Length)
-                kernel.Launch (LaunchParam(1,length)) input.Ptr output.Ptr
-                output.Gather()
-        )}
-
-    let program = template N |> Compiler.load Worker.Default
-    let input = Array.init N (fun i -> i)
-    let output = program.Run input
-    let h_output = Array.scan (+) 0 input
-
-    printfn "host: %A" h_output
-    printfn "device: %A" output
-//    
 //
+//[<Test>]
+//let ``thread scan : verification`` () =
+//    let inline template (length:int) = cuda {
+//        //let scan_op = (scan_op ADD 0)
+//        //lettemplate= Thread.Scan.Template._TemplateParams<int>.Init length
+//        //let! threadScan = <@ fun () -> Default length (+) @> |> Compiler.DefineFunction
+//        let! kernel = 
+//            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
+//                let tid = threadIdx.x
+//                let ThreadScan = ThreadScanExclusive.API3<int>.Init(length)
+//                let inclusive = ThreadScan.Default (+) 0 0 input output
+//                //let inclusive = threadScan.WithApplyPrefixDefault.Invoke (+) input output input.[0]
+//                //let inclusive = threadScan.Invoke() 0 0 input output
+//                //let inclusive = (%foo) 0 0 input output
+//                //let inclusive = Default length (+) 0 0 input output
+//                ()
+//            @> |> Compiler.DefineKernel
 //
+//        return Entry(fun program ->
+//            let worker = program.Worker    
+//            let kernel = program.Apply kernel
+//
+//            fun (input:int[]) ->
+//                use input = worker.Malloc(input)
+//                use output = worker.Malloc(input.Length)
+//                kernel.Launch (LaunchParam(1,length)) input.Ptr output.Ptr
+//                output.Gather()
+//        )}
+//
+//    let program = template N |> Compiler.load Worker.Default
+//    let input = Array.init N (fun i -> i)
+//    let output = program.Run input
+//    let h_output = Array.scan (+) 0 input
+//
+//    printfn "host: %A" h_output
+//    printfn "device: %A" output
+////    
+////
+////
 //[<Test>]
 //let ``thread scan : inclusive : int`` () =
 //    

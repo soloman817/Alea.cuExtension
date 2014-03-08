@@ -10,34 +10,30 @@ module Template =
     [<AutoOpen>]
     module Params =
         [<Record>]
-        type API<'T> =
+        type API =
             {
                 LENGTH          : int
-                reduction_op    : IReductionOp<'T>
             }
 
             [<ReflectedDefinition>]
-            static member Init(length, reduction_op) =
+            static member Init(length) =
                 {
                     LENGTH          = length
-                    reduction_op    = reduction_op
                 }
 
-    type _TemplateParams<'T> = Params.API
+        
+
+    type _TemplateParams = Params.API
+
+type _Template = Template._TemplateParams
+
 
 module ThreadReduce =
     open Template
 
-    [<Record>]
-    type API<'T> =
-        {
-            Default : deviceptr<'T> -> 'T
-            WithPrefix : deviceptr<'T> -> 'T -> 'T
-        }
-
-    let [<ReflectedDefinition>] inline WithPrefix (template:_Template<'T>)
+    let [<ReflectedDefinition>] inline WithPrefix (template:_Template)
+        (reduction_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) (prefix:'T) =
-        let reduction_op = template.reduction_op.op
         let mutable addend = input.[0]
         let mutable prefix = (prefix, addend) ||> reduction_op
 
@@ -47,17 +43,24 @@ module ThreadReduce =
 
         prefix
 
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
+    let [<ReflectedDefinition>] inline Default (template:_Template)
+        (reduction_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) =
-        WithPrefixtemplateinput input.[0]
+        WithPrefix template reduction_op input input.[0]
 
-    let [<ReflectedDefinition>] api (length:int) (reduction_op:IReductionOp<'T>) =
-        lettemplate= _TemplateParams<'T>.Init(length, reduction_op)
+
+    [<Record>]
+    type API<'T> =
         {
-            Default     = Default template
-            WithPrefix  = WithPrefix template
+            template : _Template
         }
-            
+
+        [<ReflectedDefinition>] static member Init(length) = { template = _Template.Init(length) }
+
+        [<ReflectedDefinition>] member this.Default     = Default this.template
+        [<ReflectedDefinition>] member this.WithPrefix  = WithPrefix this.template
+         
+                    
 //let threadReduce length reduction_op =
 //    let reduction_op = reduction_op.op
 //    <@ fun (input:deviceptr<int>) (prefix:int)  ->

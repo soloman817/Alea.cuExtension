@@ -14,7 +14,7 @@ open Ptx
 module Template =
     [<AutoOpen>]
     module Params =
-        type API<'T> =
+        type API =
             {
                 BLOCK_THREADS       :   int
                 ITEMS_PER_THREAD    :   int
@@ -34,7 +34,7 @@ module Template =
 
             [<ReflectedDefinition>]
             static member Default(block_threads, items_per_thread) = 
-                API<'T>.Init<'T>(block_threads, items_per_thread, false)
+                API.Init(block_threads, items_per_thread, false)
     
     [<AutoOpen>]
     module Constants =
@@ -57,19 +57,19 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API) =
+            static member Init(p:Params.API) =
                 let log_warp_threads            = CUB_PTX_LOG_WARP_THREADS
                 let warp_threads                = 1 <<< log_warp_threads
-                let warps                       = (tp.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
+                let warps                       = (p.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
                 let log_smem_banks              = CUB_PTX_LOG_SMEM_BANKS
                 let smem_banks                  = 1 <<< log_smem_banks
-                let tile_items                  = template.BLOCK_THREADS * template.ITEMS_PER_THREAD
-                let time_slices                 = if template.WARP_TIME_SLICING then warps else 1
-                let time_sliced_threads         = if template.WARP_TIME_SLICING then (tp.BLOCK_THREADS, warp_threads) ||> CUB_MIN else template.BLOCK_THREADS
-                let time_sliced_items           = time_sliced_threads * template.ITEMS_PER_THREAD
-                let warp_time_sliced_threads    = (tp.BLOCK_THREADS, warp_threads) ||> CUB_MIN
-                let warp_time_sliced_items      = warp_time_sliced_threads * template.ITEMS_PER_THREAD
-                let insert_padding              = ((tp.ITEMS_PER_THREAD &&& (tp.ITEMS_PER_THREAD - 1)) = 0)
+                let tile_items                  = p.BLOCK_THREADS * p.ITEMS_PER_THREAD
+                let time_slices                 = if p.WARP_TIME_SLICING then warps else 1
+                let time_sliced_threads         = if p.WARP_TIME_SLICING then (p.BLOCK_THREADS, warp_threads) ||> CUB_MIN else p.BLOCK_THREADS
+                let time_sliced_items           = time_sliced_threads * p.ITEMS_PER_THREAD
+                let warp_time_sliced_threads    = (p.BLOCK_THREADS, warp_threads) ||> CUB_MIN
+                let warp_time_sliced_items      = warp_time_sliced_threads * p.ITEMS_PER_THREAD
+                let insert_padding              = ((p.ITEMS_PER_THREAD &&& (p.ITEMS_PER_THREAD - 1)) = 0)
                 let padding_items               = if insert_padding then time_sliced_items >>> log_smem_banks else 0
 
                 {
@@ -88,6 +88,7 @@ module Template =
                     PADDING_ITEMS               = padding_items                
                 }
 
+    [<AutoOpen>]
     module TempStorage =
         [<Record>]
         type API<'T> =
@@ -101,13 +102,14 @@ module Template =
                 and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
 
             [<ReflectedDefinition>]
-            static member Uninitialized(tp:Params.API) =
-                let c = Constants.API.Init template
+            static member Uninitialized(p:Params.API) =
+                let c = Constants.API.Init p
                 let length = c.TIME_SLICED_ITEMS + c.PADDING_ITEMS
                 let s = __shared__.Array(length)
                 let ptr = s |> __array_to_ptr
                 { Ptr = ptr; Length = length}
 
+    [<AutoOpen>]
     module ThreadFields =
         [<Record>]
         type API<'T> =
@@ -120,7 +122,7 @@ module Template =
             }
 
             [<ReflectedDefinition>]
-            static member Init<'T>(temp_storage:TempStorage.API<'T>, linear_tid, warp_lane, warp_id, warp_offset) =
+            static member Init(temp_storage:TempStorage.API<'T>, linear_tid, warp_lane, warp_id, warp_offset) =
                 {
                     temp_storage    = temp_storage
                     linear_tid      = linear_tid
@@ -130,72 +132,72 @@ module Template =
                 }
 
             [<ReflectedDefinition>]
-            static member Init(tp:Params.API) = API<'T>.Init<'T>(TempStorage.API<'T>.Uninitialized<'T>(tp), 0, 0, 0, 0)
+            static member Init(p:Params.API) = API<'T>.Init(TempStorage.API<'T>.Uninitialized(p), 0, 0, 0, 0)
 
-    type _TemplateParams<'T>    = Params.API
+    type _TemplateParams        = Params.API
     type _Constants             = Constants.API
     type _TempStorage<'T>       = TempStorage.API<'T>
     type _ThreadFields<'T>      = ThreadFields.API<'T>
 
-module private Internal =
-    module Sig =
-        module BlockToStriped =
-            type Default<'T>            = deviceptr<'T> -> unit
-            type WithTimeslicing<'T>    = deviceptr<'T> -> unit
+    [<Record>]
+    type API<'T> =
+        {
+            mutable Params          : Params.API
+            mutable Constants       : Constants.API
+            mutable ThreadFields    : ThreadFields.API<'T>
+        }
 
-        module BlockToWarpStriped =
-            type Default<'T>            = BlockToStriped.Default<'T>
-            type WithTimeslicing<'T>    = BlockToStriped.WithTimeslicing<'T>
+        [<ReflectedDefinition>]
+        static member Init(block_threads, items_per_thread, warp_time_slicing) =
+            let p = Params.API.Init(block_threads, items_per_thread, warp_time_slicing)
+            let c = Constants.API.Init(p)
+            let f = ThreadFields.API<'T>.Init(p)
+            {
+                Params          = p
+                Constants       = c
+                ThreadFields    = f
+            }
 
-        module StripedToBlocked =
-            type Default<'T>            = BlockToStriped.Default<'T>
-            type WithTimeslicing<'T>    = BlockToStriped.WithTimeslicing<'T>
+        [<ReflectedDefinition>] static member Init(p:Params.API) = API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING)
+        [<ReflectedDefinition>] static member Default(block_threads, items_per_thread) = API<'T>.Init(Params.API.Default(block_threads, items_per_thread))
 
-        module WarpStripedToBlocked =
-            type Default<'T>            = BlockToStriped.Default<'T>
-            type WithTimeslicing<'T>    = BlockToStriped.WithTimeslicing<'T>
 
-        module ScatterToBlocked =
-            type Default<'T>            = deviceptr<'T> -> deviceptr<int> -> unit
-            type WithTimeslicing<'T>    = deviceptr<'T> -> deviceptr<int> -> unit
-
-        module ScatterToStriped =
-            type Default<'T>            = ScatterToBlocked.Default<'T>
-            type WithTimeslicing<'T>    = ScatterToBlocked.WithTimeslicing<'T>
+type _Template<'T> = Template.API<'T>
 
 
 module BlockedToStriped =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.BlockToStriped.Default<'T>
-            WithTimeslicing     : Sig.BlockToStriped.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = (tf.linear_tid * template.ITEMS_PER_THREAD) + ITEM
+        let p = template.Params
+        let c = template.Constants
+        let linear_tid = template.ThreadFields.linear_tid
+        let temp_storage = template.ThreadFields.temp_storage
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = (linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then 
                 item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            tf.temp_storage.[item_offset] <- items.[ITEM]
+            temp_storage.[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = ITEM * template.BLOCK_THREADS + tf.linear_tid
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = ITEM * p.BLOCK_THREADS + linear_tid
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- tf.temp_storage.[item_offset]
+            items.[ITEM] <- temp_storage.[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        let temp_items = __local__.Array(tp.ITEMS_PER_THREAD)
+        let c = template.Constants
+        let p = template.Params
+        let warp_id = template.ThreadFields.warp_id
+        let warp_lane = template.ThreadFields.warp_lane
+        let temp_storage = template.ThreadFields.temp_storage
+        let linear_tid = template.ThreadFields.linear_tid
+
+        let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
                 
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
@@ -203,119 +205,119 @@ module BlockedToStriped =
 
             __syncthreads()
 
-            if tf.warp_id = SLICE then
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let mutable item_offset = (tf.warp_lane * template.ITEMS_PER_THREAD) + ITEM
+            if warp_id = SLICE then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = (warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    tf.temp_storage.[item_offset] <- items.[ITEM]
+                    temp_storage.[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                let STRIP_OFFSET = ITEM * template.BLOCK_THREADS
-                let STRIP_OOB = STRIP_OFFSET + template.BLOCK_THREADS
+            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                let STRIP_OFFSET = ITEM * p.BLOCK_THREADS
+                let STRIP_OOB = STRIP_OFFSET + p.BLOCK_THREADS
 
                 if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
-                    let mutable item_offset = STRIP_OFFSET + tf.linear_tid - SLICE_OFFSET
+                    let mutable item_offset = STRIP_OFFSET + linear_tid - SLICE_OFFSET
                     if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
                         if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                        temp_items.[ITEM] <- tf.temp_storage.[item_offset]
+                        temp_items.[ITEM] <- temp_storage.[item_offset]
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
 
 
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
-            {
-                Default         =   Default template tf
-                WithTimeslicing =   WithTimeslicing template tf
-            }
+    [<Record>]
+    type API<'T> =
+        {
+            template : _Template<'T>
+        }
+
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module BlockedToWarpStriped =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.BlockToWarpStriped.Default<'T>
-            WithTimeslicing     : Sig.BlockToWarpStriped.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = tf.warp_offset + ITEM + (tf.warp_lane * template.ITEMS_PER_THREAD)
-            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- tf.temp_storage.[item_offset]
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = tf.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + tf.warp_lane
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = f.warp_offset + ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- tf.temp_storage.[item_offset]
+            items.[ITEM] <- f.temp_storage.[item_offset]
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = f.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
+            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
+            items.[ITEM] <- f.temp_storage.[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+        
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             __syncthreads()
                         
-            if tf.warp_id = SLICE then
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD- 1) do
-                    let mutable item_offset = ITEM + (tf.warp_lane * template.ITEMS_PER_THREAD)
+            if f.warp_id = SLICE then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
+                    let mutable item_offset = ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    tf.temp_storage.[item_offset] <- items.[ITEM]
+                    f.temp_storage.[item_offset] <- items.[ITEM]
 
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + tf.warp_lane
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    items.[ITEM] <- tf.temp_storage.[item_offset]
+                    items.[ITEM] <- f.temp_storage.[item_offset]
 
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
+    [<Record>]
+    type API<'T> =
         {
-            Default         =   Default template tf
-            WithTimeslicing =   WithTimeslicing template tf
+            template : _Template<'T>
         }
+
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module StripedToBlocked =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.StripedToBlocked.Default<'T>
-            WithTimeslicing     : Sig.StripedToBlocked.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD- 1) do
-            let mutable item_offset = (ITEM * template.BLOCK_THREADS) + tf.linear_tid
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+        
+        for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
+            let mutable item_offset = (ITEM * p.BLOCK_THREADS) + f.linear_tid
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            tf.temp_storage.[item_offset] <- items.[ITEM]
+            f.temp_storage.[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = (tf.linear_tid * template.ITEMS_PER_THREAD) + ITEM
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = (f.linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- tf.temp_storage.[item_offset]
+            items.[ITEM] <- f.temp_storage.[item_offset]
             
-
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        let temp_items = __local__.Array<'T>(tp.ITEMS_PER_THREAD)
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+
+        let temp_items = __local__.Array<'T>(p.ITEMS_PER_THREAD)
 
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
@@ -323,217 +325,219 @@ module StripedToBlocked =
 
             __syncthreads()
 
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                let STRIP_OFFSET = ITEM * template.BLOCK_THREADS
-                let STRIP_OOB = STRIP_OFFSET + template.BLOCK_THREADS
+            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                let STRIP_OFFSET = ITEM * p.BLOCK_THREADS
+                let STRIP_OOB = STRIP_OFFSET + p.BLOCK_THREADS
                             
                 if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
-                    let mutable item_offset = STRIP_OFFSET + tf.linear_tid - SLICE_OFFSET
+                    let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
                     if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
                         if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                        tf.temp_storage.[item_offset] <- items.[ITEM]
+                        f.temp_storage.[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
-            if tf.warp_id = SLICE then
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let mutable item_offset = (tf.warp_lane * template.ITEMS_PER_THREAD) + ITEM
+            if f.warp_id = SLICE then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = (f.warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    temp_items.[ITEM] <- tf.temp_storage.[item_offset]
+                    temp_items.[ITEM] <- f.temp_storage.[item_offset]
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
 
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
+    [<Record>]
+    type API<'T> =
         {
-            Default         =   Default template tf
-            WithTimeslicing =   WithTimeslicing template tf
+            template : _Template<'T>
         }
+
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module WarpStripedToBlocked =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.WarpStripedToBlocked.Default<'T>
-            WithTimeslicing     : Sig.WarpStripedToBlocked.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = tf.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + tf.warp_lane
-            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            tf.temp_storage.[item_offset] <- items.[ITEM]
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = tf.warp_offset + ITEM + (tf.warp_lane * template.ITEMS_PER_THREAD)
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = f.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- tf.temp_storage.[item_offset]
+            f.temp_storage.[item_offset] <- items.[ITEM]
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = f.warp_offset + ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
+            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
+            items.[ITEM] <- f.temp_storage.[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        
         (items:deviceptr<'T>) =
-        let c = _Constants.Init template
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             __syncthreads()
 
-            if tf.warp_id = SLICE then
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD- 1) do
-                    let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + tf.warp_lane
+            if f.warp_id = SLICE then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
+                    let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    tf.temp_storage.[item_offset] <- items.[ITEM]
+                    f.temp_storage.[item_offset] <- items.[ITEM]
 
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let mutable item_offset = ITEM + (tf.warp_lane * template.ITEMS_PER_THREAD)
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    items.[ITEM] <- tf.temp_storage.[item_offset]
+                    items.[ITEM] <- f.temp_storage.[item_offset]
 
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
+    [<Record>]
+    type API<'T> =
         {
-            Default         =   Default template tf
-            WithTimeslicing =   WithTimeslicing template tf
+            template : _Template<'T>
         }
+
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module ScatterToBlocked =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.ScatterToBlocked.Default<'T>
-            WithTimeslicing     : Sig.ScatterToBlocked.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-        let c = _Constants.Init template
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = ranks.[ITEM]
             if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            tf.temp_storage.[item_offset] <- items.[ITEM]
+            f.temp_storage.[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = (tf.linear_tid * template.ITEMS_PER_THREAD) + ITEM
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = (f.linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            items.[ITEM] <- tf.temp_storage.[item_offset]
-
+            items.[ITEM] <- f.temp_storage.[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-        let c = _Constants.Init template
-        let temp_items = __local__.Array<'T>(tp.ITEMS_PER_THREAD)
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+        
+        let temp_items = __local__.Array<'T>(p.ITEMS_PER_THREAD)
         for SLICE = 0 to (c.TIME_SLICES - 1) do
             __syncthreads()
 
             let SLICE_OFFSET = c.TIME_SLICED_ITEMS * SLICE
 
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
+            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
                 let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
                 if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
                     if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                    tf.temp_storage.[item_offset] <- items.[ITEM]
+                    f.temp_storage.[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
 
-            if tf.warp_id = SLICE then
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD- 1) do
-                    let mutable item_offset = (tf.warp_lane * template.ITEMS_PER_THREAD) + ITEM
+            if f.warp_id = SLICE then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
+                    let mutable item_offset = (f.warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                    temp_items.[ITEM] <- tf.temp_storage.[item_offset]
+                    temp_items.[ITEM] <- f.temp_storage.[item_offset]
 
-        for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
 
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>) 
-         =
+    [<Record>]
+    type API<'T> =
         {
-            Default         =   Default template tf
-            WithTimeslicing =   WithTimeslicing template tf
+            template : _Template<'T>
         }
+
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module ScatterToStriped =
     open Template
-    open Internal
-
-    type API<'T> =
-        {
-            Default             : Sig.ScatterToStriped.Default<'T>
-            WithTimeslicing     : Sig.ScatterToStriped.WithTimeslicing<'T>
-        }
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-            let c = _Constants.Init template
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                let mutable item_offset = ranks.[ITEM]
-                if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                tf.temp_storage.[item_offset] <- items.[ITEM]
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = ranks.[ITEM]
+            if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
+            f.temp_storage.[item_offset] <- items.[ITEM]
+
+        __syncthreads()
+
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            let mutable item_offset = (ITEM * p.BLOCK_THREADS) + f.linear_tid
+            if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
+            items.[ITEM] <- f.temp_storage.[item_offset]
+
+    let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
+        (items:deviceptr<'T>) (ranks:deviceptr<int>) =
+        let p = template.Params
+        let c = template.Constants
+        let f = template.ThreadFields
+
+        let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
+        for SLICE = 0 to (c.TIME_SLICES - 1) do
+            let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
+            let SLICE_OOB = SLICE_OFFSET + c.TIME_SLICED_ITEMS
 
             __syncthreads()
 
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                let mutable item_offset = (ITEM * template.BLOCK_THREADS) + tf.linear_tid
-                if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                items.[ITEM] <- tf.temp_storage.[item_offset]
+            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
+                if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
+                    if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
+                    f.temp_storage.[item_offset] <- items.[ITEM]
 
+            __syncthreads()
 
-    let private WithTimeslicing (template:_Template<'T>)
-        
-        (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-            let c = _Constants.Init template
-            let temp_items = __local__.Array(tp.ITEMS_PER_THREAD)
-            for SLICE = 0 to (c.TIME_SLICES - 1) do
-                let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
-                let SLICE_OOB = SLICE_OFFSET + c.TIME_SLICED_ITEMS
+            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                let STRIP_OFFSET = ITEM * p.BLOCK_THREADS
+                let STRIP_OOB = STRIP_OFFSET + p.BLOCK_THREADS
 
-                __syncthreads()
+                if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
+                    let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
+                    if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
+                        if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
+                        temp_items.[ITEM] <- f.temp_storage.[item_offset]
 
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
-                    if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
-                        if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                        tf.temp_storage.[item_offset] <- items.[ITEM]
+        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+            items.[ITEM] <- temp_items.[ITEM]
 
-                __syncthreads()
+    [<Record>]
+    type API<'T> =
+        {
+            template : _Template<'T>
+        }
 
-                for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                    let STRIP_OFFSET = ITEM * template.BLOCK_THREADS
-                    let STRIP_OOB = STRIP_OFFSET + template.BLOCK_THREADS
+        [<ReflectedDefinition>] member this.Default = Default this.template
+        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
 
-                    if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
-                        let mutable item_offset = STRIP_OFFSET + tf.linear_tid - SLICE_OFFSET
-                        if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
-                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                            temp_items.[ITEM] <- tf.temp_storage.[item_offset]
-
-            for ITEM = 0 to (tp.ITEMS_PER_THREAD - 1) do
-                items.[ITEM] <- temp_items.[ITEM]
-
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
-            {
-                Default         =   Default template tf
-                WithTimeslicing =   WithTimeslicing template tf
-            }
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module BlockExchange =
@@ -542,17 +546,24 @@ module BlockExchange =
     [<Record>]
     type API<'T> =
         {
-            BlockedToStriped        : BlockedToStriped.API<'T>
-            BlockedToWarpStriped    : BlockedToWarpStriped.API<'T>
-            StripedToBlocked        : StripedToBlocked.API<'T>
-            WarpStripedToBlocked    : WarpStripedToBlocked.API<'T>
-            ScatterToBlocked        : ScatterToBlocked.API<'T>
-            ScatterToStriped        : ScatterToStriped.API<'T>
+            template : _Template<'T>
         }
 
+        [<ReflectedDefinition>] member this.BlockToStriped          = BlockedToStriped.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.BlockToWarpStriped      = BlockedToWarpStriped.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.StripedToBlocked        = StripedToBlocked.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.WarpStripedToBlocked    = WarpStripedToBlocked.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.ScatterToBlocked        = ScatterToBlocked.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] member this.ScatterToStriped        = ScatterToStriped.API<'T>.Init(this.template)
+
+        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
+        [<ReflectedDefinition>] 
+        static member Init(block_threads, items_per_thread, warp_time_slicing) =
+            API<'T>.Init(_Template<'T>.Init(block_threads, items_per_thread, warp_time_slicing))
+
 //        [<ReflectedDefinition>]
-//        static member Create(block_threads, items_per_thread, warp_time_slicing) =
-//            let template = _TemplateParams<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
+//        static member Create(block_threads, p.ITEMS_PER_THREAD, warp_time_slicing) =
+//            let template = _TemplateParams<'T>.Init(block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //            let tf = _ThreadFields<'T>.Init(tp)
 //            {
 //                BlockedToStriped        =   BlockedToStriped.api template tf
@@ -562,17 +573,17 @@ module BlockExchange =
 //                ScatterToBlocked        =   ScatterToBlocked.api template tf
 //                ScatterToStriped        =   ScatterToStriped.api template tf
 //            }
-
-    let [<ReflectedDefinition>] api (template:_Template<'T>)
-         =
-            {
-                BlockedToStriped        =   BlockedToStriped.api template tf
-                BlockedToWarpStriped    =   BlockedToWarpStriped.api template tf
-                StripedToBlocked        =   StripedToBlocked.api template tf
-                WarpStripedToBlocked    =   WarpStripedToBlocked.api template tf                                                            
-                ScatterToBlocked        =   ScatterToBlocked.api template tf
-                ScatterToStriped        =   ScatterToStriped.api template tf
-            }
+//
+//    let [<ReflectedDefinition>] api (template:_Template<'T>)
+//         =
+//            {
+//                BlockedToStriped        =   BlockedToStriped.api template tf
+//                BlockedToWarpStriped    =   BlockedToWarpStriped.api template tf
+//                StripedToBlocked        =   StripedToBlocked.api template tf
+//                WarpStripedToBlocked    =   WarpStripedToBlocked.api template tf                                                            
+//                ScatterToBlocked        =   ScatterToBlocked.api template tf
+//                ScatterToStriped        =   ScatterToStriped.api template tf
+//            }
 
 //let linear_tid = 
 //    fun (tidx:int option) ->
@@ -597,40 +608,40 @@ module BlockExchange =
 //            threadIdx.x &&& (WARP_THREADS - 1)
 //
 //let warp_offset = 
-//    fun block_threads items_per_thread -> 
+//    fun block_threads p.ITEMS_PER_THREAD -> 
 //        fun (linear_tid:int option) ->
 //            match linear_tid with
 //            | Some linear_tid ->
-//                (linear_tid |> Some |> warp_id) * ((block_threads, items_per_thread, ()) |||> WARP_TIME_SLICED_ITEMS)
+//                (linear_tid |> Some |> warp_id) * ((block_threads, p.ITEMS_PER_THREAD, ()) |||> WARP_TIME_SLICED_ITEMS)
 //            | None ->
-//                (threadIdx.x |> Some |> warp_id) * ((block_threads, items_per_thread, ()) |||> WARP_TIME_SLICED_ITEMS)
+//                (threadIdx.x |> Some |> warp_id) * ((block_threads, p.ITEMS_PER_THREAD, ()) |||> WARP_TIME_SLICED_ITEMS)
 
 
 
-//let blockedToStriped (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
-//    let INSERT_PADDING      = ((),items_per_thread,()) |||> INSERT_PADDING
-//    let TIME_SLICED_ITEMS   = (block_threads, items_per_thread, warp_time_slicing) |||> TIME_SLICED_ITEMS
+//let blockedToStriped (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
+//    let INSERT_PADDING      = ((),p.ITEMS_PER_THREAD,()) |||> INSERT_PADDING
+//    let TIME_SLICED_ITEMS   = (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing) |||> TIME_SLICED_ITEMS
 //    let TIME_SLICES         = (block_threads, (), warp_time_slicing) |||> TIME_SLICES
 //
 //    match warp_time_slicing with
 //    | false ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
 //            fun (items:deviceptr<int>) ->
-//                for ITEM = 0 to (items_per_thread - 1) do
-//                    let mutable item_offset = (linear_tid * items_per_thread) + ITEM
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * p.ITEMS_PER_THREAD) + ITEM
 //                    if INSERT_PADDING then 
-//                        item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                        item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ITEM * block_threads + linear_tid
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //    | true ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
-//            let temp_items = __local__.Array(items_per_thread)
+//            let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
 //            fun (items:deviceptr<int>) ->
 //                for SLICE = 0 to (TIME_SLICES - 1) do
 //                    let SLICE_OFFSET = SLICE * TIME_SLICED_ITEMS
@@ -641,34 +652,34 @@ module BlockExchange =
 //                    let warp_id = linear_tid |> Some |> warp_id
 //                    let warp_lane = linear_tid |> Some |> warp_lane
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (items_per_thread - 1) do
-//                            let mutable item_offset = (warp_lane * items_per_thread) + ITEM
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * p.ITEMS_PER_THREAD) + ITEM
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (items_per_thread - 1) do
+//                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * block_threads
 //                        let STRIP_OOB = STRIP_OFFSET + block_threads
 //
 //                        if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
 //                            let mutable item_offset = STRIP_OFFSET + linear_tid - SLICE_OFFSET
 //                            if (item_offset >= 0) && (item_offset < TIME_SLICED_ITEMS) then
-//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                                temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
         
 
 
-//let blockedToWarpStriped (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
-//    let INSERT_PADDING              = ((), items_per_thread, ())                |||> INSERT_PADDING
+//let blockedToWarpStriped (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
+//    let INSERT_PADDING              = ((), p.ITEMS_PER_THREAD, ())                |||> INSERT_PADDING
 //    let WARP_TIME_SLICED_THREADS    = (block_threads, (), ())                   |||> WARP_TIME_SLICED_THREADS
 //    let TIME_SLICES                 = (block_threads, (), warp_time_slicing)    |||> TIME_SLICES
 //
-//    let warp_offset = (block_threads, items_per_thread) ||> warp_offset
+//    let warp_offset = (block_threads, p.ITEMS_PER_THREAD) ||> warp_offset
 //
 //    match warp_time_slicing with
 //    | false ->
@@ -677,14 +688,14 @@ module BlockExchange =
 //                let warp_offset = linear_tid |> Some |> warp_offset
 //                let warp_lane = linear_tid |> Some |> warp_lane
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
-//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * items_per_thread)
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * p.ITEMS_PER_THREAD)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = warp_offset + (ITEM * WARP_TIME_SLICED_THREADS) + warp_lane
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //    | true ->
@@ -697,41 +708,41 @@ module BlockExchange =
 //                    __syncthreads()
 //                        
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (items_per_thread - 1) do
-//                            let mutable item_offset = ITEM + (warp_lane * items_per_thread)
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = ITEM + (warp_lane * p.ITEMS_PER_THREAD)
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
-//                        for ITEM = 0 to (items_per_thread - 1) do
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                            let mutable item_offset = (ITEM * WARP_TIME_SLICED_THREADS) + warp_lane
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            items.[ITEM] <- temp_storage.[item_offset]
         
 //
-//let stripedToBlocked (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
-//    let INSERT_PADDING      = ((), items_per_thread, ())                              |||> INSERT_PADDING
+//let stripedToBlocked (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
+//    let INSERT_PADDING      = ((), p.ITEMS_PER_THREAD, ())                              |||> INSERT_PADDING
 //    let TIME_SLICES         = (block_threads, (), warp_time_slicing)                  |||> TIME_SLICES
-//    let TIME_SLICED_ITEMS   = (block_threads, items_per_thread, warp_time_slicing)    |||> TIME_SLICED_ITEMS
+//    let TIME_SLICED_ITEMS   = (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)    |||> TIME_SLICED_ITEMS
 //
 //    match warp_time_slicing with
 //    | false ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
 //            fun (items:deviceptr<int>) ->
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = (ITEM * block_threads) + linear_tid
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
-//                    let mutable item_offset = (linear_tid * items_per_thread) + ITEM
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * p.ITEMS_PER_THREAD) + ITEM
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //    | true ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
-//            let temp_items = __local__.Array(items_per_thread)
+//            let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
 //
 //            fun (items:deviceptr<int>) ->
 //                for SLICE = 0 to (TIME_SLICES - 1) do
@@ -740,14 +751,14 @@ module BlockExchange =
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (items_per_thread - 1) do
+//                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * block_threads
 //                        let STRIP_OOB = STRIP_OFFSET + block_threads
 //                            
 //                        if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
 //                            let mutable item_offset = STRIP_OFFSET + linear_tid - SLICE_OFFSET
 //                            if (item_offset >= 0) && (item_offset < TIME_SLICED_ITEMS) then
-//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                                temp_storage.[item_offset] <- items.[ITEM]
 //
 //                    __syncthreads()
@@ -755,20 +766,20 @@ module BlockExchange =
 //                    let warp_id = linear_tid |> Some |> warp_id
 //                    let warp_lane = linear_tid |> Some |> warp_lane
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (items_per_thread - 1) do
-//                            let mutable item_offset = (warp_lane * items_per_thread) + ITEM
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * p.ITEMS_PER_THREAD) + ITEM
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 //        
 
-//let warpStripedToBlocked (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
+//let warpStripedToBlocked (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
 //    let WARP_TIME_SLICED_THREADS    = (block_threads, (), ())                   |||> WARP_TIME_SLICED_THREADS
-//    let INSERT_PADDING              = ((), items_per_thread, ())                |||> INSERT_PADDING
+//    let INSERT_PADDING              = ((), p.ITEMS_PER_THREAD, ())                |||> INSERT_PADDING
 //    let TIME_SLICES                 = (block_threads, (), warp_time_slicing)    |||> TIME_SLICES
-//    let warp_offset                 = (block_threads, items_per_thread)          ||> warp_offset
+//    let warp_offset                 = (block_threads, p.ITEMS_PER_THREAD)          ||> warp_offset
 //
 //    match warp_time_slicing with
 //    | false ->
@@ -777,14 +788,14 @@ module BlockExchange =
 //                let warp_offset = linear_tid |> Some |> warp_offset
 //                let warp_lane = linear_tid |> Some |> warp_lane
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = warp_offset + (ITEM * WARP_TIME_SLICED_THREADS) + warp_lane
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
-//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * items_per_thread)
-//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * p.ITEMS_PER_THREAD)
+//                    if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //    | true ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
@@ -796,52 +807,52 @@ module BlockExchange =
 //                    __syncthreads()
 //
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (items_per_thread - 1) do
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                            let mutable item_offset = (ITEM * WARP_TIME_SLICED_THREADS) + warp_lane
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
-//                        for ITEM = 0 to (items_per_thread - 1) do
-//                            let mutable item_offset = ITEM + (warp_lane * items_per_thread)
-//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = ITEM + (warp_lane * p.ITEMS_PER_THREAD)
+//                            if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            items.[ITEM] <- temp_storage.[item_offset]
         
 //
-//let scatterToBlocked (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
-//    let INSERT_PADDING          = ((), items_per_thread, ())                            |||> INSERT_PADDING
+//let scatterToBlocked (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
+//    let INSERT_PADDING          = ((), p.ITEMS_PER_THREAD, ())                            |||> INSERT_PADDING
 //    let TIME_SLICES             = (block_threads, (), warp_time_slicing)                |||> TIME_SLICES
-//    let TIME_SLICED_ITEMS       = (block_threads, items_per_thread, warp_time_slicing)  |||> TIME_SLICED_ITEMS
-//    let WARP_TIME_SLICED_ITEMS  = (block_threads, items_per_thread, ())                 |||> WARP_TIME_SLICED_ITEMS
+//    let TIME_SLICED_ITEMS       = (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)  |||> TIME_SLICED_ITEMS
+//    let WARP_TIME_SLICED_ITEMS  = (block_threads, p.ITEMS_PER_THREAD, ())                 |||> WARP_TIME_SLICED_ITEMS
 //
 //    match warp_time_slicing with
 //    | false ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
 //            fun (items:deviceptr<int>) (ranks:deviceptr<int>) ->
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ranks.[ITEM]
-//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
-//                    let mutable item_offset = (linear_tid * items_per_thread) + ITEM
-//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * p.ITEMS_PER_THREAD) + ITEM
+//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //    | true ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
 //            fun (items:deviceptr<int>) (ranks:deviceptr<int>) ->
-//                let temp_items = __local__.Array(items_per_thread)
+//                let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
 //                for SLICE = 0 to (TIME_SLICES - 1) do
 //                    __syncthreads()
 //
 //                    let SLICE_OFFSET = TIME_SLICED_ITEMS * SLICE
 //
-//                    for ITEM = 0 to (items_per_thread - 1) do
+//                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                        let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
 //                        if (item_offset >= 0) && (item_offset < WARP_TIME_SLICED_ITEMS) then
-//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
 //                    __syncthreads()
@@ -849,40 +860,40 @@ module BlockExchange =
 //                    let warp_id = linear_tid |> Some |> warp_id
 //                    let warp_lane = linear_tid |> Some |> warp_lane
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (items_per_thread - 1) do
-//                            let mutable item_offset = (warp_lane * items_per_thread) + ITEM
-//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * p.ITEMS_PER_THREAD) + ITEM
+//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                            temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 
 
-//let scatterToStriped (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
+//let scatterToStriped (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
 //    let INSERT_PADDING          = ((), block_threads, ())                               |||> INSERT_PADDING
 //    let TIME_SLICES             = (block_threads, (), warp_time_slicing)                |||> TIME_SLICES
-//    let TIME_SLICED_ITEMS       = (block_threads, items_per_thread, warp_time_slicing)  |||> TIME_SLICED_ITEMS
-//    let WARP_TIME_SLICED_ITEMS  = (block_threads, items_per_thread, ())                 |||> WARP_TIME_SLICED_ITEMS
+//    let TIME_SLICED_ITEMS       = (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)  |||> TIME_SLICED_ITEMS
+//    let WARP_TIME_SLICED_ITEMS  = (block_threads, p.ITEMS_PER_THREAD, ())                 |||> WARP_TIME_SLICED_ITEMS
 //    
 //    match warp_time_slicing with
 //    | false ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
 //            fun (items:deviceptr<int>) (ranks:deviceptr<int>) (is_valid:deviceptr<int>) (valid_items:int) ->    
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ranks.[ITEM]
-//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = (ITEM * block_threads) + linear_tid
-//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                    if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //    | true ->
 //        fun (temp_storage:deviceptr<int>) (linear_tid:int) ->
-//            let temp_items = __local__.Array(items_per_thread)
+//            let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
 //            fun (items:deviceptr<int>) (ranks:deviceptr<int>) (is_valid:deviceptr<int>) (valid_items:int) ->    
 //                for SLICE = 0 to (TIME_SLICES - 1) do
 //                    let SLICE_OFFSET = SLICE * TIME_SLICED_ITEMS
@@ -890,25 +901,25 @@ module BlockExchange =
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (items_per_thread - 1) do
+//                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                        let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
 //                        if (item_offset >= 0) && (item_offset < WARP_TIME_SLICED_ITEMS) then
-//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) LOG_SMEM_BANKS (item_offset |> uint32) |> int
+//                            if INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (items_per_thread - 1) do
+//                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * block_threads
 //                        let STRIP_OOB = STRIP_OFFSET + block_threads
 //
 //                        if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
 //                            let mutable item_offset = STRIP_OFFSET + linear_tid - SLICE_OFFSET
 //                            if (item_offset >= 0) && (item_offset < TIME_SLICED_ITEMS) then
-//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> LOG_SMEM_BANKS)
+//                                if INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                                temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (items_per_thread - 1) do
+//                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 
 //let vars (temp_storage:deviceptr<int> option) (linear_tid:int option) =
@@ -918,7 +929,7 @@ module BlockExchange =
 //    | Some temp_storage, None ->            temp_storage,       threadIdx.x
 //    | None,              None ->            privateStorage(),   threadIdx.x
 
-//let blockExchange (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) =
+//let blockExchange (block_threads:int) (p.ITEMS_PER_THREAD:int) (warp_time_slicing:bool) =
 //    fun (temp_storage:deviceptr<int> option) (linear_tid:int option) ->
 //        let temp_storage, linear_tid = (temp_storage, linear_tid) ||> vars
 
@@ -930,7 +941,7 @@ module BlockExchange =
 //        LOG_WARP_THREADS            : int
 //        WARP_THREADS                : int
 //        WARPS                       : int
-//        LOG_SMEM_BANKS              : int
+//        c.LOG_SMEM_BANKS              : int
 //        SMEM_BANKS                  : int
 //        TILE_ITEMS                  : int
 //        TIME_SLICES                 : int
@@ -943,25 +954,25 @@ module BlockExchange =
 //    }
 //
 //    [<ReflectedDefinition>]
-//    static member Init(block_threads:int, items_per_thread:int, warp_time_slicing:bool) =
+//    static member Init(block_threads:int, p.ITEMS_PER_THREAD:int, warp_time_slicing:bool) =
 //        let log_warp_threads            = CUB_PTX_LOG_WARP_THREADS
 //        let warp_threads                = 1 <<< LOG_WARP_THREADS
 //        let warps                       = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
-//        let log_smem_banks              = CUB_PTX_LOG_SMEM_BANKS
-//        let smem_banks                  = 1 <<< LOG_SMEM_BANKS
-//        let tile_items                  = block_threads * items_per_thread
+//        let c.LOG_SMEM_BANKS              = CUB_PTX_c.LOG_SMEM_BANKS
+//        let smem_banks                  = 1 <<< c.LOG_SMEM_BANKS
+//        let tile_items                  = block_threads * p.ITEMS_PER_THREAD
 //        let time_slices                 = if warp_time_slicing then warps else 1
 //        let time_sliced_threads         = if warp_time_slicing then CUB_MIN block_threads WARP_THREADS else block_threads
-//        let time_sliced_items           = time_sliced_threads * items_per_thread
+//        let time_sliced_items           = time_sliced_threads * p.ITEMS_PER_THREAD
 //        let warp_time_sliced_threads    = CUB_MIN block_threads WARP_THREADS
-//        let warp_time_sliced_items      = warp_time_sliced_threads * items_per_thread
-//        let insert_padding              = ((items_per_thread &&& (items_per_thread - 1)) = 0)
-//        let padding_items               = if insert_padding then (time_sliced_items >>> LOG_SMEM_BANKS) else 0
+//        let warp_time_sliced_items      = warp_time_sliced_threads * p.ITEMS_PER_THREAD
+//        let insert_padding              = ((p.ITEMS_PER_THREAD &&& (p.ITEMS_PER_THREAD - 1)) = 0)
+//        let padding_items               = if insert_padding then (time_sliced_items >>> c.LOG_SMEM_BANKS) else 0
 //        {   
 //            LOG_WARP_THREADS            = log_warp_threads
 //            WARP_THREADS                = warp_threads
 //            WARPS                       = warps
-//            LOG_SMEM_BANKS              = log_smem_banks
+//            c.LOG_SMEM_BANKS              = c.LOG_SMEM_BANKS
 //            SMEM_BANKS                  = SMEM_BANKS
 //            TILE_ITEMS                  = tile_items
 //            TIME_SLICES                 = time_slices
@@ -973,8 +984,8 @@ module BlockExchange =
 //            PADDING_ITEMS               = padding_items
 //        }
 //
-////    static member Default(block_threads:int, items_per_thread:int) =
-////        BlockExchange.Init(block_threads, items_per_thread, false)
+////    static member Default(block_threads:int, p.ITEMS_PER_THREAD:int) =
+////        BlockExchange.Init(block_threads, p.ITEMS_PER_THREAD, false)
 ////
 ////
 //////let inlineStorage() = cuda { return! <@ fun (n:int) -> __shared__.Array(n) |> __array_to_ptr @> |> Compiler.DefineFunction }
@@ -1042,7 +1053,7 @@ module BlockExchange =
 //type BlockExchange =
 //    {
 //        BLOCK_THREADS       : int
-//        ITEMS_PER_THREAD    : int
+//        p.ITEMS_PER_THREAD    : int
 //        WARP_TIME_SLICING   : bool
 //        Constants           : Constants
 //        ThreadFields        : ThreadFields
@@ -1101,128 +1112,128 @@ module BlockExchange =
 //
 //    member this.StripedToBlocked(items:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //        
 //        stripedToBlocked
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //        
 //
 //    member this.BlockedToStriped(items:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //
 //        blockedToStriped
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //
 //
 //    member this.WarpStripedToBlocked(items:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //
 //        warpStripedToBlocked
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //
 //
 //    member this.BlockedToWarpStriped(items:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //
 //        blockedToWarpStriped
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //
 //
 //    member this.ScatterToBlocked(items:deviceptr<int>, ranks:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //
 //        scatterToBlocked
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //
 //
 //    member this.ScatterToStriped(items:deviceptr<int>, ranks:deviceptr<int>) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //
 //        scatterToStriped
-//        <|||    (block_threads, items_per_thread, warp_time_slicing)
+//        <|||    (block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //        <||     (temp_storage, linear_tid)
 //
 //
 //    member this.ScatterToStriped(items:deviceptr<int>, ranks:deviceptr<int>, is_valid:deviceptr<int>, valid_items:int) =
 //        let block_threads       = this.BLOCK_THREADS
-//        let items_per_thread    = this.ITEMS_PER_THREAD
+//        let p.ITEMS_PER_THREAD    = this.p.ITEMS_PER_THREAD
 //        let warp_time_slicing   = this.WARP_TIME_SLICING
 //        let temp_storage        = this.ThreadFields.temp_storage
 //        let linear_tid          = this.ThreadFields.linear_tid
 //        let insert_padding      = this.Constants.INSERT_PADDING
-//        let log_smem_banks      = this.Constants.LOG_SMEM_BANKS
+//        let c.LOG_SMEM_BANKS      = this.Constants.c.LOG_SMEM_BANKS
 //
-//        for ITEM = 0 to items_per_thread - 1 do
+//        for ITEM = 0 to p.ITEMS_PER_THREAD - 1 do
 //            let mutable item_offset = ranks.[ITEM]
-//            if insert_padding then item_offset <- (item_offset, log_smem_banks, item_offset) |||> SHR_ADD
+//            if insert_padding then item_offset <- (item_offset, c.LOG_SMEM_BANKS, item_offset) |||> SHR_ADD
 //            if is_valid.[ITEM] <> 0 then temp_storage.[item_offset] <- items.[ITEM]
 //
 //        __syncthreads()
 //
-//        for ITEM = 0 to items_per_thread - 1 do
+//        for ITEM = 0 to p.ITEMS_PER_THREAD - 1 do
 //            let mutable item_offset = (ITEM * block_threads) + linear_tid
 //            if item_offset < valid_items then
-//                if insert_padding then item_offset <- (item_offset, log_smem_banks, item_offset) |||> SHR_ADD
+//                if insert_padding then item_offset <- (item_offset, c.LOG_SMEM_BANKS, item_offset) |||> SHR_ADD
 //                items.[ITEM] <- temp_storage.[item_offset]
 //
 //
-//    static member Create(block_threads:int, items_per_thread:int, warp_time_slicing:bool) =
+//    static member Create(block_threads:int, p.ITEMS_PER_THREAD:int, warp_time_slicing:bool) =
 //        {
 //            BLOCK_THREADS       = block_threads
-//            ITEMS_PER_THREAD    = items_per_thread
+//            p.ITEMS_PER_THREAD    = p.ITEMS_PER_THREAD
 //            WARP_TIME_SLICING   = warp_time_slicing
-//            Constants           = Constants.Init(block_threads, items_per_thread, warp_time_slicing)
+//            Constants           = Constants.Init(block_threads, p.ITEMS_PER_THREAD, warp_time_slicing)
 //            ThreadFields        = ThreadFields.Default()
 //        }
 //
 //
-//    static member Create(block_threads:int, items_per_thread:int) =
+//    static member Create(block_threads:int, p.ITEMS_PER_THREAD:int) =
 //        {
 //            BLOCK_THREADS       = block_threads
-//            ITEMS_PER_THREAD    = items_per_thread
+//            p.ITEMS_PER_THREAD    = p.ITEMS_PER_THREAD
 //            WARP_TIME_SLICING   = false
-//            Constants           = Constants.Init(block_threads, items_per_thread, false)
+//            Constants           = Constants.Init(block_threads, p.ITEMS_PER_THREAD, false)
 //            ThreadFields        = ThreadFields.Default()
 //        }
 ////[<Record>]
 //type BlockExchange =
 //    {
 //        BLOCK_THREADS : int
-//        ITEMS_PER_THREAD : int
+//        p.ITEMS_PER_THREAD : int
 //        WARP_TIME_SLICING : bool
 //    }
 //
 //    [<ReflectedDefinition>]
 //    member this.BlockToStriped(items:deviceptr<int>) = //, linear_tid:int, warp_id:int, warp_lane:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS,this.ITEMS_PER_THREAD,this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS,this.p.ITEMS_PER_THREAD,this.WARP_TIME_SLICING)
 //        let vars = BlockExchangeVars.Init(props)
 //        let linear_tid = vars.linear_tid
 //        let warp_id = vars.warp_id
@@ -1231,20 +1242,20 @@ module BlockExchange =
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                    let mutable item_offset = (linear_tid * this.ITEMS_PER_THREAD) + ITEM
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * this.p.ITEMS_PER_THREAD) + ITEM
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ITEM * this.BLOCK_THREADS + linear_tid
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //        | true ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                let temp_items = __local__.Array(this.ITEMS_PER_THREAD)
+//                let temp_items = __local__.Array(this.p.ITEMS_PER_THREAD)
 //                
 //                for SLICE = 0 to (c.TIME_SLICES - 1) do
 //                    let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
@@ -1253,14 +1264,14 @@ module BlockExchange =
 //                    __syncthreads()
 //
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                            let mutable item_offset = (warp_lane * this.ITEMS_PER_THREAD) + ITEM
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * this.p.ITEMS_PER_THREAD) + ITEM
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                    for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * this.BLOCK_THREADS
 //                        let STRIP_OOB = STRIP_OFFSET + this.BLOCK_THREADS
 //
@@ -1270,12 +1281,12 @@ module BlockExchange =
 //                                if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                                temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 //        
 //    [<ReflectedDefinition>]
 //    member this.BlockTOWarpStriped(items:deviceptr<int>) = //, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
 //        let vars = BlockExchangeVars.Init(props)
 //        let warp_lane = vars.warp_lane
 //        let warp_offset = vars.warp_offset
@@ -1284,12 +1295,12 @@ module BlockExchange =
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * this.ITEMS_PER_THREAD)
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * this.p.ITEMS_PER_THREAD)
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + warp_lane
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
@@ -1300,19 +1311,19 @@ module BlockExchange =
 //                    __syncthreads()
 //                        
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                            let mutable item_offset = ITEM + (warp_lane * this.ITEMS_PER_THREAD)
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = ITEM + (warp_lane * this.p.ITEMS_PER_THREAD)
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                            let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + warp_lane
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            items.[ITEM] <- temp_storage.[item_offset]
 //        
 //    [<ReflectedDefinition>]
 //    member this.StripedToBlocked(items:deviceptr<int>) = //, linear_tid:int, warp_id:int, warp_lane:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
 //        let vars = BlockExchangeVars.Init(props)
 //        let linear_tid = vars.linear_tid
 //        let warp_id = vars.warp_id
@@ -1321,22 +1332,22 @@ module BlockExchange =
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = (ITEM * this.BLOCK_THREADS) + linear_tid
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                    let mutable item_offset = (linear_tid * this.ITEMS_PER_THREAD) + ITEM
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * this.p.ITEMS_PER_THREAD) + ITEM
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //        | true ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
-//                let temp_items = __local__.Array(this.ITEMS_PER_THREAD)
+//                let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//                let temp_items = __local__.Array(this.p.ITEMS_PER_THREAD)
 //
 //                for SLICE = 0 to (c.TIME_SLICES - 1) do
 //                    let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
@@ -1344,7 +1355,7 @@ module BlockExchange =
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                    for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * this.BLOCK_THREADS
 //                        let STRIP_OOB = STRIP_OFFSET + this.BLOCK_THREADS
 //                            
@@ -1357,17 +1368,17 @@ module BlockExchange =
 //                    __syncthreads()
 //
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                            let mutable item_offset = (warp_lane * this.ITEMS_PER_THREAD) + ITEM
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * this.p.ITEMS_PER_THREAD) + ITEM
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 //        
 //    [<ReflectedDefinition>]
 //    member this.WarpStripedToBlocked(items:deviceptr<int>) = //, linear_tid:int, warp_id:int, warp_lane:int, warp_offset:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
 //        let vars = BlockExchangeVars.Init(props)
 //        let warp_offset = vars.warp_offset
 //        let warp_lane = vars.warp_lane
@@ -1376,13 +1387,13 @@ module BlockExchange =
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + warp_lane
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * this.ITEMS_PER_THREAD)
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = warp_offset + ITEM + (warp_lane * this.p.ITEMS_PER_THREAD)
 //                    if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //        | true ->
@@ -1391,43 +1402,43 @@ module BlockExchange =
 //                    __syncthreads()
 //
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                            let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + warp_lane
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            temp_storage.[item_offset] <- items.[ITEM]
 //
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                            let mutable item_offset = ITEM + (warp_lane * this.ITEMS_PER_THREAD)
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = ITEM + (warp_lane * this.p.ITEMS_PER_THREAD)
 //                            if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                            items.[ITEM] <- temp_storage.[item_offset]
 //        
 //    [<ReflectedDefinition>]
 //    member this.ScatterToBlocked(items:deviceptr<int>, ranks:deviceptr<int>, linear_tid:int, warp_id:int, warp_lane:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ranks.[ITEM]
 //                    if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                    let mutable item_offset = (linear_tid * this.ITEMS_PER_THREAD) + ITEM
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                    let mutable item_offset = (linear_tid * this.p.ITEMS_PER_THREAD) + ITEM
 //                    if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //        | true ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                let temp_items = __local__.Array(this.ITEMS_PER_THREAD)
+//                let temp_items = __local__.Array(this.p.ITEMS_PER_THREAD)
 //                for SLICE = 0 to (c.TIME_SLICES - 1) do
 //                    __syncthreads()
 //
 //                    let SLICE_OFFSET = c.TIME_SLICED_ITEMS * SLICE
 //
-//                    for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                    for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                        let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
 //                        if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
 //                            if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
@@ -1436,38 +1447,38 @@ module BlockExchange =
 //                    __syncthreads()
 //
 //                    if warp_id = SLICE then
-//                        for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
-//                            let mutable item_offset = (warp_lane * this.ITEMS_PER_THREAD) + ITEM
+//                        for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
+//                            let mutable item_offset = (warp_lane * this.p.ITEMS_PER_THREAD) + ITEM
 //                            if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                            temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
 //
 //    [<ReflectedDefinition>]
 //    member this.ScatterToStriped(items:deviceptr<int>, ranks:deviceptr<int>) = //, linear_tid:int) =
-//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
+//        let props = BlockExchangec.Init(this.BLOCK_THREADS, this.p.ITEMS_PER_THREAD, this.WARP_TIME_SLICING)
 //        let vars = BlockExchangeVars.Init(props)
 //        let linear_tid = vars.linear_tid
 //
 //        match this.WARP_TIME_SLICING with
 //        | false ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = ranks.[ITEM]
 //                    if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    temp_storage.[item_offset] <- items.[ITEM]
 //
 //                __syncthreads()
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    let mutable item_offset = (ITEM * this.BLOCK_THREADS) + linear_tid
 //                    if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
 //                    items.[ITEM] <- temp_storage.[item_offset]
 //
 //        | true ->
 //            fun (temp_storage:deviceptr<int>) ->
-//                let temp_items = __local__.Array(this.ITEMS_PER_THREAD)
+//                let temp_items = __local__.Array(this.p.ITEMS_PER_THREAD)
 //
 //                for SLICE = 0 to (c.TIME_SLICES - 1) do
 //                    let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
@@ -1475,7 +1486,7 @@ module BlockExchange =
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                    for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                        let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
 //                        if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
 //                            if c.INSERT_PADDING then item_offset <- SHR_ADD (item_offset |> uint32) c.LOG_SMEM_BANKS (item_offset |> uint32) |> int
@@ -1483,7 +1494,7 @@ module BlockExchange =
 //
 //                    __syncthreads()
 //
-//                    for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                    for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                        let STRIP_OFFSET = ITEM * this.BLOCK_THREADS
 //                        let STRIP_OOB = STRIP_OFFSET + this.BLOCK_THREADS
 //
@@ -1493,5 +1504,5 @@ module BlockExchange =
 //                                if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
 //                                temp_items.[ITEM] <- temp_storage.[item_offset]
 //
-//                for ITEM = 0 to (this.ITEMS_PER_THREAD - 1) do
+//                for ITEM = 0 to (this.p.ITEMS_PER_THREAD - 1) do
 //                    items.[ITEM] <- temp_items.[ITEM]
