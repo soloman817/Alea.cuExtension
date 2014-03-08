@@ -11,120 +11,126 @@ open Alea.cuExtension.CUB.Utilities
 open Macro
 open Vector
 
+type BlockLoadAlgorithm =
+    | BLOCK_LOAD_DIRECT         = 0  
+    | BLOCK_LOAD_VECTORIZE      = 1
+    | BLOCK_LOAD_TRANSPOSE      = 2
+    | BLOCK_LOAD_WARP_TRANSPOSE = 3
 
 module Template =
+    module Host =
+        module Params =
+            [<Record>]
+            type API =
+                {
+                    BLOCK_THREADS       : int
+                    ITEMS_PER_THREAD    : int
+                    ALGORITHM           : BlockLoadAlgorithm
+                    WARP_TIME_SLICING   : bool
+                }
 
-    type BlockLoadAlgorithm =
-        | BLOCK_LOAD_DIRECT
-        | BLOCK_LOAD_VECTORIZE
-        | BLOCK_LOAD_TRANSPOSE
-        | BLOCK_LOAD_WARP_TRANSPOSE
+                static member Init(block_threads, items_per_thread, algorithm, warp_time_slicing) =
+                    {
+                        BLOCK_THREADS       = block_threads
+                        ITEMS_PER_THREAD    = items_per_thread
+                        ALGORITHM           = algorithm
+                        WARP_TIME_SLICING   = warp_time_slicing
+                    }
 
-    module Params =
         [<Record>]
         type API =
             {
-                BLOCK_THREADS       : int
-                ITEMS_PER_THREAD    : int
-                ALGORITHM           : BlockLoadAlgorithm
-                WARP_TIME_SLICING   : bool
+                Params              : Params.API
+                SharedMemoryLength  : int 
             }
 
-            [<ReflectedDefinition>]
             static member Init(block_threads, items_per_thread, algorithm, warp_time_slicing) =
+                let p = Params.API.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
+                let sml = Exchange.Template.Host.API.Init(block_threads, items_per_thread, warp_time_slicing).SharedMemoryLength
                 {
-                    BLOCK_THREADS       = block_threads
-                    ITEMS_PER_THREAD    = items_per_thread
-                    ALGORITHM           = algorithm
-                    WARP_TIME_SLICING   = warp_time_slicing
+                    Params              = p
+                    SharedMemoryLength  = sml
                 }
 
-            [<ReflectedDefinition>]
-            static member Default(block_threads, items_per_thread) = API.Init(block_threads, items_per_thread, BLOCK_LOAD_DIRECT, false)
+    module Device =
+        module TempStorage =
+            type [<Record>] API<'T> = Alea.cuExtension.CUB.Block.Exchange.Template._TempStorage<'T>
 
-    module TempStorage =
-        [<Record>]
-        type API<'T> =
-            {
-                BlockExchangeStorage    : Alea.cuExtension.CUB.Block.Exchange.Template._TempStorage<'T>
-            }
-
-            [<ReflectedDefinition>]
-            static member Init(block_threads, items_per_thread, warp_time_slicing) =
-                let p = Alea.cuExtension.CUB.Block.Exchange.Template._TemplateParams.Init(block_threads, items_per_thread, warp_time_slicing)
-                {
-                    BlockExchangeStorage = Alea.cuExtension.CUB.Block.Exchange.Template._TempStorage<'T>.Uninitialized(p)
-                }
-
-    module ThreadFields =
-        [<Record>]
-        type API<'T> =
-            {
-                temp_storage : TempStorage.API<'T>
-            }
-
-            [<ReflectedDefinition>] 
-            static member Init(p:Params.API) = 
-                { 
-                    temp_storage = TempStorage.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING)
-                }
+        module ThreadFields =
             
+            [<Record>]
+            type API<'T> =
+                {
+                    temp_storage : TempStorage.API<'T>
+                }
 
-    
-    type _TemplateParams    = Params.API
-    type _TempStorage<'T>   = TempStorage.API<'T>
-    type _ThreadFields<'T>  = ThreadFields.API<'T>
+                [<ReflectedDefinition>] static member Init(temp_storage:TempStorage.API<'T>) = { temp_storage = temp_storage }
+                [<ReflectedDefinition>] static member Init(length) = { temp_storage = TempStorage.API<'T>.Uninitialized(length) }
+                
+        [<Record>]
+        type API<'T> =
+            {
+                mutable Params          : Host.Params.API
+                mutable ThreadFields    : ThreadFields.API<'T>
+            }
+
+            [<ReflectedDefinition>]
+            static member Init(h:Host.API) : API<'T> =
+                let f = ThreadFields.API<'T>.Init(h.SharedMemoryLength)
+                let p = h.Params                
+                { Params = p; ThreadFields = f}
+
+            
+    //type _TemplateParams    = Host.Params.API
+    type [<Record>] _TempStorage<'T>   = Device.TempStorage.API<'T>
+    type [<Record>] _ThreadFields<'T>  = Device.ThreadFields.API<'T>
 
     [<Record>]
     type API<'T> =
         {
-            mutable Params          : Params.API
-            mutable ThreadFields    : ThreadFields.API<'T>
+            Host    : Host.API
         }
 
-        [<ReflectedDefinition>] 
         static member Init(block_threads, items_per_thread, algorithm, warp_time_slicing) =
-            let p = Params.API.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
-            let f = ThreadFields.API<'T>.Init(p)
-            { Params = p; ThreadFields = f }
+            let h = Host.API.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
+            {
+                Host    = h
+            }
 
-        [<ReflectedDefinition>] static member Init(p:Params.API) = API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.ALGORITHM, p.WARP_TIME_SLICING)
-        [<ReflectedDefinition>] static member Default(block_threads, items_per_thread) = API<'T>.Init(Params.API.Default(block_threads, items_per_thread))
+        [<ReflectedDefinition>] member inline this.DeviceAPI = Device.API<'T>.Init(this.Host)
+    
 
-
-
-type _Template<'T> = Template.API<'T>
+type [<Record>] _Template<'T> = Template.API<'T>
 
 
 module LoadDirectBlocked =
-    open Template
+//    type _Template<'T> = Template.Device.API<'T>
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
-        let p = template.Params
+        let p = template.Host.Params
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * p.ITEMS_PER_THREAD) + ITEM]
         
     let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-        let p = template.Params
+        let p = template.Host.Params
         let bounds = valid_items - (linear_tid * p.ITEMS_PER_THREAD)
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * p.ITEMS_PER_THREAD) + ITEM]
         
     let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
-        let p = template.Params
+        let p = template.Host.Params
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
         let bounds = valid_items - (linear_tid * p.ITEMS_PER_THREAD)
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(linear_tid * p.ITEMS_PER_THREAD) + ITEM]
 
 
-
 module LoadDirectBlockedVectorized =
-    open Template
+    //type _Template<'T> = Template.Device.API<'T>
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-        let p = template.Params
+        let p = template.Host.Params
         let MAX_VEC_SIZE = CUB_MIN 4 p.ITEMS_PER_THREAD
         let VEC_SIZE = if (((MAX_VEC_SIZE - 1) &&& MAX_VEC_SIZE) = 0) && ((p.ITEMS_PER_THREAD % MAX_VEC_SIZE) = 0) then MAX_VEC_SIZE else 1
         let VECTORS_PER_THREAD = p.ITEMS_PER_THREAD / VEC_SIZE
@@ -141,23 +147,23 @@ module LoadDirectBlockedVectorized =
 
 
 module LoadDirectStriped =
-    open Template
-    
+    //type _Template<'T> = Template.Device.API<'T>
+
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
-        let p = template.Params
+        let p = template.Host.Params
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- block_itr.[(ITEM * p.BLOCK_THREADS) + linear_tid]
 
     let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-        let p = template.Params
+        let p = template.Host.Params
         let bounds = valid_items - linear_tid
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do 
             if (ITEM * p.BLOCK_THREADS < bounds) then items.[ITEM] <- block_itr.[(ITEM * p.BLOCK_THREADS) + linear_tid]
 
     let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
-        let p = template.Params
+        let p = template.Host.Params
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
         let bounds = valid_items - linear_tid
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do 
@@ -165,11 +171,11 @@ module LoadDirectStriped =
 
     
 module LoadDirectWarpStriped =
-    open Template
+    //type _Template<'T> = Template.Device.API<'T>
 
     let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) =
-        let p = template.Params
+        let p = template.Host.Params
         let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
         let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
         let warp_offset = wid * CUB_PTX_WARP_THREADS * p.ITEMS_PER_THREAD
@@ -178,7 +184,7 @@ module LoadDirectWarpStriped =
 
     let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-        let p = template.Params
+        let p = template.Host.Params
         let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
         let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
         let warp_offset = wid * CUB_PTX_WARP_THREADS * p.ITEMS_PER_THREAD
@@ -189,7 +195,7 @@ module LoadDirectWarpStriped =
         
     let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
         (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
-        let p = template.Params
+        let p = template.Host.Params
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do items.[ITEM] <- oob_default
         let tid = linear_tid &&& (CUB_PTX_WARP_THREADS - 1)
         let wid = linear_tid >>> CUB_PTX_LOG_WARP_THREADS
@@ -201,68 +207,68 @@ module LoadDirectWarpStriped =
 
 
 module LoadInternal =
-    open Template
-
+    //type _Template<'T> = Template.Device.API<'T>
+    
     module BlockLoadDirect =
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-            _ (linear_tid:int) 
+            (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             LoadDirectBlocked.Default template linear_tid block_ptr items
 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
-            _ (linear_tid:int) 
+            (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             LoadDirectBlocked.Guarded template linear_tid block_ptr items valid_items
             
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>) 
-            _ (linear_tid:int) 
+            (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
             LoadDirectBlocked.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default            
 
     module BlockLoadVectorized =
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-            _ (linear_tid:int) 
+            (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             LoadDirectBlockedVectorized.Default template linear_tid block_ptr items
 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
-            _ (linear_tid:int) 
+            (linear_tid:int) 
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             LoadDirectBlocked.Guarded template linear_tid block_ptr items valid_items
             
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
-            _ (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
+            (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
             LoadDirectBlocked.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
             
 
     module BlockLoadTranspose =
 
         let [<ReflectedDefinition>] inline StripedToBlocked (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int) =
-            let p = template.Params
-            let BlockExchange = BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING)
+            (linear_tid:int) =
+            let p = template.DeviceAPI.Params
+            let f = template.DeviceAPI.ThreadFields
             if p.WARP_TIME_SLICING then 
-                BlockExchange.StripedToBlocked.WithTimeslicing
+                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.WithTimeslicing
             else 
-                BlockExchange.StripedToBlocked.Default
+                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.Default
                 
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
                 LoadDirectStriped.Default template linear_tid block_ptr items
-                StripedToBlocked template temp_storage linear_tid items
+                StripedToBlocked template linear_tid items
                 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
                 LoadDirectStriped.Guarded template linear_tid block_ptr items valid_items
-                StripedToBlocked template temp_storage linear_tid items
+                StripedToBlocked template linear_tid items
 
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
                 LoadDirectStriped.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
-                StripedToBlocked template temp_storage linear_tid items
+                StripedToBlocked template linear_tid items
 
 
     module BlockLoadWarpTranspose =
@@ -272,84 +278,152 @@ module LoadInternal =
             | true -> CUB_PTX_WARP_THREADS
 
         let [<ReflectedDefinition>] inline WarpStripedToBlocked (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int) =
-            let p = template.Params
-            let BlockExchange = BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING)
+            (linear_tid:int) =
+            let p = template.DeviceAPI.Params
+            let f = template.DeviceAPI.ThreadFields
             if p.WARP_TIME_SLICING then
-                BlockExchange.WarpStripedToBlocked.WithTimeslicing
+                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.WithTimeslicing
             else
-                BlockExchange.WarpStripedToBlocked.Default
+                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.Default
 
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
                 LoadDirectWarpStriped.Default template linear_tid block_ptr items
-                WarpStripedToBlocked template temp_storage linear_tid items
+                WarpStripedToBlocked template linear_tid items
                 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
                 LoadDirectWarpStriped.Guarded template linear_tid block_ptr items valid_items
-                WarpStripedToBlocked template temp_storage linear_tid items
+                WarpStripedToBlocked template linear_tid items
 
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
-            (temp_storage:_TempStorage<'T>) (linear_tid:int)
+            (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
                 LoadDirectWarpStriped.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
-                WarpStripedToBlocked template temp_storage linear_tid items
+                WarpStripedToBlocked template linear_tid items
 
     [<Record>]
     type API<'T> =
         {
-            Default         : int -> deviceptr<'T> -> deviceptr<'T> -> unit
-            Guarded         : int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit
-            GuardedWithOOB  : int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit
+            Default         : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> unit
+            Guarded         : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit
+            GuardedWithOOB  : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit
         }
 
+//    [<Record>]
+//    type API<'T> =
+//        {
+//            Default         : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> unit
+//            Guarded         : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit
+//            GuardedWithOOB  : _Template<'T> -> int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit
+//        }
+
         [<ReflectedDefinition>]
-        static member Init(template:_Template<'T>) =
-            let temp_storage = template.ThreadFields.temp_storage
-            let _Default = template.Params.ALGORITHM |> function
-                | BLOCK_LOAD_DIRECT ->          BlockLoadDirect.Default template temp_storage
-                | BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.Default template temp_storage
-                | BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.Default template temp_storage
-                | BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.Default template temp_storage
-
-            let _Guarded = template.Params.ALGORITHM |> function
-                | BLOCK_LOAD_DIRECT ->          BlockLoadDirect.Guarded template temp_storage
-                | BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.Guarded template temp_storage
-                | BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.Guarded template temp_storage
-                | BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.Guarded template temp_storage
-
-            let _GuardedWithOOB = template.Params.ALGORITHM |> function
-                | BLOCK_LOAD_DIRECT ->          BlockLoadDirect.GuardedWithOOB template temp_storage
-                | BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.GuardedWithOOB template temp_storage
-                | BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.GuardedWithOOB template temp_storage
-                | BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.GuardedWithOOB template temp_storage
-
+        static member Init(algorithm:BlockLoadAlgorithm) =
+            let _Default = algorithm |> function
+                | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->          BlockLoadDirect.Default
+                | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.Default
+                | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.Default
+                | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.Default
+                | _ -> failwith ""
+            let _Guarded = algorithm |> function
+                | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->          BlockLoadDirect.Guarded 
+                | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.Guarded
+                | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.Guarded
+                | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.Guarded
+                | _ -> failwith ""
+            let _GuardedWithOOB = algorithm |> function
+                | BlockLoadAlgorithm.BLOCK_LOAD_DIRECT ->          BlockLoadDirect.GuardedWithOOB
+                | BlockLoadAlgorithm.BLOCK_LOAD_VECTORIZE ->       BlockLoadVectorized.GuardedWithOOB
+                | BlockLoadAlgorithm.BLOCK_LOAD_TRANSPOSE ->       BlockLoadTranspose.GuardedWithOOB
+                | BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE ->  BlockLoadWarpTranspose.GuardedWithOOB
+                | _ -> failwith ""
             { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
 
+        
+
 module BlockLoad =
-    open Template
-    
-    [<Record>]
+
     type API<'T> =
         {
-            template        : _Template<'T>
-            Load            : LoadInternal.API<'T>
+            Default         : Function<int -> deviceptr<'T> -> deviceptr<'T> -> unit>
+            Guarded         : Function<int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit>
+            GuardedWithOOB  : Function<int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit>
         }
 
-        [<ReflectedDefinition>]
-        static member Create(block_threads, items_per_thread, algorithm, warp_time_slicing) =
-            let template = _Template<'T>.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
-            { 
-                template    = template
-                Load        = LoadInternal.API<'T>.Init(template)
-            }
+//    [<Record>]
+//    type API<'T> =
+//        {
+//            template    : Template.API<'T>
+//            Load        : LoadInternal.API<'T>
+//        }
+//
+//
+//        static member Init(block_threads:int, items_per_thread:int, algorithm:BlockLoadAlgorithm, warp_time_slicing:bool) =
+//            let LoadInternal = LoadInternal.API<'T>.Init(algorithm)
+//            let h = Template.API<'T>.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
+//            { template = h; Load = LoadInternal }
+//
+//        static member Init(block_threads, items_per_thread) = API<'T>.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT, false)
+//
+//        [<ReflectedDefinition>] member inline this.Default = this.Load.Default this.template
+//            let _Default =
+//                    let template = _Template<'T>.Init(h, algorithm)
+//                    (%Default) template linear_tid block_ptr items
+//                
+//        
+//            let! _Guarded =
+//                let Guarded = LoadInternal.Guarded
+//                <@ fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) ->
+//                    let template = _Template<'T>.Init(h, algorithm)
+//                    (%Guarded) template linear_tid block_ptr items valid_items
+//                @> |> Compiler.DefineFunction
+//        
+//            let! _GuardedWithOOB =
+//                let GuardedWithOOB = LoadInternal.GuardedWithOOB
+//                <@ fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) ->
+//                    let template = _Template<'T>.Init(h, algorithm)
+//                    (%GuardedWithOOB) template linear_tid block_ptr items valid_items oob_default
+//                @> |> Compiler.DefineFunction
+//        
+//            
+//                { 
+//                    Default         = _Default
+//                    Guarded         = _Guarded
+//                    GuardedWithOOB  = _GuardedWithOOB
+//                }
 
-        [<ReflectedDefinition>] member this.Default     = this.Load.Default
-        [<ReflectedDefinition>] member this.Guarded     = this.Load.Guarded
-        [<ReflectedDefinition>] member this.GuardedOOB  = this.Load.GuardedWithOOB
+    let inline template<'T> (block_threads:int) (items_per_thread:int) (algorithm:BlockLoadAlgorithm) (warp_time_slicing:bool) = cuda {
+        let LoadInternal = LoadInternal.API<'T>.Init(algorithm)
+        let template = Template.API<'T>.Init(block_threads, items_per_thread, algorithm, warp_time_slicing)
+        let! _Default =
+            let Default = LoadInternal.Default
+            <@ fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) ->
+                Default template linear_tid block_ptr items
+            @> |> Compiler.DefineFunction
+        
+        let! _Guarded =
+            let Guarded = LoadInternal.Guarded
+            <@ fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) ->
+                Guarded template linear_tid block_ptr items valid_items
+            @> |> Compiler.DefineFunction
+        
+        let! _GuardedWithOOB =
+            let GuardedWithOOB = LoadInternal.GuardedWithOOB
+            <@ fun (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) ->
+                GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
+            @> |> Compiler.DefineFunction
+        
+        return
+            { 
+                Default         = _Default
+                Guarded         = _Guarded
+                GuardedWithOOB  = _GuardedWithOOB
+            }
+        }
+
 
 //    let [<ReflectedDefinition>] api block_threads items_per_thread algorithm (warp_time_slicing:bool option) =
 //        let warp_time_slicing = if warp_time_slicing.IsNone then false else warp_time_slicing.Value

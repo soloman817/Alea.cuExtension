@@ -8,13 +8,42 @@ open Alea.CUDA.Utilities
 open NUnit.Framework
 
 open Alea.cuExtension.CUB.Block
-//
-//[<Test>]
-//let ``block load verification`` () =
-//    let template = cuda {
-//        let BlockLoad = BlockLoad.API<int>.Create()
-//    
-//    }
+
+//type BlockLoadAlgorithm = Template.BlockLoadAlgorithm
+
+[<Test>]
+let ``block load verification`` () =
+    //let BlockLoad = BlockLoad.template<int>
+    let template block_threads items_per_thread = cuda {
+        
+        //let BlockLoad = BlockLoad.API<int>.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT, false).Default
+        let! blockLoad = BlockLoad.template<int> block_threads items_per_thread BlockLoadAlgorithm.BLOCK_LOAD_DIRECT false
+
+        let! kernel = 
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
+                blockLoad.Default.Invoke threadIdx.x output input
+            @> |> Compiler.DefineKernel
+
+        return Entry(fun (program:Program) ->
+            let worker = program.Worker
+            let kernel = program.Apply kernel
+
+            fun (input:int[]) ->
+                use input = worker.Malloc(input)
+                use output = worker.Malloc(input.Length)
+
+                let lp = LaunchParam(1,1)
+                
+                kernel.Launch lp input.Ptr output.Ptr
+
+                output.Gather()
+        )}
+
+    let program = template 1 8 |> Compiler.load Worker.Default
+    let input = Array.init 32 (fun i -> i)
+    let output = program.Run input
+    
+    printfn "%A" output
 
 //
 //let blockLoad = Load.blockLoad

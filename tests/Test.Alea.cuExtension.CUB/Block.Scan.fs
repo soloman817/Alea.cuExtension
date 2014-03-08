@@ -9,7 +9,7 @@ open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Block
 
 
-type BlockLoadAlgorithm = Alea.cuExtension.CUB.Block.Load.Template.BlockLoadAlgorithm
+//type BlockLoadAlgorithm = Alea.cuExtension.CUB.Block.Load.Template.BlockLoadAlgorithm
 type BlockStoreAlgorithm = Alea.cuExtension.CUB.Block.Store.Template.BlockStoreAlgorithm
 type BlockScanAlgorithm = Alea.cuExtension.CUB.Block.Scan.Template.BlockScanAlgorithm
 
@@ -17,7 +17,7 @@ type BlockScanAlgorithm = Alea.cuExtension.CUB.Block.Scan.Template.BlockScanAlgo
 [<Record>]
 type TempStorage<'T> =
     {
-        load    : Alea.cuExtension.CUB.Block.Load.Template._TempStorage<'T>
+        //load    : Alea.cuExtension.CUB.Block.Load.Template._TempStorage<'T>
         store   : Alea.cuExtension.CUB.Block.Store.Template._TempStorage<'T>
         scan    : Alea.cuExtension.CUB.Block.Scan.Template._TempStorage<'T>
     }
@@ -26,7 +26,7 @@ type TempStorage<'T> =
     static member Init(block_threads, items_per_thread, warp_time_slicing, algorithm) =
         let scantp = Alea.cuExtension.CUB.Block.Scan.Template._TemplateParams.Init(block_threads, algorithm)
         {
-            load = Alea.cuExtension.CUB.Block.Load.Template._TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
+            //load = Alea.cuExtension.CUB.Block.Load.Template._TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
             store = Alea.cuExtension.CUB.Block.Store.Template._TempStorage<'T>.Init(block_threads, items_per_thread, warp_time_slicing)
             scan = Alea.cuExtension.CUB.Block.Scan.Template._TempStorage<'T>.Init(scantp)
         }
@@ -36,7 +36,7 @@ let ``block scan basic`` () =
     
     let template block_threads items_per_thread (algorithm:BlockScanAlgorithm) = cuda {
         let scan_op = (scan_op ADD 0)
-        let BlockLoad   =   BlockLoad.API<int>.Create(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false).Default 
+        //let BlockLoad   =   BlockLoad.API<int>.Create(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false).Default 
         let BlockStore  =   BlockStore.API<int>.Create(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false).Default
         let BlockScan   =   BlockScan.API<int>.Create(block_threads, algorithm).ExclusiveSum.MultipleDataPerThread items_per_thread //scan_op.op
         let TempStorage =   TempStorage<int>.Init(block_threads, items_per_thread, false, algorithm)
@@ -44,7 +44,7 @@ let ``block scan basic`` () =
         let! kernel = 
             <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) (d_elapsed:deviceptr<float>) ->
                 let data = __local__.Array<int>(items_per_thread) |> __array_to_ptr
-                BlockLoad items_per_thread d_in data
+                //BlockLoad items_per_thread d_in data
 
                 __syncthreads()
 
