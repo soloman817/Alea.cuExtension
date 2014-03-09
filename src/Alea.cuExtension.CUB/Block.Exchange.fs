@@ -12,7 +12,6 @@ open Macro
 open Ptx
 
 module Template =
-
     module Host =
         [<AutoOpen>]
         module Params =
@@ -31,6 +30,8 @@ module Template =
                         ITEMS_PER_THREAD    = items_per_thread
                         WARP_TIME_SLICING   = warp_time_slicing
                     }
+
+                static member Init(block_threads, items_per_thread) = API.Init(block_threads, items_per_thread, false)
 
         [<AutoOpen>]
         module Constants =
@@ -110,6 +111,8 @@ module Template =
                     with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx] 
                     and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
 
+                [<ReflectedDefinition>] static member Uninitialized() = { Ptr = __null(); Length = 0}
+
                 [<ReflectedDefinition>]
                 static member Uninitialized(length) =
                     let s = __shared__.Array(length)
@@ -122,7 +125,7 @@ module Template =
             [<Record>]
             type API<'T> =
                 {
-                    mutable temp_storage    : TempStorage.API<'T>
+                    mutable temp_storage    : Ref<TempStorage.API<'T>>
                     mutable linear_tid      : int
                     mutable warp_lane       : int
                     mutable warp_id         : int
@@ -132,7 +135,7 @@ module Template =
                 [<ReflectedDefinition>]
                 static member Init(temp_storage:TempStorage.API<'T>, linear_tid, warp_lane, warp_id, warp_offset) =
                     {
-                        temp_storage    = temp_storage
+                        temp_storage    = __local__.Variable<TempStorage.API<'T>>(temp_storage)
                         linear_tid      = linear_tid
                         warp_lane       = warp_lane
                         warp_id         = warp_id
@@ -196,14 +199,14 @@ module BlockedToStriped =
             let mutable item_offset = (f.linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then 
                 item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            f.temp_storage.[item_offset] <- items.[ITEM]
+            (!f.temp_storage).[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = ITEM * p.BLOCK_THREADS + f.linear_tid
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
         (items:deviceptr<'T>) =
@@ -223,7 +226,7 @@ module BlockedToStriped =
                 for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
                     let mutable item_offset = (f.warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    f.temp_storage.[item_offset] <- items.[ITEM]
+                    (!f.temp_storage).[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
@@ -235,7 +238,7 @@ module BlockedToStriped =
                     let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
                     if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
                         if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                        temp_items.[ITEM] <- f.temp_storage.[item_offset]
+                        temp_items.[ITEM] <- (!f.temp_storage).[item_offset]
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
@@ -252,6 +255,7 @@ module BlockedToStriped =
 
         [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
+ 
 
 module BlockedToWarpStriped =
     
@@ -264,12 +268,12 @@ module BlockedToWarpStriped =
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = f.warp_offset + ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = f.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
         (items:deviceptr<'T>) =
@@ -284,12 +288,12 @@ module BlockedToWarpStriped =
                 for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
                     let mutable item_offset = ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    f.temp_storage.[item_offset] <- items.[ITEM]
+                    (!f.temp_storage).[item_offset] <- items.[ITEM]
 
                 for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
                     let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    items.[ITEM] <- f.temp_storage.[item_offset]
+                    items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     [<Record>]
     type API<'T> =
@@ -314,14 +318,14 @@ module StripedToBlocked =
         for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
             let mutable item_offset = (ITEM * p.BLOCK_THREADS) + f.linear_tid
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            f.temp_storage.[item_offset] <- items.[ITEM]
+            (!f.temp_storage).[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = (f.linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
             
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
         (items:deviceptr<'T>) =
@@ -345,7 +349,7 @@ module StripedToBlocked =
                     let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
                     if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
                         if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                        f.temp_storage.[item_offset] <- items.[ITEM]
+                        (!f.temp_storage).[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
@@ -353,7 +357,7 @@ module StripedToBlocked =
                 for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
                     let mutable item_offset = (f.warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    temp_items.[ITEM] <- f.temp_storage.[item_offset]
+                    temp_items.[ITEM] <- (!f.temp_storage).[item_offset]
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
@@ -381,12 +385,12 @@ module WarpStripedToBlocked =
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = f.warp_offset + (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            f.temp_storage.[item_offset] <- items.[ITEM]
+            (!f.temp_storage).[item_offset] <- items.[ITEM]
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = f.warp_offset + ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
             if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
         (items:deviceptr<'T>) =
@@ -401,12 +405,12 @@ module WarpStripedToBlocked =
                 for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
                     let mutable item_offset = (ITEM * c.WARP_TIME_SLICED_THREADS) + f.warp_lane
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    f.temp_storage.[item_offset] <- items.[ITEM]
+                    (!f.temp_storage).[item_offset] <- items.[ITEM]
 
                 for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
                     let mutable item_offset = ITEM + (f.warp_lane * p.ITEMS_PER_THREAD)
                     if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                    items.[ITEM] <- f.temp_storage.[item_offset]
+                    items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     [<Record>]
     type API<'T> =
@@ -432,14 +436,14 @@ module ScatterToBlocked =
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = ranks.[ITEM]
             if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            f.temp_storage.[item_offset] <- items.[ITEM]
+            (!f.temp_storage).[item_offset] <- items.[ITEM]
 
         __syncthreads()
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             let mutable item_offset = (f.linear_tid * p.ITEMS_PER_THREAD) + ITEM
             if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            items.[ITEM] <- f.temp_storage.[item_offset]
+            items.[ITEM] <- (!f.temp_storage).[item_offset]
 
     let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
         (items:deviceptr<'T>) (ranks:deviceptr<int>) =
@@ -457,7 +461,7 @@ module ScatterToBlocked =
                 let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
                 if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
                     if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                    f.temp_storage.[item_offset] <- items.[ITEM]
+                    (!f.temp_storage).[item_offset] <- items.[ITEM]
 
             __syncthreads()
 
@@ -466,7 +470,7 @@ module ScatterToBlocked =
                 for ITEM = 0 to (p.ITEMS_PER_THREAD- 1) do
                     let mutable item_offset = (f.warp_lane * p.ITEMS_PER_THREAD) + ITEM
                     if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                    temp_items.[ITEM] <- f.temp_storage.[item_offset]
+                    temp_items.[ITEM] <- (!f.temp_storage).[item_offset]
 
         for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
             items.[ITEM] <- temp_items.[ITEM]
@@ -483,96 +487,120 @@ module ScatterToBlocked =
         [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
-module ScatterToStriped =
-    
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-        let p = template.Params
-        let c = template.Constants
-        let f = template.ThreadFields
+module private ScatterToStriped =
+    type API<'T> =
+        {
+            Default         : Function<deviceptr<'T> -> deviceptr<int> -> unit>
+            WithTimeSlicing : Function<deviceptr<'T> -> deviceptr<int> -> unit>
+        }
 
-        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = ranks.[ITEM]
-            if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            f.temp_storage.[item_offset] <- items.[ITEM]
+    let api (template:_Template<'T>) = cuda {
+        let! _Default =
+            <@ fun (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
+                let p = template.Params
+                let c = template.Constants
+                let f = template.ThreadFields
 
-        __syncthreads()
-
-        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
-            let mutable item_offset = (ITEM * p.BLOCK_THREADS) + f.linear_tid
-            if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-            items.[ITEM] <- f.temp_storage.[item_offset]
-
-    let [<ReflectedDefinition>] inline WithTimeslicing (template:_Template<'T>)
-        (items:deviceptr<'T>) (ranks:deviceptr<int>) =
-        let p = template.Params
-        let c = template.Constants
-        let f = template.ThreadFields
-
-        let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
-        for SLICE = 0 to (c.TIME_SLICES - 1) do
-            let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
-            let SLICE_OOB = SLICE_OFFSET + c.TIME_SLICED_ITEMS
-
-            __syncthreads()
-
-            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
-                let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
-                if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = ranks.[ITEM]
                     if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
-                    f.temp_storage.[item_offset] <- items.[ITEM]
+                    (!f.temp_storage).[item_offset] <- items.[ITEM]
 
-            __syncthreads()
+                __syncthreads()
 
-            for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
-                let STRIP_OFFSET = ITEM * p.BLOCK_THREADS
-                let STRIP_OOB = STRIP_OFFSET + p.BLOCK_THREADS
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    let mutable item_offset = (ITEM * p.BLOCK_THREADS) + f.linear_tid
+                    if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
+                    items.[ITEM] <- (!f.temp_storage).[item_offset]
+            @> |> Compiler.DefineFunction
 
-                if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
-                    let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
-                    if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
-                        if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
-                        temp_items.[ITEM] <- f.temp_storage.[item_offset]
+        let! _WithTimeslicing =
+            <@ fun (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
+                let p = template.Params
+                let c = template.Constants
+                let f = template.ThreadFields
 
-        for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
-            items.[ITEM] <- temp_items.[ITEM]
+                let temp_items = __local__.Array(p.ITEMS_PER_THREAD)
+                for SLICE = 0 to (c.TIME_SLICES - 1) do
+                    let SLICE_OFFSET = SLICE * c.TIME_SLICED_ITEMS
+                    let SLICE_OOB = SLICE_OFFSET + c.TIME_SLICED_ITEMS
 
-    [<Record>]
-    type API<'T> =
-        {
-            template : _Template<'T>
-        }
+                    __syncthreads()
 
-        [<ReflectedDefinition>] member this.Default = Default this.template
-        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                        let mutable item_offset = ranks.[ITEM] - SLICE_OFFSET
+                        if (item_offset >= 0) && (item_offset < c.WARP_TIME_SLICED_ITEMS) then
+                            if c.INSERT_PADDING then item_offset <- __ptx__.SHR_ADD( (item_offset |> uint32), c.LOG_SMEM_BANKS |> uint32, (item_offset |> uint32)) |> int
+                            (!f.temp_storage).[item_offset] <- items.[ITEM]
 
-        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
+                    __syncthreads()
+
+                    for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                        let STRIP_OFFSET = ITEM * p.BLOCK_THREADS
+                        let STRIP_OOB = STRIP_OFFSET + p.BLOCK_THREADS
+
+                        if (SLICE_OFFSET < STRIP_OOB) && (SLICE_OOB > STRIP_OFFSET) then
+                            let mutable item_offset = STRIP_OFFSET + f.linear_tid - SLICE_OFFSET
+                            if (item_offset >= 0) && (item_offset < c.TIME_SLICED_ITEMS) then
+                                if c.INSERT_PADDING then item_offset <- item_offset + (item_offset >>> c.LOG_SMEM_BANKS)
+                                temp_items.[ITEM] <- (!f.temp_storage).[item_offset]
+
+                for ITEM = 0 to (p.ITEMS_PER_THREAD - 1) do
+                    items.[ITEM] <- temp_items.[ITEM]
+            @> |> Compiler.DefineFunction
+
+        return { Default = _Default; WithTimeSlicing = _WithTimeslicing } }
+
+    
+//    [<Record>]
+//    type API<'T> =
+//        {
+//            template : _Template<'T>
+//        }
+//
+//        [<ReflectedDefinition>] member this.Default = Default this.template
+//        [<ReflectedDefinition>] member this.WithTimeslicing = WithTimeslicing this.template
+//
+//        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
 
 
 module BlockExchange =
     open Template
-    
-    [<Record>]
-    type API<'T> =
+
+    type _Params = Params.API
+    type _Constants = Constants.API
+
+   type API<'T> =
         {
-            template : _Template<'T>
+            ScatterToStriped : Template<ScatterToStriped.API<'T>>
         }
 
-        [<ReflectedDefinition>] member this.BlockToStriped          = BlockedToStriped.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.BlockToWarpStriped      = BlockedToWarpStriped.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.StripedToBlocked        = StripedToBlocked.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.WarpStripedToBlocked    = WarpStripedToBlocked.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.ScatterToBlocked        = ScatterToBlocked.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.ScatterToStriped        = ScatterToStriped.API<'T>.Init(this.template)
-
-        static member Init(h:Host.API) = { template = _Template<'T>.Init(h) }
-        static member Init(block_threads, items_per_thread, warp_time_slicing) = API<'T>.Init(Host.API.Init(block_threads, items_per_thread, warp_time_slicing))
-        static member Init(block_threads, items_per_thread) = API<'T>.Init(block_threads, items_per_thread, false)
-
-        [<ReflectedDefinition>] static member Init(d:Device.API<'T>) = { template = d } 
-        [<ReflectedDefinition>] 
-        static member Init(block_threads, items_per_thread, warp_time_slicing, temp_storage:_TempStorage<'T>) =
-            API<'T>.Init(Device.API<'T>.Init(block_threads, items_per_thread, warp_time_slicing, temp_storage))
+    let template (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool option) = cuda {
+        let! p = _Params
+        
+        return ()}
+    
+//    [<Record>]
+//    type API<'T> =
+//        {
+//            template : _Template<'T>
+//        }
+//
+//        [<ReflectedDefinition>] member this.BlockToStriped          = BlockedToStriped.API<'T>.Init(this.template)
+//        [<ReflectedDefinition>] member this.BlockToWarpStriped      = BlockedToWarpStriped.API<'T>.Init(this.template)
+//        [<ReflectedDefinition>] member this.StripedToBlocked        = StripedToBlocked.API<'T>.Init(this.template)
+//        [<ReflectedDefinition>] member this.WarpStripedToBlocked    = WarpStripedToBlocked.API<'T>.Init(this.template)
+//        [<ReflectedDefinition>] member this.ScatterToBlocked        = ScatterToBlocked.API<'T>.Init(this.template)
+//        [<ReflectedDefinition>] member this.ScatterToStriped        = ScatterToStriped.API<'T>.Init(this.template)
+//
+//        static member Init(h:Host.API) = { template = _Template<'T>.Init(h) }
+//        static member Init(block_threads, items_per_thread, warp_time_slicing) = API<'T>.Init(Host.API.Init(block_threads, items_per_thread, warp_time_slicing))
+//        static member Init(block_threads, items_per_thread) = API<'T>.Init(block_threads, items_per_thread, false)
+//
+//        [<ReflectedDefinition>] static member Init(d:Device.API<'T>) = { template = d } 
+//        [<ReflectedDefinition>] 
+//        static member Init(block_threads, items_per_thread, warp_time_slicing, temp_storage:_TempStorage<'T>) =
+//            API<'T>.Init(Device.API<'T>.Init(block_threads, items_per_thread, warp_time_slicing, temp_storage))
 
 
 //        [<ReflectedDefinition>] 

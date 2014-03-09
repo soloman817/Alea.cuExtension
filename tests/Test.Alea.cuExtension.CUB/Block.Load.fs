@@ -9,10 +9,81 @@ open NUnit.Framework
 
 open Alea.cuExtension.CUB.Block
 
+let BLOCKS = 1
+let THREADS = 32
+let N = BLOCKS * THREADS
+
+let BLOCK_THREADS = THREADS
+let ITEMS_PER_THREAD = 4
 //type BlockLoadAlgorithm = Template.BlockLoadAlgorithm
+type API<'T> = 
+    {
+        Default         : Function<int -> deviceptr<'T> -> deviceptr<'T> -> unit>
+        Guarded         : Function<int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit>
+        GuardedWithOOB  : Function<int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit>
+    }
+
+
+
+let test (lp:LaunchParam) (api:Template<API<'T>>) = cuda {
+    let! api = api
+    let! default_kernel =
+        <@ fun (input:deviceptr<'T>) (output:deviceptr<'T>) ->
+            api.Default.Invoke threadIdx.x input output
+        @> |> Compiler.DefineKernel        
+
+    let! guarded_kernel =
+        <@ fun (input:deviceptr<'T>) (output:deviceptr<'T>) ->
+            api.Default.Invoke threadIdx.x input output
+        @> |> Compiler.DefineKernel
+
+    let! guardedwithoob_kernel =
+        <@ fun (input:deviceptr<'T>) (output:deviceptr<'T>) ->
+            api.Default.Invoke threadIdx.x input output
+        @> |> Compiler.DefineKernel
+
+    return Entry(fun (program:Program) ->
+        let worker = program.Worker
+        let kernels = [default_kernel; guarded_kernel; guardedwithoob_kernel] |> List.map (fun k -> program.Apply k)
+
+        fun (input:'T[]) ->
+            use input = worker.Malloc(input)
+            use output = worker.Malloc(input.Length)
+            
+            let hout =
+                kernels |> List.map (fun e -> 
+                    e.Launch lp input.Ptr output.Ptr
+                    output.Gather())
+            hout
+    )}
+
+module Sig =
+    type DefaultExpr<'T> = Expr<int -> deviceptr<'T> -> deviceptr<'T> -> unit>
+    type GuardedExpr<'T> = Expr<int -> deviceptr<'T> -> deviceptr<'T> -> int -> unit>
+    type GuardedWithOOB<'T> = Expr<int -> deviceptr<'T> -> deviceptr<'T> -> int -> 'T -> unit>
+
+let api (_Default:Sig.DefaultExpr<'T>) (_Guarded:Sig.GuardedExpr<'T>) (_GuardedWithOOB:Sig.GuardedWithOOB<'T>) = cuda {
+    let! _Default = 
+        <@ fun (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) ->
+            (%_Default) linear_tid block_itr items
+        @> |> Compiler.DefineFunction
+
+    let! _Guarded =
+        <@ fun (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) ->
+            (%_Guarded) linear_tid block_itr items valid_items
+        @> |> Compiler.DefineFunction
+
+    let! _GuardedWithOOB =
+        <@ fun (linear_tid:int) (block_itr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) ->
+            (%_GuardedWithOOB) linear_tid block_itr items valid_items oob_default
+        @> |> Compiler.DefineFunction
+            
+    return { Default = _Default; Guarded = _Guarded; GuardedWithOOB = _GuardedWithOOB }
+    }
+
 
 [<Test>]
-let ``block load verification`` () =
+let ``block load template verification`` () =
     //let BlockLoad = BlockLoad.template<int>
     let template block_threads items_per_thread = cuda {
         
@@ -43,6 +114,64 @@ let ``block load verification`` () =
     let input = Array.init 32 (fun i -> i)
     let output = program.Run input
     
+    printfn "%A" output
+    
+
+
+let [<Test>] ``load direct blocked`` () = 
+    let _Template = Alea.cuExtension.CUB.Block.Load._Template<int>.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT,  false)
+    let _Default = <@ LoadDirectBlocked.Default _Template @>
+    let _Guarded = <@ LoadDirectBlocked.Guarded _Template @>
+    let _GuardedWithOOB = <@ LoadDirectBlocked.GuardedWithOOB _Template @>
+
+    let api = api _Default _Guarded _GuardedWithOOB
+    let lp = LaunchParam(BLOCKS,THREADS)
+    let program = (lp, api) ||> test |> Compiler.load Worker.Default
+    let input = Array.init N (fun i -> i)
+    let output = program.Run input
+
+    printfn "%A" output
+             
+let [<Test>] ``load direct blocked vectorized`` () =
+    let _Template = Alea.cuExtension.CUB.Block.Load._Template<int>.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT,  false)
+    let _Default = <@ LoadDirectBlockedVectorized.Default _Template @>
+    let _Guarded = <@ LoadDirectBlocked.Guarded _Template @>
+    let _GuardedWithOOB = <@ LoadDirectBlocked.GuardedWithOOB _Template @>
+
+    let api = api _Default _Guarded _GuardedWithOOB
+    let lp = LaunchParam(BLOCKS,THREADS)
+    let program = (lp, api) ||> test |> Compiler.load Worker.Default
+    let input = Array.init N (fun i -> i)
+    let output = program.Run input
+
+    printfn "%A" output
+
+let [<Test>] ``load direct striped`` () =
+    let _Template = Alea.cuExtension.CUB.Block.Load._Template<int>.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT,  false)
+    let _Default = <@ LoadDirectStriped.Default _Template @>
+    let _Guarded = <@ LoadDirectStriped.Guarded _Template @>
+    let _GuardedWithOOB = <@ LoadDirectStriped.GuardedWithOOB _Template @>
+
+    let api = api _Default _Guarded _GuardedWithOOB
+    let lp = LaunchParam(BLOCKS,THREADS)
+    let program = (lp, api) ||> test |> Compiler.load Worker.Default
+    let input = Array.init N (fun i -> i)
+    let output = program.Run input
+
+    printfn "%A" output
+
+let [<Test>] ``load direct warp striped`` () =
+    let _Template = Alea.cuExtension.CUB.Block.Load._Template<int>.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT,  false)
+    let _Default = <@ LoadDirectWarpStriped.Default _Template @>
+    let _Guarded = <@ LoadDirectWarpStriped.Guarded _Template @>
+    let _GuardedWithOOB = <@ LoadDirectWarpStriped.GuardedWithOOB _Template @>
+
+    let api = api _Default _Guarded _GuardedWithOOB
+    let lp = LaunchParam(BLOCKS,THREADS)
+    let program = (lp, api) ||> test |> Compiler.load Worker.Default
+    let input = Array.init N (fun i -> i)
+    let output = program.Run input
+
     printfn "%A" output
 
 //
