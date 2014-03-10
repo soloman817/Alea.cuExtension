@@ -605,7 +605,7 @@ module BlockExchange =
     let template<'T> (block_threads:int) (items_per_thread:int) (warp_time_slicing:bool) : Template<HostApi*FunctionApi<'T>> = cuda {
         let h = HostApi.Init(block_threads, items_per_thread, warp_time_slicing)
         
-        let! bts    = h |> BlockedToStriped.api |> Compiler.DefineFunction
+        let! bts    = h |> BlockedToStriped.api     |> Compiler.DefineFunction
         let! btws   = h |> BlockedToWarpStriped.api |> Compiler.DefineFunction
         let! stb    = h |> StripedToBlocked.api     |> Compiler.DefineFunction
         let! wstb   = h |> WarpStripedToBlocked.api |> Compiler.DefineFunction
