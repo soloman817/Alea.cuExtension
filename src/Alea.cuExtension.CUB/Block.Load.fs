@@ -247,28 +247,29 @@ module LoadInternal =
             (linear_tid:int) =
             let p = template.DeviceAPI.Params
             let f = template.DeviceAPI.ThreadFields
-            if p.WARP_TIME_SLICING then 
-                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.WithTimeslicing
-            else 
-                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.Default
-                
+            //if p.WARP_TIME_SLICING then 
+                //BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.WithTimeslicing
+            //else 
+                //BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).StripedToBlocked.Default
+            ()
+
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
                 LoadDirectStriped.Default template linear_tid block_ptr items
-                StripedToBlocked template linear_tid items
+//                StripedToBlocked template linear_tid items
                 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
                 LoadDirectStriped.Guarded template linear_tid block_ptr items valid_items
-                StripedToBlocked template linear_tid items
+//                StripedToBlocked template linear_tid items
 
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
                 LoadDirectStriped.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
-                StripedToBlocked template linear_tid items
+//                StripedToBlocked template linear_tid items
 
 
     module BlockLoadWarpTranspose =
@@ -281,28 +282,29 @@ module LoadInternal =
             (linear_tid:int) =
             let p = template.DeviceAPI.Params
             let f = template.DeviceAPI.ThreadFields
-            if p.WARP_TIME_SLICING then
-                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.WithTimeslicing
-            else
-                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.Default
+//            if p.WARP_TIME_SLICING then
+//                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.WithTimeslicing
+//            else
+//                BlockExchange.API<'T>.Init(p.BLOCK_THREADS, p.ITEMS_PER_THREAD, p.WARP_TIME_SLICING, f.temp_storage).WarpStripedToBlocked.Default
+            ()
 
         let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
                 LoadDirectWarpStriped.Default template linear_tid block_ptr items
-                WarpStripedToBlocked template linear_tid items
+//                WarpStripedToBlocked template linear_tid items
                 
         let [<ReflectedDefinition>] inline Guarded (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
                 LoadDirectWarpStriped.Guarded template linear_tid block_ptr items valid_items
-                WarpStripedToBlocked template linear_tid items
+//                WarpStripedToBlocked template linear_tid items
 
         let [<ReflectedDefinition>] inline GuardedWithOOB (template:_Template<'T>)
             (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) (oob_default:'T) =
                 LoadDirectWarpStriped.GuardedWithOOB template linear_tid block_ptr items valid_items oob_default
-                WarpStripedToBlocked template linear_tid items
+//                WarpStripedToBlocked template linear_tid items
 
     [<Record>]
     type API<'T> =

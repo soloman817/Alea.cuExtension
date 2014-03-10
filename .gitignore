@@ -172,3 +172,4 @@ TestResult.xml
 Test.Alea.CUDA.TestUtilities
 
 /lib
+*.eu5
