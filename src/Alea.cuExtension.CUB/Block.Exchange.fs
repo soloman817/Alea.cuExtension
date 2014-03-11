@@ -197,10 +197,10 @@ module Template =
         }
 
 
-module private BlockedToStriped =
+module BlockedToStriped =
     open Template
 
-    let Default (h:_HostApi) = 
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -222,7 +222,7 @@ module private BlockedToStriped =
         @>
     
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -263,11 +263,10 @@ module private BlockedToStriped =
     let api (h:_HostApi) = if h.Params.WARP_TIME_SLICING then WithTimeslicing h else Default h
 
 
-
-module private BlockedToWarpStriped =
+module BlockedToWarpStriped =
     open Template
 
-    let Default (h:_HostApi) = 
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -287,7 +286,7 @@ module private BlockedToWarpStriped =
         @>
 
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -313,10 +312,10 @@ module private BlockedToWarpStriped =
     let api (h:_HostApi) = if h.Params.WARP_TIME_SLICING then WithTimeslicing h else Default h
 
 
-module private StripedToBlocked =
+module StripedToBlocked =
     open Template
 
-    let Default (h:_HostApi) = 
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -337,7 +336,7 @@ module private StripedToBlocked =
         @>
 
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -378,10 +377,10 @@ module private StripedToBlocked =
     let api (h:_HostApi) = if h.Params.WARP_TIME_SLICING then WithTimeslicing h else Default h
 
 
-module private WarpStripedToBlocked =
+module WarpStripedToBlocked =
     open Template
 
-    let Default (h:_HostApi) = 
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -400,7 +399,7 @@ module private WarpStripedToBlocked =
         @>
 
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) ->
             let p = h.Params
@@ -426,10 +425,10 @@ module private WarpStripedToBlocked =
     let api (h:_HostApi) = if h.Params.WARP_TIME_SLICING then WithTimeslicing h else Default h
 
 
-module private ScatterToBlocked =
+module ScatterToBlocked =
     open Template
-
-    let Default (h:_HostApi) = 
+    
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
             let p = h.Params
@@ -450,7 +449,7 @@ module private ScatterToBlocked =
                 items.[ITEM] <- f.temp_storage.[item_offset]
         @>
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
             let p = h.Params
@@ -486,10 +485,10 @@ module private ScatterToBlocked =
     let api (h:_HostApi) = if h.Params.WARP_TIME_SLICING then WithTimeslicing h else Default h
 
 
-module private ScatterToStriped =
+module ScatterToStriped =
     open Template
 
-    let Default (h:_HostApi) = 
+    let private Default (h:_HostApi) = 
         <@ fun  (d:_DeviceApi<'T>) 
                 (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
             let p = h.Params
@@ -510,7 +509,7 @@ module private ScatterToStriped =
         @>
     
 
-    let WithTimeslicing (h:_HostApi) =
+    let private WithTimeslicing (h:_HostApi) =
         <@ fun  (d:_DeviceApi<'T>)
                 (items:deviceptr<'T>) (ranks:deviceptr<int>) ->
             let p = h.Params
