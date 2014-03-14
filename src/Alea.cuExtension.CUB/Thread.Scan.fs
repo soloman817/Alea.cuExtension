@@ -50,19 +50,19 @@ module ThreadScanExclusive =
 
     let [<ReflectedDefinition>] inline Default (length:int) (scan_op:'T -> 'T -> 'T)
         (inclusive:'T) (exclusive:'T) (input:deviceptr<'T>) (output:deviceptr<'T>) =
-            let mutable addend = input.[0]
-            let mutable inclusive = inclusive
-            output.[0] <- exclusive
-            let mutable exclusive = inclusive
+        let mutable addend = input.[0]
+        let mutable inclusive = inclusive
+        output.[0] <- exclusive
+        let mutable exclusive = inclusive
 
-            for i = 1 to (length - 1) do
-                addend <- input.[i]
-                inclusive <- (exclusive, addend) ||> scan_op
-                output.[i] <- exclusive
-                exclusive <- inclusive
+        for i = 1 to (length - 1) do
+            addend <- input.[i]
+            inclusive <- (exclusive, addend) ||> scan_op
+            output.[i] <- exclusive
+            exclusive <- inclusive
 
-            inclusive
-
+        inclusive
+    
 
     let [<ReflectedDefinition>] inline WithApplyPrefixDefault (length:int) (scan_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) =
@@ -75,6 +75,7 @@ module ThreadScanExclusive =
 
         Default length scan_op inclusive exclusive input output
         
+        
 
     let [<ReflectedDefinition>] inline WithApplyPrefix (length:int) (scan_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) (apply_prefix:bool) =
@@ -86,27 +87,43 @@ module ThreadScanExclusive =
         let exclusive = inclusive
         
         Default length scan_op inclusive exclusive input output
+        
 
-    [<Record>]
-    type API<'T> =
-        {
-            LENGTH : int
-        }
 
-        [<ReflectedDefinition>]
-        static member Init(length) =
-            {
-                LENGTH = length
-            }
+module ThreadScanInclusive =
+    
+    let [<ReflectedDefinition>] inline Default (length:int) (scan_op:'T -> 'T -> 'T)
+        (inclusive:'T) (input:deviceptr<'T>) (output:deviceptr<'T>) =
+        let mutable addend = input.[0]
+        let mutable inclusive = (inclusive, addend) ||> scan_op
+        output.[0] <- inclusive
 
-        [<ReflectedDefinition>]
-        member this.Default = Default this.LENGTH
+        for i = 1 to length - 1 do
+            addend <- input.[i]
+            inclusive <- (inclusive, addend) ||> scan_op
 
-        [<ReflectedDefinition>]
-        member this.WithApplyPrefixDefault = WithApplyPrefixDefault this.LENGTH
+        inclusive
+        
 
-        [<ReflectedDefinition>]
-        member this.WithApplyPrefix = WithApplyPrefix this.LENGTH
+    let [<ReflectedDefinition>] inline ReturnAggregate (length:int) (scan_op:'T -> 'T -> 'T)
+        (input:deviceptr<'T>) (output:deviceptr<'T>) =
+        let inclusive = input.[0]
+        output.[0] <- inclusive
+        Default length scan_op inclusive (input + 1) (output + 1)
+        
+
+    let [<ReflectedDefinition>] inline WithApplyPrefix (length:int) (scan_op:'T -> 'T -> 'T)
+        (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) (apply_prefix:bool) =
+        let mutable inclusive = input.[0]
+        if apply_prefix then inclusive <- (prefix,inclusive) ||> scan_op
+        output.[0] <- inclusive
+        ReturnAggregate length scan_op (input + 1) (output + 1)
+        
+
+    let [<ReflectedDefinition>] inline WithApplyPrefixDefault (length:int) (scan_op:'T -> 'T -> 'T)
+        (input:deviceptr<'T>) (output:deviceptr<'T>) (prefix:'T) =
+        WithApplyPrefix length scan_op input output prefix true
+        
 
 //    let [<ReflectedDefinition>] api (length:int) (scan_op:'T -> 'T -> 'T) : API<'T> =
 //        lettemplate= _TemplateParams<'T>.Init(length) //, scan_op)
@@ -134,29 +151,29 @@ module ThreadScanExclusive =
 //                0 0 input output prefix
 //    let api2 (length:int) : Template<API2<'T>> = cuda {
 //        lettemplate= _TemplateParams<'T>.Init(length) //, scan_op)
-//        let! _Default = <@ Defaulttemplate @> |> Compiler.DefineFunction
-//        let! _WithApplyPrefixDefault = <@ WithApplyPrefixDefaulttemplate @> |> Compiler.DefineFunction
-//        let! _WithApplyPrefix = <@ WithApplyPrefixtemplate @> |> Compiler.DefineFunction
+//        let! _Default = <@ Defaulttemplate  |> Compiler.DefineFunction
+//        let! _WithApplyPrefixDefault = <@ WithApplyPrefixDefaulttemplate  |> Compiler.DefineFunction
+//        let! _WithApplyPrefix = <@ WithApplyPrefixtemplate  |> Compiler.DefineFunction
 //
 //        return {Default = _Default; WithApplyPrefixDefault = _WithApplyPrefixDefault; WithApplyPrefix = _WithApplyPrefix}
 //    }
 
 
-module ThreadScanInclusive = ()
+//module ThreadScanInclusive = ()
 //type IScanOp =
 //    abstract hplus : ('T -> 'T ->'T)
 //    abstract dplus : Expr<'T -> 'T -> 'T>
 
 //[<ReflectedDefinition>]
-//let inline scan_op() = (+) //  (ident:int) =
+//let [<ReflectedDefinition>] inline scan_op() = (+) //  (ident:int) =
 ////    { new IScanOp<int> with
 ////        member this.hplus = (+)
-////        member this.dplus = <@ (+) @>}
+////        member this.dplus = <@ (+) }
 
-//let inline scan_op (ident:int) = 
+//let [<ReflectedDefinition>] inline scan_op (ident:int) = 
 //    { new IScanOp<int> with
 //        member this.hplus = (+)
-//        member this.dplus = <@ (+) @>}
+//        member this.dplus = <@ (+) }
 
 
 
@@ -249,12 +266,12 @@ module ThreadScanInclusive = ()
 //
 //
 ////let inclusiveScan length = 
-////    fun (inclusive:int option) (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:(int -> int -> int)) (prefix:int option) (apply_prefix:bool option) ->
+////    fun (inclusive:int option) (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:(int -> int -> int)) (prefix:int option) (apply_prefix:bool option) =
 ////        match inclusive, prefix, apply_prefix with
 ////        | None, None, None ->
 //            
-//let inline ThreadScanExclusive(length:int) = 
-//    fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:(int -> int -> int)) (prefix:int) (apply_prefix:bool option) ->
+//let [<ReflectedDefinition>] inline ThreadScanExclusive(length:int) = 
+//    fun (input:deviceptr<int>) (output:deviceptr<int>) (scan_op:(int -> int -> int)) (prefix:int) (apply_prefix:bool option) =
 //        let apply_prefix = if apply_prefix.IsSome then apply_prefix.Value else true
 //
 //        let mutable inclusive = input.[0]

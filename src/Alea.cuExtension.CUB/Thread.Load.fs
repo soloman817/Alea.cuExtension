@@ -128,30 +128,28 @@ module internal ThreadLoad =
 
 
 type CacheLoadModifier =
-    | LOAD_DEFAULT
-    | LOAD_CA
-    | LOAD_CG
-    | LOAD_CS
-    | LOAD_CV
-    | LOAD_LDG
-    | LOAD_VOLATILE
+    | LOAD_DEFAULT  = 0
+    | LOAD_CA       = 1
+    | LOAD_CG       = 2
+    | LOAD_CS       = 3
+    | LOAD_CV       = 4
+    | LOAD_LDG      = 5
+    | LOAD_VOLATILE = 6
 
 
-//let inline DefaultLoad (ptr:deviceptr<int>) = ptr.[0]
-//
-//let inline ThreadLoad<int> modifier = //: Expr<deviceptr<int> -> 'T> =
-//    let load =
-//        modifier |> function
-//        | LOAD_DEFAULT ->   DefaultLoad
-//        | LOAD_CA ->        ThreadLoad.ThreadLoad_CA
-//        | LOAD_CG ->        ThreadLoad.ThreadLoad_CG
-//        | LOAD_CS ->        ThreadLoad.ThreadLoad_CS
-//        | LOAD_CV ->        ThreadLoad.ThreadLoad_CV
-//        | LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG
-//        | LOAD_VOLATILE ->  DefaultLoad
-//    <@ load @>
+let [<ReflectedDefinition>] inline DefaultLoad (ptr:deviceptr<'T>) = ptr.[0]
 
-let [<ReflectedDefinition>] inline ThreadLoad<'T> modifier (ptr:deviceptr<'T>) = ptr.[0]
+let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (ptr:deviceptr<'T>) =
+    modifier |> function
+    | CacheLoadModifier.LOAD_DEFAULT ->   DefaultLoad ptr
+    | CacheLoadModifier.LOAD_CA ->        ThreadLoad.ThreadLoad_CA ptr
+    | CacheLoadModifier.LOAD_CG ->        ThreadLoad.ThreadLoad_CG ptr
+    | CacheLoadModifier.LOAD_CS ->        ThreadLoad.ThreadLoad_CS ptr
+    | CacheLoadModifier.LOAD_CV ->        ThreadLoad.ThreadLoad_CV ptr
+    | CacheLoadModifier.LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG ptr
+    | CacheLoadModifier.LOAD_VOLATILE ->  DefaultLoad ptr
+    | _ -> failwith "Invalid Load Modifier"
+    
 
 //let dereference (ptr:deviceptr<int>) = ptr |> __ptr_to_obj
 //

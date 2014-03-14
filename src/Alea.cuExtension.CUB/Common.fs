@@ -213,6 +213,27 @@ type double4 =
     override this.ToString() = sprintf "(%f,%f,%f,%f)" this.x this.y this.z this.w
 
 
+[<Record>]
+type SharedRecord<'T> =
+    {
+        mutable Ptr     : deviceptr<'T>
+        mutable Length  : int
+    }
+
+    member this.Item
+        with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx] 
+        and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
+            
+    [<ReflectedDefinition>]
+    static member Init(length:int) =
+        let s = __shared__.Array<'T>(length)
+        let ptr = s |> __array_to_ptr
+        { Ptr = ptr; Length = length }
+
+
+    [<ReflectedDefinition>]
+    static member Uninitialized() =
+        { Ptr = __null(); Length = 0 }
 //type InputIterator = deviceptr<int>
 //type OutputIterator = deviceptr<int>
 //

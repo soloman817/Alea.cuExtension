@@ -49,11 +49,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Common.fs" />
+    <Compile Include="Utilities.Arch.fs" />
     <Compile Include="Utilities.Vector.fs" />
     <Compile Include="Utilities.Type.fs" />
     <Compile Include="Utilities.Macro.fs" />
     <Compile Include="Utilities.Device.fs" />
-    <Compile Include="Utilities.Arch.fs" />
     <Compile Include="Utilities.Allocator.fs" />
     <Compile Include="Utilities.Namespace.fs" />
     <Compile Include="Utilities.Debug.fs" />
@@ -80,12 +80,12 @@
     <Compile Include="Block.Histogram.fs" />
     <Compile Include="Block.Exchange.fs" />
     <Compile Include="Block.Load.fs" />
+    <Compile Include="Block.Store.fs" />
     <Compile Include="Block.RadixRank.fs" />
     <Compile Include="Block.RadixSort.fs" />
     <Compile Include="Block.Reduce.fs" />
     <Compile Include="Block.Scan.fs" />
     <Compile Include="Block.Shift.fs" />
-    <Compile Include="Block.Store.fs" />
     <Compile Include="Grid.Barrier.fs" />
     <Compile Include="Grid.EvenShare.fs" />
     <Compile Include="Grid.Mapping.fs" />

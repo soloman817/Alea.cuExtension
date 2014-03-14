@@ -66,6 +66,7 @@
     <None Include="Lab.ptx" />
     <None Include="App.config" />
     <None Include="packages.config" />
+    <None Include="GetCubOutput.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Alea.CUDA">

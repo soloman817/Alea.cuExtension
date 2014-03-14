@@ -123,25 +123,26 @@ module internal ThreadStore =
 
 
 type CacheStoreModifier =
-    | STORE_DEFAULT
-    | STORE_WB
-    | STORE_CG
-    | STORE_CS
-    | STORE_WT
-    | STORE_VOLATILE
+    | STORE_DEFAULT     = 0
+    | STORE_WB          = 1
+    | STORE_CG          = 2
+    | STORE_CS          = 3
+    | STORE_WT          = 4
+    | STORE_VOLATILE    = 5
 
 
 [<ReflectedDefinition>]
 let inline DefaultStore (ptr:deviceptr<'T>) (value:'T) = ptr.[0] <- value
 
-let inline ThreadStore<'T> modifier : deviceptr<'T> -> 'T -> unit =
+let [<ReflectedDefinition>] inline ThreadStore (modifier:CacheStoreModifier) (ptr:deviceptr<'T>) (value:'T) =
     modifier |> function
-    | STORE_DEFAULT ->      DefaultStore
-    | STORE_WB ->           ThreadStore.ThreadStore_WB
-    | STORE_CG ->           ThreadStore.ThreadStore_CG
-    | STORE_CS ->           ThreadStore.ThreadStore_CS
-    | STORE_WT ->           ThreadStore.ThreadStore_WT
-    | STORE_VOLATILE ->     DefaultStore
+    | CacheStoreModifier.STORE_DEFAULT ->      DefaultStore ptr value
+    | CacheStoreModifier.STORE_WB ->           ThreadStore.ThreadStore_WB ptr value
+    | CacheStoreModifier.STORE_CG ->           ThreadStore.ThreadStore_CG ptr value
+    | CacheStoreModifier.STORE_CS ->           ThreadStore.ThreadStore_CS ptr value
+    | CacheStoreModifier.STORE_WT ->           ThreadStore.ThreadStore_WT ptr value
+    | CacheStoreModifier.STORE_VOLATILE ->     DefaultStore ptr value
+    | _ -> failwith "Invalid Store Modifier"
     
 
 

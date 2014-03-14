@@ -1,25 +1,6 @@
-[<AutoOpen>]
-module Test.Alea.cuExtension.CUB.Utilities.Util
-open System
+﻿open System
 open System.Diagnostics
 open System.IO
-
-open Alea.CUDA
-open Alea.CUDA.Utilities
-
-
-#if DEBUG
-let debug = true
-#else
-let debug = false
-#endif
-
-let stripedData (block_threads:int) (items_per_thread:int) =
-    [for i = 0 to (block_threads / items_per_thread) - 1 do
-        for j = 0 to items_per_thread - 1 do 
-            yield i + j * block_threads] 
-    |> Array.ofList
-
 
 module CppOutput =
     let lineSequence(file) = 
@@ -176,3 +157,5 @@ module CppOutput =
 CppOutput.BlockScan.getScanResults()
 let sct = CppOutput.BlockScan.getScanTimingResults()
 printfn "%A" sct
+
+//sct |> List.iter (fun e -> )

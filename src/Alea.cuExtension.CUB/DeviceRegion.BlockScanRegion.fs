@@ -7,9 +7,7 @@ open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Block
 
-//type BlockLoadAlgorithm     = Alea.cuExtension.CUB.Block.Load.Template.BlockLoadAlgorithm
-type BlockStoreAlgorithm    = Alea.cuExtension.CUB.Block.Store.Template.BlockStoreAlgorithm
-type BlockScanAlgorithm     = Alea.cuExtension.CUB.Block.Scan.Template.BlockScanAlgorithm
+
 
 type BlockScanRegionPolicy =
     {

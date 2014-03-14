@@ -6,60 +6,25 @@ open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 open Alea.cuExtension.CUB.Thread
 
-module Template =
-    [<AutoOpen>]
-    module Params =
-        [<Record>]
-        type API =
-            {
-                LENGTH          : int
-            }
-
-            [<ReflectedDefinition>]
-            static member Init(length) =
-                {
-                    LENGTH          = length
-                }
-
-        
-
-    type _TemplateParams = Params.API
-
-type _Template = Template._TemplateParams
-
 
 module ThreadReduce =
-    open Template
-
-    let [<ReflectedDefinition>] inline WithPrefix (template:_Template)
-        (reduction_op:'T -> 'T -> 'T)
+    
+    let [<ReflectedDefinition>] inline WithPrefix (length:int) (reduction_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) (prefix:'T) =
         let mutable addend = input.[0]
         let mutable prefix = (prefix, addend) ||> reduction_op
 
-        for i = 1 to template.LENGTH - 1 do
+        for i = 1 to length - 1 do
             addend <- input.[i]
             prefix <- (prefix, addend) ||> reduction_op
 
         prefix
+    
 
-    let [<ReflectedDefinition>] inline Default (template:_Template)
-        (reduction_op:'T -> 'T -> 'T)
+    let [<ReflectedDefinition>] inline Default (length:int) (reduction_op:'T -> 'T -> 'T)
         (input:deviceptr<'T>) =
-        WithPrefix template reduction_op input input.[0]
+        WithPrefix length reduction_op input input.[0]
 
-
-    [<Record>]
-    type API<'T> =
-        {
-            template : _Template
-        }
-
-        [<ReflectedDefinition>] static member Init(length) = { template = _Template.Init(length) }
-
-        [<ReflectedDefinition>] member this.Default     = Default this.template
-        [<ReflectedDefinition>] member this.WithPrefix  = WithPrefix this.template
-         
                     
 //let threadReduce length reduction_op =
 //    let reduction_op = reduction_op.op

@@ -6,8 +6,10 @@ open Microsoft.FSharp.Core.Operators
 
 open Alea.CUDA
 open Alea.CUDA.Utilities
+open Alea.CUDA.Utilities.NumericLiteralG
 open Alea.cuExtension
 open Alea.cuExtension.CUB.Common
+open Alea.cuExtension.CUB.Utilities
 
 
 type InputIterator = deviceptr<int>
@@ -23,30 +25,30 @@ type OutputIterator = deviceptr<int>
 //    static member (=) (_null:NullType<int>, b:int) = __null()
 //    static member (==) (_null:NullType<int>, b:NullType<int>)
 
-type Pad =
+type Pad<'T> =
     {
-        v : int
+        v : 'T
         b : byte
     }
 
-    static member Init(value:int) =
+    static member Init(value:'T) =
         {
             v = value
             b = 0uy
         }
 
-type AlignBytes =
+type AlignBytes<'T> =
     {
         ALIGN_BYTES : int
     }
 
-    static member Init(value:int) =
+    static member Init(value:'T) =
         {
-            ALIGN_BYTES = sizeof<Pad> - sizeof<int>
+            ALIGN_BYTES = sizeof<Pad<'T>> - sizeof<'T>
         }
 
-let alignBytes() : AlignBytes =
-    typeof<int> |> function 
+let inline AlignBytes<'T>() : AlignBytes<'T> =
+    typeof<'T> |> function 
         | ty when ty = typeof<short4>       -> { ALIGN_BYTES = 8 }
         | ty when ty = typeof<ushort4>      -> { ALIGN_BYTES = 8 }
         | ty when ty = typeof<int2>         -> { ALIGN_BYTES = 8 }
@@ -75,33 +77,35 @@ let alignBytes() : AlignBytes =
 
         | _ -> { ALIGN_BYTES = 8 }
 
-[<Struct>]
-type IsMultiple =
-    val UNIT_ALIGN_BYTES : int
-    val IS_MULTIPLE : bool
-    new (align_bytes) =
-        let unit_align_bytes = AlignBytes.Init(align_bytes).ALIGN_BYTES
+[<Record>]
+type IsMultiple<'T, 'Unit> =
+    {
+        UNIT_ALIGN_BYTES    : int
+        IS_MULTIPLE         : bool
+    }
+    
+    static member Init(align_bytes) : IsMultiple<'T, 'Unit> =
+        let unit_align_bytes = AlignBytes<'Unit>().ALIGN_BYTES
         {
             UNIT_ALIGN_BYTES = unit_align_bytes
-            IS_MULTIPLE = ((sizeof<int> % sizeof<unit>) = 0) && ((align_bytes % unit_align_bytes) = 0)
+            IS_MULTIPLE = ((sizeof<'T> % sizeof<'Unit>) = 0) && ((align_bytes % unit_align_bytes) = 0)
         }
 
-[<Struct>]
-type UnitWordStr =
-    val ALIGN_BYTES : int
-//        
-//        ShuffleWord : 'ShuffleWord
-//        VolatileWord : 'VolatileWord
-//        DeviceWord : 'DeviceWord
-//        TextureWord : intextureWord
-    val IS_MULTIPLE : bool
+    static member Init() : IsMultiple<'T, 'Unit> = IsMultiple<'T, 'Unit>.Init(AlignBytes<'T>().ALIGN_BYTES)
 
-    [<ReflectedDefinition>]
-    new (_) = 
-        let align_bytes = alignBytes().ALIGN_BYTES
+[<Record>]
+type _UnitWord<'T, 'Unit> =
+    {
+        ALIGN_BYTES : int
+        IS_MULTIPLE : IsMultiple<'T, 'Unit>
+    }
+
+
+    static member Init() =  
+        let align_bytes = AlignBytes<'T>().ALIGN_BYTES
         {
             ALIGN_BYTES = align_bytes
-            IS_MULTIPLE = IsMultiple(align_bytes).IS_MULTIPLE
+            IS_MULTIPLE = IsMultiple<'T, 'Unit>.Init()
         }
 
 module UnitWord =
@@ -523,8 +527,19 @@ let keyValueOp(op:('V -> 'V -> 'V)) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyVa
 
 
 
+///@TODO
+let [<ReflectedDefinition>] inline ZeroInitialize<'T>() =
+    let MULTIPLE = sizeof<'T> / sizeof<UnitWord.ShuffleWord>
+    let words = __local__.Array<'T>(MULTIPLE)
+    let x = words.[0]
+    for i = 0 to MULTIPLE - 1 do words.[i] <- x
+    if CUDA_ARCH.Number <= 130 then words |> __array_to_ptr else x |> __obj_to_ptr
+    
 
-let inline ZeroInitialize() =
-    let MULTIPLE = sizeof<int> / sizeof<UnitWord.ShuffleWord>
-    let words = __local__.Array(MULTIPLE)
-    words |> __array_to_ptr
+//[<Record>]
+//type Uninitialized<'T> =
+//    {
+//        WORDS : int
+//    }
+//
+//    static member Init() = { WORDS = __sizeof<'T>() / }

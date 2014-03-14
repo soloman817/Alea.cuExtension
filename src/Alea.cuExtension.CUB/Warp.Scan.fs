@@ -12,463 +12,587 @@ open Alea.cuExtension.CUB.Utilities
 open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Warp.WarpSpecializations
 
-type private InternalWarpScan<'T> =
-    | WarpScanShfl of WarpScanShfl.API<'T>
-    | WarpScanSmem of WarpScanSmem.API<'T>
+//type private InternalWarpScan<'T> =
+//    | WarpScanShfl of WarpScanShfl.API<'T>
+//    | WarpScanSmem of WarpScanSmem.API<'T>
 
 module Template =
     [<AutoOpen>]
-    module Params =
-        [<Record>]
+    module Host =
+//        type InternalWarpScan<'T> =
+//            | WarpScanShfl of WarpScanShfl.API<'T>
+//            | WarpScanSmem of WarpScanSmem.API<'T>
+
+        module Params =
+            [<Record>]
+            type API = 
+                { LOGICAL_WARPS : int; LOGICAL_WARP_THREADS : int }
+                static member Init(logical_warps, logical_warp_threads) = { LOGICAL_WARPS = logical_warps; LOGICAL_WARP_THREADS = logical_warp_threads }
+                static member Init() = { LOGICAL_WARPS = 1; LOGICAL_WARP_THREADS = CUB_PTX_WARP_THREADS }
+
+        module Constants =            
+            [<Record>] 
+            type API = 
+                { POW_OF_TWO : bool } 
+                static member Init(p:Params.API) = { POW_OF_TWO = ((p.LOGICAL_WARP_THREADS &&& (p.LOGICAL_WARP_THREADS - 1)) = 0) }
+
+
+        ///@TODO
+//        let pickScanKind (p:Params.API) =
+//            let c = Constants.API.Init(p)
+//            ((CUB_PTX_VERSION >= 300) && ((p.LOGICAL_WARPS = 1) || c.POW_OF_TWO))
+//
+//        let  [<ReflectedDefinition>] inline (|WarpScanShfl|_|) (scan_op:'T -> 'T -> 'T) (p:Params.API) =
+//            if pickScanKind p then
+//                WarpScanShfl.template<'T> p.LOGICAL_WARPS p.LOGICAL_WARP_THREADS scan_op
+//                |>      Some
+//            else
+//                None 
+//
+//        let  [<ReflectedDefinition>] inline (|WarpScanSmem|_|) (scan_op:'T -> 'T -> 'T) (p:Params.API) =
+//            if pickScanKind p |> not then
+//                WarpScanSmem.template<'T> p.LOGICAL_WARPS p.LOGICAL_WARP_THREADS scan_op
+//                |>      Some
+//            else
+//            None
+        type ScanKind =
+            | Shfl = 0
+            | Smem = 1
+
+        type InternalScanHostApi =
+            | WarpScanShflHostApi of WarpScanShfl.HostApi
+            | WarpScanSmemHostApi of WarpScanSmem.HostApi
+
         type API =
             {
-                LOGICAL_WARPS           : int
-                LOGICAL_WARP_THREADS    : int
+                ScanKind            : ScanKind
+//                InternalScanHostApi : InternalScanHostApi
+                WarpScanSmemHostApi : WarpScanSmem.HostApi
+                WarpScanShflHostApi : WarpScanShfl.HostApi
+                Params              : Params.API
+                Constants           : Constants.API
+                SharedMemoryLength  : int
             }
 
-            [<ReflectedDefinition>]
-            member this.Get() = (this.LOGICAL_WARPS, this.LOGICAL_WARP_THREADS)
-
-            [<ReflectedDefinition>]
             static member Init(logical_warps, logical_warp_threads) =
-                {
-                    LOGICAL_WARPS           = logical_warps
-                    LOGICAL_WARP_THREADS    = logical_warp_threads                    
-                }
+                let p = Params.API.Init(logical_warps, logical_warp_threads)
+                let c = Constants.API.Init(p)
+                let wsSmem_h = WarpScanSmem.HostApi.Init(p.LOGICAL_WARPS, p.LOGICAL_WARP_THREADS)
+                let wsShfl_h = WarpScanShfl.HostApi.Init(p.LOGICAL_WARPS, p.LOGICAL_WARP_THREADS)
+                let kind = if (CUB_PTX_VERSION >= 300) && ((p.LOGICAL_WARPS = 1) || c.POW_OF_TWO) then ScanKind.Shfl else ScanKind.Smem
+//                let internalHostApi = 
+//                    kind |> function
+//                    | ScanKind.Shfl -> WarpScanShflHostApi(wsShfl_h)
+//                    | ScanKind.Smem -> WarpScanSmemHostApi(wsSmem_h)
+//                    | _             -> WarpScanSmemHostApi(wsSmem_h)
+//                { ScanKind = kind; InternalScanHostApi = internalHostApi; Params = p; Constants = c; SharedMemoryLength = wsSmem_h.SharedMemoryLength }
+                { ScanKind = kind; WarpScanSmemHostApi = wsSmem_h; WarpScanShflHostApi = wsShfl_h; Params = p; Constants = c; SharedMemoryLength = wsSmem_h.SharedMemoryLength }
 
-            [<ReflectedDefinition>]
-            static member Default() =
-                {
-                    LOGICAL_WARPS           = 1
-                    LOGICAL_WARP_THREADS    = CUB_PTX_WARP_THREADS
-                }
+            static member Init() = API.Init(1, CUB_PTX_WARP_THREADS)
 
-    [<AutoOpen>]
-    module Constants =
+    module Device =
+        module TempStorage =
+            type [<Record>] API<'T> = WarpScanSmem.TempStorage<'T>
+            
+        let [<ReflectedDefinition>] inline PrivateStorage<'T>(h:Host.API) = TempStorage.API<'T>.Uninitialized(h.SharedMemoryLength)
+
         [<Record>]
-        type API =
-            {
-                POW_OF_TWO : bool
-            }
-
-            [<ReflectedDefinition>]
-            static member Init(tp:Params.API) = {POW_OF_TWO = ((tp.LOGICAL_WARP_THREADS &&& (tp.LOGICAL_WARP_THREADS - 1)) = 0)}
-
-
-    [<AutoOpen>]
-    module TempStorage =
-        [<Record>]
-        type API<'T> =
-            {
-                mutable Ptr     : deviceptr<'T>
-                mutable Length  : int
-            }
-
-            member this.Item
-                with    [<ReflectedDefinition>] get (idx:int) = this.Ptr.[idx]
-                and     [<ReflectedDefinition>] set (idx:int) (v:'T) = this.Ptr.[idx] <- v
-
-            [<ReflectedDefinition>]
-            static member inline Uninitialized<'T>() = { Ptr = __null<'T>(); Length = 0}
-
-
-    [<AutoOpen>]
-    module ThreadFields =
-        [<Record>]
-        type API<'T> =
-            {
-                mutable temp_storage    : TempStorage.API<'T>
-                mutable warp_id         : int
-                mutable lane_id         : int
-            }
-                        
+        type API<'T> = 
+            { mutable temp_storage : TempStorage.API<'T>; mutable warp_id : int; mutable lane_id : int }
+            
             [<ReflectedDefinition>] 
-            member this.Get() = (this.temp_storage, this.warp_id, this.lane_id)
-
-
-            [<ReflectedDefinition>]
-            static member inline Init(logical_warps, logical_warp_threads) =
+            static member Init(h:Host.API) =
+                let p = h.Params
                 {
-                    temp_storage    = TempStorage.API<'T>.Uninitialized<'T>()
-                    warp_id         = if logical_warps = 1 then 0 else threadIdx.x / logical_warp_threads
-                    lane_id         = if logical_warps = 1 || logical_warp_threads = CUB_PTX_WARP_THREADS then __ptx__.LaneId() else threadIdx.x % logical_warp_threads
+                    temp_storage    = PrivateStorage<'T>(h)
+                    warp_id 
+                        = if p.LOGICAL_WARPS = 1 then 0 else threadIdx.x / p.LOGICAL_WARP_THREADS
+                    lane_id 
+                        = if ((p.LOGICAL_WARPS = 1) || (p.LOGICAL_WARP_THREADS = CUB_PTX_WARP_THREADS)) then __ptx__.LaneId() else threadIdx.x % p.LOGICAL_WARP_THREADS
                 }
 
-            [<ReflectedDefinition>] 
-            static member inline Init(tp:Params.API) = API<'T>.Init(tp.LOGICAL_WARPS, tp.LOGICAL_WARP_THREADS)
+            [<ReflectedDefinition>]
+            static member Init(h:Host.API, temp_storage) =
+                let p = h.Params
+                {
+                    temp_storage    = temp_storage
+                    warp_id 
+                        = if p.LOGICAL_WARPS = 1 then 0 else threadIdx.x / p.LOGICAL_WARP_THREADS
+                    lane_id 
+                        = if ((p.LOGICAL_WARPS = 1) || (p.LOGICAL_WARP_THREADS = CUB_PTX_WARP_THREADS)) then __ptx__.LaneId() else threadIdx.x % p.LOGICAL_WARP_THREADS
+                }
+
+            [<ReflectedDefinition>]
+            static member Init(h:Host.API, warp_id, lane_id) =
+                { temp_storage = PrivateStorage<'T>(h); warp_id = warp_id; lane_id = lane_id }                
+
+            [<ReflectedDefinition>]
+            static member Init(h:Host.API, temp_storage, warp_id, lane_id) =
+                { temp_storage = temp_storage; warp_id = warp_id; lane_id = lane_id } 
 
 
+    type _TemplateParams    = Host.Params.API
+    type _Constants         = Host.Constants.API
+    type _HostApi           = Host.API
 
-    type _TemplateParams    = Params.API
-    type _Constants         = Constants.API
-    type _TempStorage<'T>   = TempStorage.API<'T>
-    type _ThreadFields<'T>  = ThreadFields.API<'T>
+    type _TempStorage<'T>   = Device.TempStorage.API<'T>
+    type _DeviceApi<'T>     = Device.API<'T>
 
-    [<Record>]
-    type API<'T> =
-        {
-            mutable Params          : Params.API
-            mutable Constants       : Constants.API
-            mutable ThreadFields    : ThreadFields.API<'T>
-        }
-
-        [<ReflectedDefinition>]
-        static member Init(logical_warps, logical_warp_threads) =
-            let tp  = Params.API.Init(logical_warps, logical_warp_threads)
-            let c   = Constants.API.Init(tp)
-            let tf  = ThreadFields.API<'T>.Init(tp)
-            {
-                Params          = tp
-                Constants       = c
-                ThreadFields    = tf
-            }
-
-type _Template<'T> = Template.API<'T>
-
-module private Internal =
-    open Template
-
-    let pickScanKind (template:_Template<'T>) =
-        let POW_OF_TWO = template.Constants.POW_OF_TWO
-        ((CUB_PTX_VERSION >= 300) && ((template.Params.LOGICAL_WARPS = 1) || POW_OF_TWO))
-
-    let (|WarpScanShfl|_|) (template:_Template<'T>) =
-        if pickScanKind template then
-            let template = Alea.cuExtension.CUB.Warp.WarpSpecializations.WarpScanShfl._Template<'T>.Init(template.Params.LOGICAL_WARPS, template.Params.LOGICAL_WARP_THREADS)
-            WarpScanShfl.API<'T>.Init(template)
-            |>      Some
-        else
-            None 
-
-    let (|WarpScanSmem|_|) (template:_Template<'T>) =
-        if pickScanKind template |> not then
-            let template = Alea.cuExtension.CUB.Warp.WarpSpecializations.WarpScanSmem._Template<'T>.Init(template.Params.LOGICAL_WARPS, template.Params.LOGICAL_WARP_THREADS)
-            WarpScanSmem.API<'T>.Init(template)
-            |>      Some
-        else
-            None
+//    module InclusiveSum =
+//        type _FunctionApi<'T> =
+//            {
+//                Default         : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate   : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//            }
+//
+//    module InclusiveScan =
+//        type _FunctionApi<'T> =
+//            {
+//                Default         : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate   : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>                
+//            }
+//            
+//    module ExclusiveSum =
+//        type _FunctionApi<'T> =
+//            {
+//                Default         : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate   : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>                
+//            }
+//
+//
+//    module ExclusiveScan =
+//        type _FunctionApi<'T> =
+//            {
+//                Default             : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> 'T -> unit>
+//                Default_NoID        : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate       : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate_NoID  : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//            }
 
 
         
-    module WarpScan =
-        open Template
-
-        module InclusiveSum =
-            
-            let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) =
-                template |> function
-                | WarpScanShfl wsShfl ->    wsShfl.InclusiveSum.Default input output
-                | WarpScanSmem wsSmem ->    wsSmem.InclusiveSum.Default scan_op input output
-                | _ -> failwith "Invalid Template Parameters"
-                //<|| (input, output)
-
-            let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                template |> function
-                | WarpScanShfl wsShfl ->    wsShfl.InclusiveSum.Generic input output warp_aggregate
-                | WarpScanSmem wsSmem ->    wsSmem.InclusiveSum.WithAggregate scan_op input output warp_aggregate
-                | _ -> failwith "Invalid Template Parameters"
-                //<|||    (input, output, warp_aggregate)
-            
-
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) (warp_prefix_op:Ref<'T -> 'T>) =
-                let InclusiveSum    =  WithAggregate template scan_op input output warp_aggregate
-                let prefix          = __local__.Variable<'T>()
-                prefix := !warp_aggregate |> !warp_prefix_op
-
-                prefix :=
-                    template |> function
-                    | WarpScanShfl wsShfl ->    wsShfl.Broadcast !prefix 0
-                    | WarpScanSmem wsSmem ->    wsSmem.Broadcast !prefix 0
-                    | _ -> failwith "Invalid Template Parameters"
-                    //<|| (!prefix, 0)
-                
-                output := !prefix + !output
-            
-//            [<Record>]
-//            type API<'T> =
-//                {
-//                    template : _Template<'T>
-//                }
-//                                
-//                [<ReflectedDefinition>] member inline this.Default         = Default this.template
-//                [<ReflectedDefinition>] member inline this.WithAggregate   = WithAggregate this.template
-//                
-//                [<ReflectedDefinition>] static member Init(template) = { template = template }
-
-
-
-        module ExclusiveSum =
-            let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) =
-                    let inclusive = __local__.Variable<'T>()
-                    InclusiveSum.Default template scan_op input output
-                    output := scan_op !inclusive input
-  
-
-            let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                    let inclusive = __local__.Variable<'T>()
-                    InclusiveSum.WithAggregate template scan_op input inclusive warp_aggregate
-                    output := scan_op !inclusive input
-
-
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
-                (scan_op:'T -> 'T -> 'T)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) (warp_prefix_op:Ref<'T -> 'T>) =
-                    let inclusive = __local__.Variable<'T>()
-                    InclusiveSum.WithAggregateAndCallbackOp template scan_op input inclusive warp_aggregate warp_prefix_op
-                    output := scan_op !inclusive input
-                    
-
-//            [<Record>]
-//            type API<'T> =
-//                {
-//                    template : _Template<'T>
-//                }
-//                                
-//                [<ReflectedDefinition>] member inline this.Default                     = Default this.template
-//                [<ReflectedDefinition>] member inline this.WithAggregate               = WithAggregate this.template
-//                //[<ReflectedDefinition>] member inline this.WithAggregateAndCallbackOp  = WithAggregateAndCallbackOp this.template
-//                [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-
-//        [<Record>]
-//        type API<'T> =
-//            {
-//                template : _Template<'T>
-//            }
-//
-//            [<ReflectedDefinition>] member this.InclusiveSum = InclusiveSum.API<'T>.Init(this.template)
-//            [<ReflectedDefinition>] member this.ExclusiveSum = ExclusiveSum.API<'T>.Init(this.template)
-//
-//            [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-            
-
-module private InclusiveSum =
+module InternalWarpScan =
     open Template
-    open Internal
 
-//    type API<'T> =
-//        {
-//            Default                     : Sig.InclusiveSum.Default<'T>
-//            WithAggregate               : Sig.InclusiveSum.WithAggregate<'T>
-//            WithAggregateAndCallbackOp  : Sig.InclusiveSum.WithAggregateAndCallbackOp<'T>
-//        }
+    ///@TODO
+//    type InternalWarpScan<'T> =
+//        | IWarpScanShfl of Template<WarpScanShfl.HostApi*WarpScanShfl.FunctionApi<'T>> //WarpScanShfl.API<'T>
+//        | IWarpScanSmem of Template<WarpScanSmem.HostApi*WarpScanSmem.FunctionApi<'T>> //WarpScanSmem.API<'T>
+//
+//    module InclusiveSum =
+//        let  [<ReflectedDefinition>] inline spec (h:_HostApi) (scan_op:'T -> 'T -> 'T) =
+//            let p = h.Params 
+//            p |> function
+//            | WarpScanShfl scan_op wsShfl -> IWarpScanShfl(wsShfl)
+//            | WarpScanSmem scan_op wsSmem -> IWarpScanSmem(wsSmem)
+//            | _ -> failwith "Invalid Template Parameters"
+    
+    module InclusiveSum = 
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) = 
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.InclusiveSum.Default h.WarpScanShflHostApi wsShfl_d input output
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.InclusiveSum.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
 
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) = ()
+        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.InclusiveSum.Generic h.WarpScanShflHostApi wsShfl_d input output warp_aggregate
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.InclusiveSum.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
+      
+    module InclusiveScan =
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>) 
+            (input:'T) (output:Ref<'T>) =
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.InclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.InclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
 
-    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
+        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.InclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.InclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output
 
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
+
+    module ExclusiveScan =
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (identity:'T) =
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.ExclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output identity
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.ExclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output identity
+
+        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+            h.ScanKind |> function
+            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.ExclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output identity warp_aggregate
+            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.ExclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output identity warp_aggregate
 
 
-//    let [<ReflectedDefinition>] api  (template:_Template<'T>)
-//        (scan_op:'T -> 'T -> 'T) =
-//            {
-//                Default                     =   Default template scan_op
-//                WithAggregate               =   WithAggregate template scan_op
-//                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp template scan_op
-//            }
+        module Identityless =
+            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+                (d:_DeviceApi<'T>)
+                (input:'T) (output:Ref<'T>) =
+                h.ScanKind |> function
+                | ScanKind.Shfl ->
+                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                    WarpScanShfl.ExclusiveScan.Identityless.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
+                | _ ->
+                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                    WarpScanSmem.ExclusiveScan.Identityless.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
+
+            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+                (d:_DeviceApi<'T>)
+                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+                h.ScanKind |> function
+                | ScanKind.Shfl ->
+                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                    WarpScanShfl.ExclusiveScan.Identityless.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output warp_aggregate
+                | _ ->
+                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                    WarpScanSmem.ExclusiveScan.Identityless.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
+            
+
+
+module InclusiveSum =
+    open Template
+
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) =         
+        InternalWarpScan.InclusiveSum.Default h scan_op d input output
+
+    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>) 
+        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =         
+        InternalWarpScan.InclusiveSum.WithAggregate h scan_op d input output warp_aggregate
+
+
+
+module private PrivateExclusiveSum =
+    open Template
+
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T  -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) =
+        let inclusive = __local__.Variable<'T>()
+        InclusiveSum.Default h scan_op d input output
+        output := scan_op !inclusive input
         
 
 
+    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+        let inclusive = __local__.Variable<'T>()
+        InclusiveSum.WithAggregate h scan_op d input inclusive warp_aggregate
+        output := scan_op !inclusive input
+        
 
-module private ExclusiveSum =
+
+module ExclusiveSum =
     open Template
-    open Internal
 
-//    type API<'T> =
-//        {
-//            Default                     : Sig.ExclusiveSum.Default<'T>
-//            WithAggregate               : Sig.ExclusiveSum.WithAggregate<'T>
-//            WithAggregateAndCallbackOp  : Sig.ExclusiveSum.WithAggregateAndCallbackOp<'T>
-//        }
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) = 
+        PrivateExclusiveSum.Default h scan_op d input output
+    
+    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+        PrivateExclusiveSum.WithAggregate h scan_op d input output warp_aggregate
+    
 
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) = ()
-
-    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
-
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
-
-
-//    let [<ReflectedDefinition>] api  (template:_Template<'T>)
-//        (scan_op:'T -> 'T -> 'T) =
-//            {
-//                Default                     =   Default template scan_op
-//                WithAggregate               =   WithAggregate template scan_op
-//                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp template scan_op
-//            }
-
-
-module private ExclusiveScan =
+module InclusiveScan =
     open Template
-    open Internal
 
-//    type API<'T> =
-//        {
-//            Default                         : Sig.ExclusiveScan.Default<'T>
-//            Default_NoID                    : Sig.ExclusiveScan.Identityless.Default<'T>
-//            WithAggregate                   : Sig.ExclusiveScan.WithAggregate<'T>
-//            WithAggregate_NoID              : Sig.ExclusiveScan.Identityless.WithAggregate<'T>
-//            WithAggregateAndCallbackOp      : Sig.ExclusiveScan.WithAggregateAndCallbackOp<'T>
-//            WithAggregateAndCallbackOp_NoID : Sig.ExclusiveScan.Identityless.WithAggregateAndCallbackOp<'T>
-//        }
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) = 
+        InternalWarpScan.InclusiveScan.Default h scan_op d input output
 
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (identity:'T) = ()
+    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
+        InternalWarpScan.InclusiveScan.WithAggregate h scan_op d input output warp_aggregate
 
-    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (identity:'T) (block_aggregate:Ref<'T>) = ()
 
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (identity:'T) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
+
+module ExclusiveScan =
+    open Template
+
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) (identity:'T) = 
+        InternalWarpScan.ExclusiveScan.Default h scan_op d input output identity
+
+    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+        (d:_DeviceApi<'T>)
+        (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) = 
+        InternalWarpScan.ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
+
+//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
+//        <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (identity:'T) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
 
     module Identityless =
-        let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-            (scan_op:'T -> 'T -> 'T)
-            (input:'T) (output:Ref<'T>) = ()
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) = 
+            InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op d input output
 
-        let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-            (scan_op:'T -> 'T -> 'T)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
+        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:_DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
+            InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
 
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (template:_Template<'T>)
-            (scan_op:'T -> 'T -> 'T)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
-
-
-//    let [<ReflectedDefinition>] api (template:_Template<'T>)
-//        (scan_op:'T -> 'T -> 'T) =
-//            {
-//                Default                          = Default template scan_op
-//                Default_NoID                     = Identityless.Default template scan_op
-//                WithAggregate                    = WithAggregate template scan_op
-//                WithAggregate_NoID               = Identityless.WithAggregate template scan_op      
-//                WithAggregateAndCallbackOp       = WithAggregateAndCallbackOp template scan_op
-//                WithAggregateAndCallbackOp_NoID  = Identityless.WithAggregateAndCallbackOp template scan_op
-//            }
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
+//            <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
 
 
-module private InclusiveScan =
-    open Template
-    open Internal
 
-//    type API<'T> =
-//        {
-//            Default                     : Sig.InclusiveScan.Default<'T>
-//            WithAggregate               : Sig.InclusiveScan.WithAggregate<'T>
-//            WithAggregateAndCallbackOp  : Sig.InclusiveScan.WithAggregateAndCallbackOp<'T>
-//        }
-
-    let [<ReflectedDefinition>] inline Default (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) = ()
-
-    let [<ReflectedDefinition>] inline WithAggregate (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = ()
-
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (template:_Template<'T>)
-        (scan_op:'T -> 'T -> 'T)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = ()
-
-
-//    let [<ReflectedDefinition>] api  (template:_Template<'T>)
-//        (scan_op:'T -> 'T -> 'T) =
-//            {
-//                Default                     =   Default template scan_op
-//                WithAggregate               =   WithAggregate template scan_op
-//                WithAggregateAndCallbackOp  =   WithAggregateAndCallbackOp template scan_op
-//            }
 
 [<Record>]
 module WarpScan =
-    open Template
-    open Internal
+    
+    type TemplateParams     = Template._TemplateParams
+    type Constants          = Template._Constants
+    type TempStorage<'T>    = Template._TempStorage<'T>
 
-    module InclusiveSum =
-        [<Record>]
-        type API<'T> =
-            {
-                template : _Template<'T>
-            }
+    type HostApi            = Template._HostApi
+    type DeviceApi<'T>      = Template._DeviceApi<'T>
 
-            [<ReflectedDefinition>] member this.Default = InclusiveSum.Default this.template
-            [<ReflectedDefinition>] member this.WithAggregate = InclusiveSum.WithAggregate this.template
-
-            [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-
-    module InclusiveScan =
-        [<Record>]
-        type API<'T> =
-            {
-                template : _Template<'T>
-            }
-
-            [<ReflectedDefinition>] member this.Default = InclusiveScan.Default this.template
-            [<ReflectedDefinition>] member this.WithAggregate = InclusiveScan.WithAggregate this.template
-
-            [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-
-    module ExclusiveSum =
-        [<Record>]
-        type API<'T> =
-            {
-                template : _Template<'T>
-            }
-
-            [<ReflectedDefinition>] member this.Default = ExclusiveSum.Default this.template
-            [<ReflectedDefinition>] member this.WithAggregate = ExclusiveSum.WithAggregate this.template
-
-            [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-
-    module ExclusiveScan =
-        [<Record>]
-        type API<'T> =
-            {
-                template : _Template<'T>
-            }
-
-            [<ReflectedDefinition>] member this.Default = ExclusiveScan.Default this.template
-            [<ReflectedDefinition>] member this.WithAggregate = ExclusiveScan.WithAggregate this.template
-
-            [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
-
+    let [<ReflectedDefinition>] inline PrivateStorage<'T>() = TempStorage<'T>.Uninitialized()
 
     [<Record>]
     type API<'T> =
         {
-            template : _Template<'T>
+            mutable DeviceApi : DeviceApi<'T>
         }
 
-        [<ReflectedDefinition>] member this.InclusiveSum    = InclusiveSum.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.InclusiveScan   = InclusiveScan.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.ExclusiveSum    = ExclusiveSum.API<'T>.Init(this.template)
-        [<ReflectedDefinition>] member this.ExclsiveScan    = ExclusiveScan.API<'T>.Init(this.template)
+        [<ReflectedDefinition>] static member Create(h) 
+            : API<'T> = { DeviceApi = DeviceApi<'T>.Init(h) }
 
-        [<ReflectedDefinition>] static member Init(template:_Template<'T>) = { template = template }
+        [<ReflectedDefinition>] static member Create(h, temp_storage)
+            : API<'T> = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage) }
+
+        [<ReflectedDefinition>] static member Create(h, warp_id, lane_id)
+            : API<'T> = { DeviceApi = DeviceApi<'T>.Init(h, warp_id, lane_id) }
+
+        [<ReflectedDefinition>] static member Create(h, temp_storage, warp_id, lane_id)
+            : API<'T> = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage, warp_id, lane_id) }
+
+        //^T when ^T : (static member (+): ^T * ^T -> ^T)
+        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output)
+            = InternalWarpScan.InclusiveSum.Default h scan_op this.DeviceApi input output
+
+        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, warp_aggregate)
+            = InternalWarpScan.InclusiveSum.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+
+        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output)
+            = InternalWarpScan.InclusiveScan.Default h scan_op this.DeviceApi input output
+    
+        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate)
+            = InternalWarpScan.InclusiveScan.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+
+        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output)
+            = ExclusiveSum.Default h scan_op this.DeviceApi input output
+    
+        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, warp_aggregate)
+            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+
+        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity)
+            = InternalWarpScan.ExclusiveScan.Default h scan_op this.DeviceApi input output identity
+
+        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate)
+            = InternalWarpScan.ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity warp_aggregate
+
+        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output)
+            = InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op this.DeviceApi input output
+
+        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate)
+            = InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+
+    module InclusiveSum =
+        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) =
+            InclusiveSum.Default h scan_op d input output
+
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            InclusiveSum.WithAggregate h scan_op d input output warp_aggregate
+
+    module InclusiveScan =
+        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) =
+            InclusiveScan.Default h scan_op d input output
+
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) =
+            InclusiveScan.WithAggregate h scan_op d input output
+
+    module ExclusiveSum =
+        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) = 
+            ExclusiveSum.Default h scan_op d input output
+
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            ExclusiveSum.WithAggregate h scan_op d input output
+
+    module ExclusiveScan =
+        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (identity:'T) =
+            ExclusiveScan.Default h scan_op d input output identity
+
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            (d:DeviceApi<'T>)
+            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+            ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
+        
+        module Identityless =
+            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+                (d:DeviceApi<'T>)
+                (input:'T) (output:Ref<'T>) =
+                ExclusiveScan.Identityless.Default h scan_op d input output
+
+            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+                (d:DeviceApi<'T>)
+                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+                ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
+
+//    module InclusiveSum =
+//        type FunctionApi<'T> = Template.InclusiveSum._FunctionApi<'T>
+//
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveSum.Default h scan_op
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveSum.WithAggregate h scan_op
+//        
+//        let  [<ReflectedDefinition>] inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
+//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            
+//            let! dfault = (h, scan_op) ||> InclusiveSum.Default |> Compiler.DefineFunction
+//            let! waggr  = (h, scan_op) ||> InclusiveSum.WithAggregate |> Compiler.DefineFunction
+//
+//            return h, {
+//                Default         = dfault
+//                WithAggregate   = waggr
+//            }}
+//
+//    module InclusiveScan =
+//        type FunctionApi<'T> = Template.InclusiveScan._FunctionApi<'T>
+//
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveScan.Default h scan_op
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveScan.WithAggregate h scan_op
+//
+//        let  [<ReflectedDefinition>] inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
+//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            
+//            let! dfault = (h, scan_op) ||> InclusiveScan.Default |> Compiler.DefineFunction
+//            let! waggr  = (h, scan_op) ||> InclusiveScan.WithAggregate |> Compiler.DefineFunction
+//
+//            return h, {
+//                Default         = dfault
+//                WithAggregate   = waggr
+//            }}
+//
+//    module ExclusiveSum =
+//        type FunctionApi<'T> = Template.ExclusiveSum._FunctionApi<'T>
+//
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveSum.Default h scan_op
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveSum.WithAggregate h scan_op       
+//
+//        let  [<ReflectedDefinition>] inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
+//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            
+//            let! dfault = (h, scan_op) ||> ExclusiveSum.Default |> Compiler.DefineFunction
+//            let! waggr  = (h, scan_op) ||> ExclusiveSum.WithAggregate |> Compiler.DefineFunction
+//
+//            return h, {
+//                Default         = dfault
+//                WithAggregate   = waggr
+//            }}
+//
+//    module ExclusiveScan =
+//        type FunctionApi<'T> = Template.ExclusiveScan._FunctionApi<'T>
+//
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.Default h scan_op
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.WithAggregate h scan_op       
+//
+//
+//        let  [<ReflectedDefinition>] inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
+//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//        
+//            let! dfault = (h, scan_op) ||> ExclusiveScan.Default                    |> Compiler.DefineFunction
+//            let! dfaultnoid = (h, scan_op) ||> ExclusiveScan.Identityless.Default   |> Compiler.DefineFunction
+//            let! waggr = (h, scan_op) ||> ExclusiveScan.WithAggregate |> Compiler.DefineFunction
+//            let! waggrnoid = (h, scan_op) ||> ExclusiveScan.Identityless.WithAggregate |> Compiler.DefineFunction
+//
+//            return h, {
+//                Default             = dfault
+//                Default_NoID        = dfaultnoid
+//                WithAggregate       = waggr
+//                WithAggregate_NoID  = waggrnoid
+//            }}
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.Identityless.Default h scan_op
+//            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.Identityless.WithAggregate h scan_op       
+//
+//    type FunctionApi<'T> =
+//        {
+//            InclusiveSum    : InclusiveSum.FunctionApi<'T>
+//            InclusiveScan   : InclusiveScan.FunctionApi<'T>
+//            ExclusiveSum    : ExclusiveSum.FunctionApi<'T>
+//            ExclusiveScan   : ExclusiveScan.FunctionApi<'T>        
+//        }
+//
+//    let  [<ReflectedDefinition>] inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
+//        let! h, inclusiveSum = InclusiveSum.template<'T> logical_warps logical_warp_threads scan_op
+//        let! _, inclusiveScan = InclusiveScan.template<'T> logical_warps logical_warp_threads scan_op
+//        let!  _, exclusiveSum = ExclusiveSum.template<'T> logical_warps logical_warp_threads scan_op
+//        let!  _, exclusiveScan = ExclusiveScan.template<'T> logical_warps logical_warp_threads scan_op
+//        
+//        return h, {
+//            InclusiveSum    = inclusiveSum
+//            InclusiveScan   = inclusiveScan
+//            ExclusiveSum    = exclusiveSum
+//            ExclusiveScan   = exclusiveScan
+//        }}
 
 
 //    module InclusiveSum = 
