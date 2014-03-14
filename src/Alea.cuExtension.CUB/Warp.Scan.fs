@@ -94,7 +94,7 @@ module Template =
         module TempStorage =
             type [<Record>] API<'T> = WarpScanSmem.TempStorage<'T>
             
-        let [<ReflectedDefinition>] inline PrivateStorage<'T>(h:Host.API) = TempStorage.API<'T>.Uninitialized(h.SharedMemoryLength)
+        //let [<ReflectedDefinition>] inline PrivateStorage<'T>(h:Host.API) = TempStorage.API<'T>.Uninitialized(h.SharedMemoryLength)
 
         [<Record>]
         type API<'T> = 
@@ -104,7 +104,7 @@ module Template =
             static member Init(h:Host.API) =
                 let p = h.Params
                 {
-                    temp_storage    = PrivateStorage<'T>(h)
+                    temp_storage    = TempStorage.API<'T>.Uninitialized(h.SharedMemoryLength) //PrivateStorage<'T>(h)
                     warp_id 
                         = if p.LOGICAL_WARPS = 1 then 0 else threadIdx.x / p.LOGICAL_WARP_THREADS
                     lane_id 
@@ -124,7 +124,7 @@ module Template =
 
             [<ReflectedDefinition>]
             static member Init(h:Host.API, warp_id, lane_id) =
-                { temp_storage = PrivateStorage<'T>(h); warp_id = warp_id; lane_id = lane_id }                
+                { temp_storage = TempStorage.API<'T>.Uninitialized(h.SharedMemoryLength); warp_id = warp_id; lane_id = lane_id }                
 
             [<ReflectedDefinition>]
             static member Init(h:Host.API, temp_storage, warp_id, lane_id) =
@@ -191,98 +191,124 @@ module InternalWarpScan =
         let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
             (d:_DeviceApi<'T>)
             (input:'T) (output:Ref<'T>) = 
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
                 let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
                 WarpScanShfl.InclusiveSum.Default h.WarpScanShflHostApi wsShfl_d input output
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.InclusiveSum.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.InclusiveSum.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//
+
+        let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
+            (d:_DeviceApi<int>)
+            (input:int) (output:Ref<int>) = 
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+                let wsShfl_d = WarpScanShfl.DeviceApi<int>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanShfl.InclusiveSum.Default h.WarpScanShflHostApi wsShfl_d input output
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<int>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.InclusiveSum.DefaultInt h.WarpScanSmemHostApi wsSmem_d input output
+
 
         let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
             (d:_DeviceApi<'T>)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
                 let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
                 WarpScanShfl.InclusiveSum.Generic h.WarpScanShflHostApi wsShfl_d input output warp_aggregate
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.InclusiveSum.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
-      
-    module InclusiveScan =
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>) 
-            (input:'T) (output:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
-                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanShfl.InclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.InclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
-                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanShfl.InclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.InclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.InclusiveSum.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
+//      
+        let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+            (d:_DeviceApi<int>)
+            (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+//                let wsShfl_d = WarpScanShfl.DeviceApi<int>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanShfl.InclusiveSum.Generic h.WarpScanShflHostApi wsShfl_d input output warp_aggregate
+//            | _ ->
+                let wsSmem_d = WarpScanSmem.DeviceApi<int>.Init(d.temp_storage, d.warp_id, d.lane_id)
+                WarpScanSmem.InclusiveSum.WithAggregateInt h.WarpScanSmemHostApi wsSmem_d input output warp_aggregate
+//      
 
 
-    module ExclusiveScan =
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:'T) =
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
-                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanShfl.ExclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output identity
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.ExclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output identity
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.Shfl ->
-                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanShfl.ExclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output identity warp_aggregate
-            | _ ->
-                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                WarpScanSmem.ExclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output identity warp_aggregate
-
-
-        module Identityless =
-            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) =
-                h.ScanKind |> function
-                | ScanKind.Shfl ->
-                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                    WarpScanShfl.ExclusiveScan.Identityless.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
-                | _ ->
-                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                    WarpScanSmem.ExclusiveScan.Identityless.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
-
-            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                h.ScanKind |> function
-                | ScanKind.Shfl ->
-                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                    WarpScanShfl.ExclusiveScan.Identityless.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output warp_aggregate
-                | _ ->
-                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
-                    WarpScanSmem.ExclusiveScan.Identityless.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
-            
-
-
+//    module InclusiveScan =
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>) 
+//            (input:'T) (output:Ref<'T>) =
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+//                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanShfl.InclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.InclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+//                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanShfl.InclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.InclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//
+//
+//    module ExclusiveScan =
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:'T) =
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+//                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanShfl.ExclusiveScan.Default h.WarpScanShflHostApi scan_op wsShfl_d input output identity
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.ExclusiveScan.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output identity
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+//            h.ScanKind |> function
+//            | ScanKind.Shfl ->
+//                let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanShfl.ExclusiveScan.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output identity warp_aggregate
+//            | _ ->
+//                let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                WarpScanSmem.ExclusiveScan.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output identity warp_aggregate
+//
+//
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) =
+//                h.ScanKind |> function
+//                | ScanKind.Shfl ->
+//                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                    WarpScanShfl.ExclusiveScan.Identityless.Default h.WarpScanShflHostApi scan_op wsShfl_d input output
+//                | _ ->
+//                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                    WarpScanSmem.ExclusiveScan.Identityless.Default h.WarpScanSmemHostApi scan_op wsSmem_d input output
+//
+//            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//                h.ScanKind |> function
+//                | ScanKind.Shfl ->
+//                    let wsShfl_d = WarpScanShfl.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                    WarpScanShfl.ExclusiveScan.Identityless.WithAggregate h.WarpScanShflHostApi scan_op wsShfl_d input output warp_aggregate
+//                | _ ->
+//                    let wsSmem_d = WarpScanSmem.DeviceApi<'T>.Init(d.temp_storage, d.warp_id, d.lane_id)
+//                    WarpScanSmem.ExclusiveScan.Identityless.WithAggregate h.WarpScanSmemHostApi scan_op wsSmem_d input output warp_aggregate
+//            
+//
+//
 module InclusiveSum =
     open Template
 
@@ -291,12 +317,21 @@ module InclusiveSum =
         (input:'T) (output:Ref<'T>) =         
         InternalWarpScan.InclusiveSum.Default h scan_op d input output
 
+    let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) =         
+        InternalWarpScan.InclusiveSum.DefaultInt h d input output
+
+
     let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
         (d:_DeviceApi<'T>) 
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =         
         InternalWarpScan.InclusiveSum.WithAggregate h scan_op d input output warp_aggregate
 
-
+    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+        (d:_DeviceApi<int>) 
+        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =         
+        InternalWarpScan.InclusiveSum.WithAggregateInt h d input output warp_aggregate
 
 module private PrivateExclusiveSum =
     open Template
@@ -309,6 +344,12 @@ module private PrivateExclusiveSum =
         output := scan_op !inclusive input
         
 
+    let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) =
+        let inclusive = __local__.Variable<int>()
+        InclusiveSum.DefaultInt h d input output
+        output := !inclusive + input
 
     let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
         (d:_DeviceApi<'T>)
@@ -318,66 +359,83 @@ module private PrivateExclusiveSum =
         output := scan_op !inclusive input
         
 
+    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+        let inclusive = __local__.Variable<int>()
+        InclusiveSum.WithAggregateInt h d input inclusive warp_aggregate
+        output := !inclusive + input
+
 
 module ExclusiveSum =
     open Template
 
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) = 
-        PrivateExclusiveSum.Default h scan_op d input output
+//    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) = 
+//        PrivateExclusiveSum.Default h scan_op d input output
+  
+    let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) = 
+        PrivateExclusiveSum.DefaultInt h d input output
+  
     
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        PrivateExclusiveSum.WithAggregate h scan_op d input output warp_aggregate
-    
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//        PrivateExclusiveSum.WithAggregate h scan_op d input output warp_aggregate
+//    
+    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+        PrivateExclusiveSum.WithAggregateInt h d input output warp_aggregate
 
-module InclusiveScan =
-    open Template
-
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) = 
-        InternalWarpScan.InclusiveScan.Default h scan_op d input output
-
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
-        InternalWarpScan.InclusiveScan.WithAggregate h scan_op d input output warp_aggregate
-
-
-
-module ExclusiveScan =
-    open Template
-
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:'T) = 
-        InternalWarpScan.ExclusiveScan.Default h scan_op d input output identity
-
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) = 
-        InternalWarpScan.ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
-
-//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
-//        <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (identity:'T) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
-
-    module Identityless =
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) = 
-            InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op d input output
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
-            InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
-
-//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
-//            <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
-
+//module InclusiveScan =
+//    open Template
+//
+//    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) = 
+//        InternalWarpScan.InclusiveScan.Default h scan_op d input output
+//
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
+//        InternalWarpScan.InclusiveScan.WithAggregate h scan_op d input output warp_aggregate
+//
+//
+//
+//module ExclusiveScan =
+//    open Template
+//
+//    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:'T) = 
+//        InternalWarpScan.ExclusiveScan.Default h scan_op d input output identity
+//
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) = 
+//        InternalWarpScan.ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
+//
+////    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
+////        <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (identity:'T) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
+//
+//    module Identityless =
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) = 
+//            InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op d input output
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) = 
+//            InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
+//
+////        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T  -> 'T) =
+////            <@ fun (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) -> () 
+//
 
 
 
@@ -391,7 +449,7 @@ module WarpScan =
     type HostApi            = Template._HostApi
     type DeviceApi<'T>      = Template._DeviceApi<'T>
 
-    let [<ReflectedDefinition>] inline PrivateStorage<'T>() = TempStorage<'T>.Uninitialized()
+    //let [<ReflectedDefinition>] inline PrivateStorage<'T>() = TempStorage<'T>.Uninitialized()
 
     [<Record>]
     type API<'T> =
@@ -418,84 +476,96 @@ module WarpScan =
         [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, warp_aggregate)
             = InternalWarpScan.InclusiveSum.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output)
-            = InternalWarpScan.InclusiveScan.Default h scan_op this.DeviceApi input output
+//        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output)
+//            = InternalWarpScan.InclusiveScan.Default h scan_op this.DeviceApi input output
+//    
+//        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate)
+//            = InternalWarpScan.InclusiveScan.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output)
+//            = ExclusiveSum.Default h scan_op (DeviceApi<int>.Init(h)) input output
+
+
+        [<ReflectedDefinition>] member this.ExclusiveSumInt(h, input, output)
+            = ExclusiveSum.DefaultInt h (DeviceApi<int>.Init(h)) input output
+
+        [<ReflectedDefinition>] member this.ExclusiveSumInt(h, input, output, warp_aggregate)
+            = ExclusiveSum.WithAggregateInt h (DeviceApi<int>.Init(h)) input output warp_aggregate
     
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate)
-            = InternalWarpScan.InclusiveScan.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, warp_aggregate)
+//            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity)
+//            = InternalWarpScan.ExclusiveScan.Default h scan_op this.DeviceApi input output identity
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate)
+//            = InternalWarpScan.ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output)
+//            = InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op this.DeviceApi input output
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate)
+//            = InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output)
-            = ExclusiveSum.Default h scan_op this.DeviceApi input output
-    
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, warp_aggregate)
-            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+//    module InclusiveSum =
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) =
+//            InclusiveSum.Default h scan_op d input output
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//            InclusiveSum.WithAggregate h scan_op d input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity)
-            = InternalWarpScan.ExclusiveScan.Default h scan_op this.DeviceApi input output identity
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate)
-            = InternalWarpScan.ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity warp_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output)
-            = InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op this.DeviceApi input output
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate)
-            = InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
-
-    module InclusiveSum =
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) =
-            InclusiveSum.Default h scan_op d input output
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            InclusiveSum.WithAggregate h scan_op d input output warp_aggregate
-
-    module InclusiveScan =
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) =
-            InclusiveScan.Default h scan_op d input output
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) =
-            InclusiveScan.WithAggregate h scan_op d input output
+//    module InclusiveScan =
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) =
+//            InclusiveScan.Default h scan_op d input output
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) =
+//            InclusiveScan.WithAggregate h scan_op d input output
 
     module ExclusiveSum =
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) = 
-            ExclusiveSum.Default h scan_op d input output
+//        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) = 
+//            ExclusiveSum.Default h scan_op d input output
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//            ExclusiveSum.WithAggregate h scan_op d input output
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            ExclusiveSum.WithAggregate h scan_op d input output
+        let [<ReflectedDefinition>] inline WithAggregateInt (h:HostApi)
+            (d:DeviceApi<int>)
+            (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+            ExclusiveSum.WithAggregateInt h d input output warp_aggregate
 
-    module ExclusiveScan =
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:'T) =
-            ExclusiveScan.Default h scan_op d input output identity
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
-            ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
-        
-        module Identityless =
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) =
-                ExclusiveScan.Identityless.Default h scan_op d input output
-
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
+//    module ExclusiveScan =
+////        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+////            (d:DeviceApi<'T>)
+////            (input:'T) (output:Ref<'T>) (identity:'T) =
+////            ExclusiveScan.Default h scan_op d input output identity
+////
+////        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+////            (d:DeviceApi<'T>)
+////            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+////            ExclusiveScan.WithAggregate h scan_op d input output identity warp_aggregate
+//        
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) =
+//                ExclusiveScan.Identityless.Default h scan_op d input output
+//
+//            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//                ExclusiveScan.Identityless.WithAggregate h scan_op d input output warp_aggregate
 
 //    module InclusiveSum =
 //        type FunctionApi<'T> = Template.InclusiveSum._FunctionApi<'T>

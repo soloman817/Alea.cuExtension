@@ -212,6 +212,12 @@ let inline test<'T> (block_threads:int) (algorithm:BlockScanAlgorithm) (scan_op:
             let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
             let bscan_h  = BlockScan.HostApi.Init(block_threads, algorithm)
 
+
+//            let! scan = 
+//                <@ fun (d:DeviceApi<'T>) (input:deviceptr<'T>) (output:deviceptr<'T>) (agg:Ref<'T>) -> 
+//                    BlockScan.ExclusiveSum.MDPT.WithAggregate bscan_h %scan_op items_per_thread d.Scan.DeviceApi input output agg
+//                @> |> Compiler.DefineFunction
+
             let! kernel = 
                 <@ fun (d_in:deviceptr<'T>) (d_out:deviceptr<'T>) ->
                     let tid = threadIdx.x
@@ -237,7 +243,8 @@ let inline test<'T> (block_threads:int) (algorithm:BlockScanAlgorithm) (scan_op:
                     __syncthreads()
 
                     let aggregate = __local__.Variable<'T>()
-                    dApi.Scan.ExclusiveSum(bscan_h, %scan_op, items_per_thread, dptr, dptr, aggregate)
+                    //BlockScan.ExclusiveSum.MDPT.WithAggregate bscan_h %scan_op items_per_thread dApi.Scan.DeviceApi dptr dptr aggregate
+//                    scan.Invoke dApi dptr dptr aggregate
 
                     __syncthreads()
 
@@ -267,16 +274,19 @@ let scanAlgorithms = [
     BlockScanAlgorithm.BLOCK_SCAN_RAKING_MEMOIZE
     BlockScanAlgorithm.BLOCK_SCAN_WARP_SCANS]
 
-let [<ReflectedDefinition>] inline Sum (x:'T) (y:'T) = x + y
+let [<ReflectedDefinition>] inline Sum() = fun (x:'T) (y:'T) -> x + y
 
 [<Test>]
 let ``block scan example`` () =
     let input = Array.init N (fun i -> i)
+    
+    //let sum() = fun x y -> x + y
+    
     let hresult = Array.scan (+) 0 input
 
     
     for a in scanAlgorithms do
-        let program = test<int> BLOCK_THREADS a <@ Sum @> ITEMS_PER_THREAD |> Compiler.load Worker.Default
+        let program = test<int> BLOCK_THREADS a <@ Sum() @> ITEMS_PER_THREAD |> Compiler.load Worker.Default
         printfn "HostResult:\n%A\n" hresult
         printfn "DeviceResult:\n%A\n" (program.Run input)
 

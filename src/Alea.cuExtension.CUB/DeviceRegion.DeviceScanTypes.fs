@@ -11,7 +11,7 @@ type LookbackTileStatus =
     | LOOKBACK_TILE_PREFIX
 
 //    let lookbackTileDescriptor<int> (single_word:bool) =
-//        if single_word = ((powerOfTwo sizeof<int>) && (sizeof<int> <= 8)) then
+//        if single_word = ((powerOfTwo __sizeof<int>()) && (sizeof<int> <= 8)) then
 //            let SetPrefix =
 //                fun ptr prefix ->
 //                    let tile_descriptor = (LookbackTileStatus.LOOKBACK_TILE_PREFIX, prefix)

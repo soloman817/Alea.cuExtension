@@ -81,28 +81,47 @@ module InclusiveScan =
         let p = h.Params
         let c = h.Constants
 
-        let STEPS = c.STEPS
-        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
-        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
         output := input
 
-        for STEP = 0 to (STEPS - 1) do
+        for STEP = 0 to (c.STEPS - 1) do
             let OFFSET = 1 <<< STEP
             let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
                 
             if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
 
-        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
+        warp_aggregate := Broadcast<'T> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)
         
-        
+ 
+ 
+    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+        (d:_DeviceApi<int>) 
+        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+        let p = h.Params
+        let c = h.Constants
+
+        output := input
+
+        for STEP = 0 to (c.STEPS - 1) do
+            let OFFSET = 1 <<< STEP
+            let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
+                
+            if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret) + !output
+
+        warp_aggregate := Broadcast<int> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)       
 
     
     let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
         (d:_DeviceApi<'T>) 
         (input:'T) (output:Ref<'T>) =
-        let warp_aggregate = __local__.Variable()
+        let warp_aggregate = __local__.Variable<'T>()
         WithAggregate h scan_op d input output warp_aggregate
     
+
+    let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
+        (d:_DeviceApi<int>) 
+        (input:int) (output:Ref<int>) =
+        let warp_aggregate = __local__.Variable<int>()
+        WithAggregateInt h d input output warp_aggregate
 
 
 module InclusiveSum =
@@ -138,17 +157,12 @@ module InclusiveSum =
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
         let p = h.Params
         let c = h.Constants
-            
-        let STEPS = c.STEPS
-        let SHFL_C = c.SHFL_C
-        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
-        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
-        
+                    
         let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
-        for STEP = 0 to (STEPS - 1) do
-            temp := (!temp |> uint32, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx
+        for STEP = 0 to (c.STEPS - 1) do
+            temp := (!temp |> uint32, (1 <<< STEP), c.SHFL_C) |||> inclusiveSumPtx
         output := !temp |> __obj_reinterpret
-        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
+        warp_aggregate := Broadcast<'T> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)
         
 
     let [<ReflectedDefinition>] inline MultiShfl (h:_HostApi)
@@ -252,9 +266,8 @@ module InclusiveSum =
     let [<ReflectedDefinition>] inline Generic (h:_HostApi)
         (d:_DeviceApi<'T>)
         (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        let InclusiveSum = if sizeof<'T> <= sizeof<uint32> then SingleShfl else MultiShfl
+        if __sizeof<'T>() <= __sizeof<uint32>() then SingleShfl h d input output warp_aggregate else MultiShfl h d input output warp_aggregate
         
-        InclusiveSum h d input output warp_aggregate
         
 
     let [<ReflectedDefinition>] inline Default (h:_HostApi)
@@ -272,7 +285,7 @@ module ExclusiveScan =
         (d:_DeviceApi<'T>) 
         (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
         
-        let inclusive = __local__.Variable()
+        let inclusive = __local__.Variable<'T>()
         InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
 
         let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
@@ -284,7 +297,7 @@ module ExclusiveScan =
     let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
         (d:_DeviceApi<'T>)
         (input:'T) (output:Ref<'T>) (identity:'T) =
-        let warp_aggregate = __local__.Variable()
+        let warp_aggregate = __local__.Variable<'T>()
         WithAggregate h scan_op d input output identity warp_aggregate
             
 
@@ -293,7 +306,7 @@ module ExclusiveScan =
         let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
             (d:_DeviceApi<'T>)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            let inclusive = __local__.Variable()
+            let inclusive = __local__.Variable<'T>()
             InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
             output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
             
@@ -301,7 +314,7 @@ module ExclusiveScan =
         let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
             (d:_DeviceApi<'T>)
             (input:'T) (output:Ref<'T>) =
-            let warp_aggregate = __local__.Variable()
+            let warp_aggregate = __local__.Variable<'T>()
             WithAggregate h scan_op d input output warp_aggregate
             
 
@@ -594,7 +607,7 @@ module WarpScanShfl =
 //
 //    let [<ReflectedDefinition>] inline Generic (h:_HostApi)
 //        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-//        let InclusiveSum = if sizeof<'T> <= sizeof<uint32> then SingleShfl else MultiShfl
+//        let InclusiveSum = if__sizeof<'T> <=__sizeof<uint32> then SingleShfl else MultiShfl
 //        InclusiveSum h d input output warp_aggregate
 //        
 //
@@ -942,7 +955,7 @@ module WarpScanShfl =
 //    //template <typename _T>
 ////    member this.InclusiveSum(input:int, output:Ref<int>, warp_aggregate:Ref<int>) =
 ////        // Whether sharing can be done with a single SHFL instruction (vs multiple SFHL instructions)
-////        //Int2Type<(Traits<_T>::PRIMITIVE) && (sizeof(_T) <= sizeof(unsigned int))> single_shfl;
+////        //Int2Type<(Traits<_T>::PRIMITIVE) && (sizeof(_T) <=__sizeof(unsigned int))> single_shfl;
 ////        let single_shfl = true
 ////        this.InclusiveSum(input, output, warp_aggregate, single_shfl)
 //

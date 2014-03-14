@@ -144,70 +144,106 @@ module ApplyWarpAggregates =
         WithLaneValidation h scan_op d partial warp_aggregate block_aggregate true
         
 
+module ApplyWarpAggregates2 =
+    open Template
+
+    let [<ReflectedDefinition>] inline WithLaneValidation (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool) =
+        let c = h.Constants
+            
+        d.temp_storage.warp_aggregates.[d.warp_id] <- warp_aggregate
+
+        __syncthreads()
+
+        block_aggregate := d.temp_storage.warp_aggregates.[0]
+
+        for WARP = 1 to c.WARPS - 1 do
+            if d.warp_id = WARP then
+                partial := if lane_valid then !block_aggregate + !partial else !block_aggregate
+            block_aggregate := !block_aggregate + d.temp_storage.warp_aggregates.[WARP]
+        
+    
+      
+    let [<ReflectedDefinition>] inline Default (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) =
+        WithLaneValidation h d partial warp_aggregate block_aggregate true
+
 
 module ExclusiveSum =
     open Template
         
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//            
+//        let warp_aggregate = __local__.Variable<'T>()
+//        WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveSum(h.WarpScanHostApi, scan_op, input, output, warp_aggregate)
+//        ApplyWarpAggregates.WithLaneValidation h scan_op d output !warp_aggregate block_aggregate (d.lane_id > 0)
+//        
+
+    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
+        (d:_DeviceApi<int>)
+        (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) =
             
-        let warp_aggregate = __local__.Variable()
-        WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveSum(h.WarpScanHostApi, scan_op, input, output, warp_aggregate)
-        ApplyWarpAggregates.WithLaneValidation h scan_op d output !warp_aggregate block_aggregate (d.lane_id > 0)
+        let warp_aggregate = __local__.Variable<int>()
+        WarpScan.API<int>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveSumInt(h.WarpScanHostApi, input, output, warp_aggregate)
+        ApplyWarpAggregates2.WithLaneValidation h d output !warp_aggregate block_aggregate (d.lane_id > 0)
         
 
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-        WithAggregate h scan_op d input output block_aggregate
-        let warp_id         = d.warp_id
-        let lane_id         = d.lane_id
-        let temp_storage    = d.temp_storage
 
-        if warp_id = 0 then 
-            let block_prefix = !block_aggregate |> !block_prefix_callback_op
-            if lane_id = 0 then
-                d.temp_storage.block_prefix := block_prefix
-
-        __syncthreads()
-
-        output := (!d.temp_storage.block_prefix, !output) ||> scan_op
+//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//        WithAggregate h scan_op d input output block_aggregate
+//        let warp_id         = d.warp_id
+//        let lane_id         = d.lane_id
+//        let temp_storage    = d.temp_storage
+//
+//        if warp_id = 0 then 
+//            let block_prefix = !block_aggregate |> !block_prefix_callback_op
+//            if lane_id = 0 then
+//                d.temp_storage.block_prefix := block_prefix
+//
+//        __syncthreads()
+//
+//        output := (!d.temp_storage.block_prefix, !output) ||> scan_op
 
         
 
 module ExclusiveScan =
     open Template
 
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-        let warp_aggregate = __local__.Variable<'T>()
-        WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !identity, warp_aggregate)
-        ApplyWarpAggregates.Default h scan_op d output !warp_aggregate block_aggregate
-        
-
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = 
-        () 
-        
-
-
-    module Identityless =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
-            let warp_aggregate = __local__.Variable<'T>()
-            WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, warp_aggregate)
-            ApplyWarpAggregates.Default h scan_op d output !warp_aggregate block_aggregate
-            
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-            ()
-            
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+//        let warp_aggregate = __local__.Variable<'T>()
+//        WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !identity, warp_aggregate)
+//        ApplyWarpAggregates.Default h scan_op d output !warp_aggregate block_aggregate
+//        
+//
+//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = 
+//        () 
+//        
+//
+//
+//    module Identityless =
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
+//            let warp_aggregate = __local__.Variable<'T>()
+//            WarpScan.API<'T>.Create(h.WarpScanHostApi, d.temp_storage.warp_scan, d.warp_id, d.lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, warp_aggregate)
+//            ApplyWarpAggregates.Default h scan_op d output !warp_aggregate block_aggregate
+//            
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//            ()
+//            
 
     
 
@@ -278,26 +314,26 @@ module BlockScanWarpScans =
 
 
 
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate)
-            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate)
+//            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveSum.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output
 
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = ExclusiveSum.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output
 
-
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate)
-            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate, block_prefix_callback_op)
-            = ExclusiveScan.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate)
-            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
-
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate)
+//            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveScan.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate)
+//            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
+//
 
 //    module ExclusiveSum =
 //        type FunctionApi<'T> = Template.ExclusiveSum._FunctionApi<'T>

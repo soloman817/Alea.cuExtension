@@ -38,7 +38,7 @@ type GridQueue =
                 let counters = Array.zeroCreate 2
                 counters |> Array.set <| FILL <| fill_size
                 counters |> Array.set <| DRAIN <| 0
-//                Alea.CUDA.CUDAInterop.cuMemcpyHtoDAsync( this.d_counters.Handle, &&(counters) |> NativeInterop.NativePtr.toNativeInt, sizeof<Offset> * 2, stream)
+///@TODO
 
     member inline this.ResetDrain(?stream:CUstream) =
         let stream = if stream.IsSome then stream.Value else 0n
@@ -63,7 +63,7 @@ type GridQueue =
     member inline this.Drain(num_items:Offset) = () //atomicAdd(d_counters + FILL, num_items)
     member inline this.Fill(num_items:Offset) = () //atomicAdd(d_counters + FILL, num_items)
     
-    static member AllocationSize() = sizeof<Offset> * 2
+    static member AllocationSize() = __sizeof<Offset>() * 2
 
     static member Create() =
         {

@@ -139,16 +139,16 @@ type CacheLoadModifier =
 
 let [<ReflectedDefinition>] inline DefaultLoad (ptr:deviceptr<'T>) = ptr.[0]
 
-let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (ptr:deviceptr<'T>) =
-    modifier |> function
-    | CacheLoadModifier.LOAD_DEFAULT ->   DefaultLoad ptr
-    | CacheLoadModifier.LOAD_CA ->        ThreadLoad.ThreadLoad_CA ptr
-    | CacheLoadModifier.LOAD_CG ->        ThreadLoad.ThreadLoad_CG ptr
-    | CacheLoadModifier.LOAD_CS ->        ThreadLoad.ThreadLoad_CS ptr
-    | CacheLoadModifier.LOAD_CV ->        ThreadLoad.ThreadLoad_CV ptr
-    | CacheLoadModifier.LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG ptr
-    | CacheLoadModifier.LOAD_VOLATILE ->  DefaultLoad ptr
-    | _ -> failwith "Invalid Load Modifier"
+let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (ptr:deviceptr<'T>) = DefaultLoad ptr
+//    match modifier with
+//    | CacheLoadModifier.LOAD_DEFAULT ->   DefaultLoad ptr
+//    | CacheLoadModifier.LOAD_CA ->        ThreadLoad.ThreadLoad_CA ptr
+//    | CacheLoadModifier.LOAD_CG ->        ThreadLoad.ThreadLoad_CG ptr
+//    | CacheLoadModifier.LOAD_CS ->        ThreadLoad.ThreadLoad_CS ptr
+//    | CacheLoadModifier.LOAD_CV ->        ThreadLoad.ThreadLoad_CV ptr
+//    | CacheLoadModifier.LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG ptr
+//    | CacheLoadModifier.LOAD_VOLATILE ->  
+//    | _ -> failwith "Invalid Load Modifier"
     
 
 //let dereference (ptr:deviceptr<int>) = ptr |> __ptr_to_obj
@@ -258,7 +258,7 @@ let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (
 //
 //    typedef typename UnitWord<T>::VolatileWord VolatileWord;   // Word type for memcopying
 //
-//    const int VOLATILE_MULTIPLE = sizeof(T) / sizeof(VolatileWord);
+//    const int VOLATILE_MULTIPLE =__sizeof(T) /__sizeof(VolatileWord);
 //
 //    VolatileWord words[VOLATILE_MULTIPLE];
 //
@@ -297,7 +297,7 @@ let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (
 //{
 //    typedef typename UnitWord<T>::DeviceWord DeviceWord;
 //
-//    const int DEVICE_MULTIPLE = sizeof(T) / sizeof(DeviceWord);
+//    const int DEVICE_MULTIPLE =__sizeof(T) /__sizeof(DeviceWord);
 //
 //    DeviceWord words[DEVICE_MULTIPLE];
 //

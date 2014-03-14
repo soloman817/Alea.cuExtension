@@ -44,7 +44,7 @@ type AlignBytes<'T> =
 
     static member Init(value:'T) =
         {
-            ALIGN_BYTES = sizeof<Pad<'T>> - sizeof<'T>
+            ALIGN_BYTES = __sizeof<Pad<'T>>() - __sizeof<'T>()
         }
 
 let inline AlignBytes<'T>() : AlignBytes<'T> =
@@ -77,36 +77,36 @@ let inline AlignBytes<'T>() : AlignBytes<'T> =
 
         | _ -> { ALIGN_BYTES = 8 }
 
-[<Record>]
-type IsMultiple<'T, 'Unit> =
-    {
-        UNIT_ALIGN_BYTES    : int
-        IS_MULTIPLE         : bool
-    }
-    
-    static member Init(align_bytes) : IsMultiple<'T, 'Unit> =
-        let unit_align_bytes = AlignBytes<'Unit>().ALIGN_BYTES
-        {
-            UNIT_ALIGN_BYTES = unit_align_bytes
-            IS_MULTIPLE = ((sizeof<'T> % sizeof<'Unit>) = 0) && ((align_bytes % unit_align_bytes) = 0)
-        }
+//[<Record>]
+//type IsMultiple<'T, 'Unit> =
+//    {
+//        UNIT_ALIGN_BYTES    : int
+//        IS_MULTIPLE         : bool
+//    }
+//    
+//    static member Init(align_bytes) : IsMultiple<'T, 'Unit> =
+//        let unit_align_bytes = AlignBytes<'Unit>().ALIGN_BYTES
+//        {
+//            UNIT_ALIGN_BYTES = unit_align_bytes
+//            IS_MULTIPLE = ((__sizeof<'T>() % __sizeof<'Unit>()) = 0) && ((align_bytes % unit_align_bytes) = 0)
+//        }
+//
+//    static member Init() : IsMultiple<'T, 'Unit> = IsMultiple<'T, 'Unit>.Init(AlignBytes<'T>().ALIGN_BYTES)
 
-    static member Init() : IsMultiple<'T, 'Unit> = IsMultiple<'T, 'Unit>.Init(AlignBytes<'T>().ALIGN_BYTES)
-
-[<Record>]
-type _UnitWord<'T, 'Unit> =
-    {
-        ALIGN_BYTES : int
-        IS_MULTIPLE : IsMultiple<'T, 'Unit>
-    }
-
-
-    static member Init() =  
-        let align_bytes = AlignBytes<'T>().ALIGN_BYTES
-        {
-            ALIGN_BYTES = align_bytes
-            IS_MULTIPLE = IsMultiple<'T, 'Unit>.Init()
-        }
+//[<Record>]
+//type _UnitWord<'T, 'Unit> =
+//    {
+//        ALIGN_BYTES : int
+//        IS_MULTIPLE : IsMultiple<'T, 'Unit>
+//    }
+//
+//
+//    static member Init() =  
+//        let align_bytes = AlignBytes<'T>().ALIGN_BYTES
+//        {
+//            ALIGN_BYTES = align_bytes
+//            IS_MULTIPLE = IsMultiple<'T, 'Unit>.Init()
+//        }
 
 module UnitWord =
     type ShuffleWordAttribute() =
@@ -257,7 +257,7 @@ type KeyTraits<'K> =
  
 
 
-let inline HIGH_BIT (unsignedBits:'_UnsignedBits) = 1G <<< ((sizeof<'_UnsignedBits> * 8) - 1)
+let [<ReflectedDefinition>] inline HIGH_BIT (unsignedBits:'_UnsignedBits) = 1G <<< ((__sizeof<'_UnsignedBits>() * 8) - 1)
 
 let key<'K>() : KeyTraits<'K> = 
     typeof<'K> |> function 
@@ -529,7 +529,7 @@ let keyValueOp(op:('V -> 'V -> 'V)) = fun (kvp1:KeyValuePair<'K,'V>) (kvp2:KeyVa
 
 ///@TODO
 let [<ReflectedDefinition>] inline ZeroInitialize<'T>() =
-    let MULTIPLE = sizeof<'T> / sizeof<UnitWord.ShuffleWord>
+    let MULTIPLE = __sizeof<'T>() / __sizeof<UnitWord.ShuffleWord>()
     let words = __local__.Array<'T>(MULTIPLE)
     let x = words.[0]
     for i = 0 to MULTIPLE - 1 do words.[i] <- x

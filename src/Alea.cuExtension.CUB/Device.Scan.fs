@@ -58,7 +58,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 16
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / __sizeof<int>()))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -84,7 +84,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 9
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / __sizeof<int>()))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -110,7 +110,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 15
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / __sizeof<int>()))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -136,7 +136,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 19
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / __sizeof<int>()))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread
@@ -162,7 +162,7 @@ open Alea.cuExtension.CUB.Grid
 //
 //    static member Default() =
 //        let nominal_4B_items_per_thread = 19
-//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 / sizeof<int>))
+//        let items_per_thread = CUB_MIN nominal_4B_items_per_thread (CUB_MAX 1 (nominal_4B_items_per_thread * 4 /__sizeof<int>))
 //        {
 //            NOMINAL_4B_ITEMS_PER_THREAD = nominal_4B_items_per_thread
 //            ITEMS_PER_THREAD = items_per_thread

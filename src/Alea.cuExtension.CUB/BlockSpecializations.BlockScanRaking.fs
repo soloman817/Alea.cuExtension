@@ -202,121 +202,121 @@ module InclusiveDownsweep =
 
 module ExclusiveScan =
     open Template
-
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-        let p = h.Params
-        let c = h.Constants
-        let ws_h = h.WarpScanHostApi
-        let brl_h = h.BlockRakingLayoutHostApi
-
-        if c.WARP_SYNCHRONOUS then
-            WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, input, output, !identity, block_aggregate)
-        else
-            let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
-            placement_ptr.[0] <- input
-
-            __syncthreads()
-                
-            let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
-            if d.linear_tid < c.RAKING_THREADS then
-                let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
-                    
-                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, !raking_partial, raking_partial, !identity, ts_block_aggregate)
-
-                ExclusiveDownsweep.Default h scan_op d !raking_partial
-
-            __syncthreads()
-
-            output := placement_ptr.[0]
-
-            block_aggregate := !ts_block_aggregate
- 
-
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) = ()       
-
-
-
-    module Identityless =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-            let p = h.Params
-            let c = h.Constants
-            let brl_h = h.BlockRakingLayoutHostApi
-            let ws_h = h.WarpScanHostApi
-
-            if c.WARP_SYNCHRONOUS then
-                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, input, output, block_aggregate)
-            else
-                let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
-                placement_ptr.[0] <- input
-
-                __syncthreads()
-
-                let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
-                if d.linear_tid < c.RAKING_THREADS then
-                    let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
-
-                    WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, !raking_partial, raking_partial, ts_block_aggregate)
-
-                    ExclusiveDownsweep.WithApplyPrefix h scan_op d !raking_partial (d.linear_tid <> 0)
-
-                __syncthreads()
-
-                output := placement_ptr.[0]
-
-                block_aggregate := !ts_block_aggregate
-
-
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) = ()
+//
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+//        let p = h.Params
+//        let c = h.Constants
+//        let ws_h = h.WarpScanHostApi
+//        let brl_h = h.BlockRakingLayoutHostApi
+//
+//        if c.WARP_SYNCHRONOUS then
+//            WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, input, output, !identity, block_aggregate)
+//        else
+//            let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
+//            placement_ptr.[0] <- input
+//
+//            __syncthreads()
+//                
+//            let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
+//            if d.linear_tid < c.RAKING_THREADS then
+//                let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
+//                    
+//                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, !raking_partial, raking_partial, !identity, ts_block_aggregate)
+//
+//                ExclusiveDownsweep.Default h scan_op d !raking_partial
+//
+//            __syncthreads()
+//
+//            output := placement_ptr.[0]
+//
+//            block_aggregate := !ts_block_aggregate
+// 
+//
+//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) = ()       
+//
+//
+//
+//    module Identityless =
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//            let p = h.Params
+//            let c = h.Constants
+//            let brl_h = h.BlockRakingLayoutHostApi
+//            let ws_h = h.WarpScanHostApi
+//
+//            if c.WARP_SYNCHRONOUS then
+//                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, input, output, block_aggregate)
+//            else
+//                let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
+//                placement_ptr.[0] <- input
+//
+//                __syncthreads()
+//
+//                let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
+//                if d.linear_tid < c.RAKING_THREADS then
+//                    let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
+//
+//                    WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveScan(ws_h, scan_op, !raking_partial, raking_partial, ts_block_aggregate)
+//
+//                    ExclusiveDownsweep.WithApplyPrefix h scan_op d !raking_partial (d.linear_tid <> 0)
+//
+//                __syncthreads()
+//
+//                output := placement_ptr.[0]
+//
+//                block_aggregate := !ts_block_aggregate
+//
+//
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) = ()
 
 
 
 module ExclusiveSum =
     open Template
 
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-        let p = h.Params
-        let c = h.Constants
-        let ws_h = h.WarpScanHostApi
-        let brl_h = h.BlockRakingLayoutHostApi
-
-        if c.WARP_SYNCHRONOUS then
-            WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveSum(ws_h, scan_op, input, output, block_aggregate)
-        else
-            let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
-            placement_ptr.[0] <- input
-
-            __syncthreads()
-                
-            let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
-            if d.linear_tid < c.RAKING_THREADS then
-                let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
-                    
-                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveSum(ws_h, scan_op, !raking_partial, raking_partial, ts_block_aggregate)
-
-                ExclusiveDownsweep.Default h scan_op d !raking_partial
-
-            __syncthreads()
-
-            output := placement_ptr.[0]
-
-            block_aggregate := !ts_block_aggregate
- 
-
-    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) 
-        = ()       
+//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//        let p = h.Params
+//        let c = h.Constants
+//        let ws_h = h.WarpScanHostApi
+//        let brl_h = h.BlockRakingLayoutHostApi
+//
+//        if c.WARP_SYNCHRONOUS then
+//            WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveSum(ws_h, scan_op, input, output, block_aggregate)
+//        else
+//            let placement_ptr = BlockRakingLayout.API<'T>.Create(brl_h).PlacementPtr(brl_h, d.temp_storage.raking_grid.Ptr, d.linear_tid)
+//            placement_ptr.[0] <- input
+//
+//            __syncthreads()
+//                
+//            let ts_block_aggregate = __local__.Variable<'T>(d.temp_storage.block_aggregate)
+//            if d.linear_tid < c.RAKING_THREADS then
+//                let raking_partial = __local__.Variable<'T>(Upsweep.Default h scan_op d)
+//                    
+//                WarpScan.API<'T>.Create(ws_h, d.temp_storage.warp_scan, 0, d.linear_tid).ExclusiveSum(ws_h, scan_op, !raking_partial, raking_partial, ts_block_aggregate)
+//
+//                ExclusiveDownsweep.Default h scan_op d !raking_partial
+//
+//            __syncthreads()
+//
+//            output := placement_ptr.[0]
+//
+//            block_aggregate := !ts_block_aggregate
+// 
+//
+//    let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//        (d:_DeviceApi<'T>)
+//        (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callbackop:Ref<'T -> 'T>) 
+//        = ()       
 
 
 module BlockScanRaking =
@@ -336,28 +336,28 @@ module BlockScanRaking =
 
         [<ReflectedDefinition>] static member Create(h:HostApi, temp_storage:TempStorage<'T>, linear_tid) = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage, linear_tid) } 
 
-        /////// EXCLUSIVE SUM ////////////////////////////////////////////////////////////////////
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate)
-            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output block_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = ExclusiveSum.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
-
-        
-        /////// EXCLUSIVE SCAN ////////////////////////////////////////////////////////////////////
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate)
-            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate, block_prefix_callback_op)
-            = ExclusiveScan.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
-        
-        /////// EXCLUSIVE SCAN No ID ///////////////////////////////////////////////////////////////
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate)
-            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output block_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
-
+//        /////// EXCLUSIVE SUM ////////////////////////////////////////////////////////////////////
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate)
+//            = ExclusiveSum.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveSum.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
+//
+//        
+//        /////// EXCLUSIVE SCAN ////////////////////////////////////////////////////////////////////
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate)
+//            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveScan.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
+//        
+//        /////// EXCLUSIVE SCAN No ID ///////////////////////////////////////////////////////////////
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate)
+//            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
+//            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
+//
 
 //
 //    module ExclusiveScan =

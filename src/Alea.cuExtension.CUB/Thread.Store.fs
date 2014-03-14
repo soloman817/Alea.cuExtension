@@ -134,15 +134,15 @@ type CacheStoreModifier =
 [<ReflectedDefinition>]
 let inline DefaultStore (ptr:deviceptr<'T>) (value:'T) = ptr.[0] <- value
 
-let [<ReflectedDefinition>] inline ThreadStore (modifier:CacheStoreModifier) (ptr:deviceptr<'T>) (value:'T) =
-    modifier |> function
-    | CacheStoreModifier.STORE_DEFAULT ->      DefaultStore ptr value
-    | CacheStoreModifier.STORE_WB ->           ThreadStore.ThreadStore_WB ptr value
-    | CacheStoreModifier.STORE_CG ->           ThreadStore.ThreadStore_CG ptr value
-    | CacheStoreModifier.STORE_CS ->           ThreadStore.ThreadStore_CS ptr value
-    | CacheStoreModifier.STORE_WT ->           ThreadStore.ThreadStore_WT ptr value
-    | CacheStoreModifier.STORE_VOLATILE ->     DefaultStore ptr value
-    | _ -> failwith "Invalid Store Modifier"
+let [<ReflectedDefinition>] inline ThreadStore (modifier:CacheStoreModifier) (ptr:deviceptr<'T>) (value:'T) = (ptr |> __unbox).[0] <- value
+//    modifier |> function
+//    | CacheStoreModifier.STORE_DEFAULT ->      DefaultStore ptr value
+//    | CacheStoreModifier.STORE_WB ->           ThreadStore.ThreadStore_WB ptr value
+//    | CacheStoreModifier.STORE_CG ->           ThreadStore.ThreadStore_CG ptr value
+//    | CacheStoreModifier.STORE_CS ->           ThreadStore.ThreadStore_CS ptr value
+//    | CacheStoreModifier.STORE_WT ->           ThreadStore.ThreadStore_WT ptr value
+//    | CacheStoreModifier.STORE_VOLATILE ->     DefaultStore ptr value
+//    | _ -> failwith "Invalid Store Modifier"
     
 
 
@@ -224,7 +224,7 @@ let [<ReflectedDefinition>] inline ThreadStore (modifier:CacheStoreModifier) (pt
 //
 //    typedef typename UnitWord<T>::VolatileWord VolatileWord;   // Word type for memcopying
 //
-//    const int VOLATILE_MULTIPLE = sizeof(T) / sizeof(VolatileWord);
+//    const int VOLATILE_MULTIPLE =__sizeof(T) /__sizeof(VolatileWord);
 //
 //    VolatileWord words[VOLATILE_MULTIPLE];
 //    *reinterpret_cast<T*>(words) = val;
@@ -264,7 +264,7 @@ let [<ReflectedDefinition>] inline ThreadStore (modifier:CacheStoreModifier) (pt
 //{
 //    typedef typename UnitWord<T>::DeviceWord DeviceWord;   // Word type for memcopying
 //
-//    const int DEVICE_MULTIPLE = sizeof(T) / sizeof(DeviceWord);
+//    const int DEVICE_MULTIPLE =__sizeof(T) /__sizeof(DeviceWord);
 //
 //    DeviceWord words[DEVICE_MULTIPLE];
 //

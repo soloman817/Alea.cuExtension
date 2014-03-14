@@ -107,7 +107,7 @@ type __ptx__ private () =
     static member ShuffleUp(input:'T, src_offset:int) =
         let SHFL_C = 0
          
-        let WORDS = (sizeof<'T> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+        let WORDS = (__sizeof<'T>() + __sizeof<ShuffleWord>() - 1) / __sizeof<ShuffleWord>()
         let output = __local__.Variable()
         let output_alias : deviceptr<ShuffleWord> = output |> __ref_to_ptr
         let input_alias : deviceptr<ShuffleWord> = input |> __obj_reinterpret
@@ -122,7 +122,7 @@ type __ptx__ private () =
     //[<ShuffleBroadcast>]
     [<ReflectedDefinition>]
     static member ShuffleBroadcast logical_warp_threads (input:'T) (src_lane:int) =
-        let WORDS = (sizeof<int> + sizeof<ShuffleWord> - 1) / sizeof<ShuffleWord>
+        let WORDS = (__sizeof<int>() + __sizeof<ShuffleWord>() - 1) / __sizeof<ShuffleWord>()
     
         let output : 'T ref = __local__.Variable()
 

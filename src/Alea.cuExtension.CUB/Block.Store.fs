@@ -63,6 +63,8 @@ module Template =
                 let bex_hApi = BlockExchange.HostApi.Init(block_threads, items_per_thread, warp_time_slicing)                
                 { BlockExchangeHostApi = bex_hApi; Params = p; Constants = c; SharedMemoryLength = bex_hApi.SharedMemoryLength }
 
+            static member Init(block_threads, items_per_thread) = API.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_DIRECT, false)
+
     module Device =
         module TempStorage =
             type [<Record>] API<'T> = BlockExchange.TempStorage<'T>

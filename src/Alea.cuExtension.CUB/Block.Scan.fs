@@ -146,277 +146,277 @@ module Template =
 module InternalBlockScan =
     open Template
 
-    module ExclusiveSum =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.WarpScans ->
-                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                BlockScanWarpScans.ExclusiveSum.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
-                    input output block_aggregate
-            | _ ->
-                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                BlockScanRaking.ExclusiveSum.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
-                    input output block_aggregate
+//    module ExclusiveSum =
+////        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+////            (d:_DeviceApi<'T>)
+////            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+////            h.ScanKind |> function
+////            | ScanKind.WarpScans ->
+////                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+////                BlockScanWarpScans.ExclusiveSum.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
+////                    input output block_aggregate
+////            | _ ->
+////                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+////                BlockScanRaking.ExclusiveSum.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
+////                    input output block_aggregate
+//
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) =
+//            let block_aggregate = __local__.Variable<'T>()
+//            WithAggregate h scan_op d input output block_aggregate
 
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) =
-            let block_aggregate = __local__.Variable<'T>()
-            WithAggregate h scan_op d input output block_aggregate
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                            h.ScanKind |> function
+//            | ScanKind.WarpScans ->
+//                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+//                BlockScanWarpScans.ExclusiveSum.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
+//                    input output block_aggregate block_prefix_callback_op
+//            | _ ->
+//                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+//                BlockScanRaking.ExclusiveSum.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
+//                    input output block_aggregate block_prefix_callback_op
 
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                            h.ScanKind |> function
-            | ScanKind.WarpScans ->
-                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                BlockScanWarpScans.ExclusiveSum.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
-                    input output block_aggregate block_prefix_callback_op
-            | _ ->
-                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                BlockScanRaking.ExclusiveSum.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
-                    input output block_aggregate block_prefix_callback_op
-
-    module ExclusiveScan =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-            h.ScanKind |> function
-            | ScanKind.WarpScans ->
-                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                BlockScanWarpScans.ExclusiveScan.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
-                    input output identity block_aggregate
-            | _ ->
-                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                BlockScanRaking.ExclusiveScan.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
-                    input output identity block_aggregate
-
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) =
-            let block_aggregate = __local__.Variable<'T>()
-            WithAggregate h scan_op d input output identity block_aggregate
-
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                            h.ScanKind |> function
-            | ScanKind.WarpScans ->
-                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                BlockScanWarpScans.ExclusiveScan.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
-                    input output identity block_aggregate block_prefix_callback_op
-            | _ ->
-                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                BlockScanRaking.ExclusiveScan.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
-                    input output identity block_aggregate block_prefix_callback_op
-
-        module Identityless =
-            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-                h.ScanKind |> function
-                | ScanKind.WarpScans ->
-                    let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                    BlockScanWarpScans.ExclusiveScan.Identityless.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
-                        input output block_aggregate
-                | _ ->
-                    let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                    BlockScanRaking.ExclusiveScan.Identityless.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
-                        input output block_aggregate
-
-            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) =
-                let block_aggregate = __local__.Variable<'T>()
-                WithAggregate h scan_op d input output block_aggregate
-
-
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                                h.ScanKind |> function
-                | ScanKind.WarpScans ->
-                    let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
-                    BlockScanWarpScans.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
-                        input output block_aggregate block_prefix_callback_op
-                | _ ->
-                    let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
-                    BlockScanRaking.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
-                        input output block_aggregate block_prefix_callback_op
+//    module ExclusiveScan =
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+//            h.ScanKind |> function
+//            | ScanKind.WarpScans ->
+//                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+//                BlockScanWarpScans.ExclusiveScan.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
+//                    input output identity block_aggregate
+//            | _ ->
+//                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+//                BlockScanRaking.ExclusiveScan.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
+//                    input output identity block_aggregate
+//
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) =
+//            let block_aggregate = __local__.Variable<'T>()
+//            WithAggregate h scan_op d input output identity block_aggregate
+//
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                            h.ScanKind |> function
+//            | ScanKind.WarpScans ->
+//                let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+//                BlockScanWarpScans.ExclusiveScan.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
+//                    input output identity block_aggregate block_prefix_callback_op
+//            | _ ->
+//                let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+//                BlockScanRaking.ExclusiveScan.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
+//                    input output identity block_aggregate block_prefix_callback_op
+//
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//                h.ScanKind |> function
+//                | ScanKind.WarpScans ->
+//                    let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+//                    BlockScanWarpScans.ExclusiveScan.Identityless.WithAggregate h.BlockScanWarpScansHostApi scan_op ws_d
+//                        input output block_aggregate
+//                | _ ->
+//                    let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+//                    BlockScanRaking.ExclusiveScan.Identityless.WithAggregate h.BlockScanRakingHostApi scan_op bsr_d
+//                        input output block_aggregate
+//
+//            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) =
+//                let block_aggregate = __local__.Variable<'T>()
+//                WithAggregate h scan_op d input output block_aggregate
+//
+//
+//            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                                h.ScanKind |> function
+//                | ScanKind.WarpScans ->
+//                    let ws_d = BlockScanWarpScans.DeviceApi<'T>.Init(h.BlockScanWarpScansHostApi, d.temp_storage.BlockScanWarpScans, d.linear_tid)
+//                    BlockScanWarpScans.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h.BlockScanWarpScansHostApi scan_op ws_d
+//                        input output block_aggregate block_prefix_callback_op
+//                | _ ->
+//                    let bsr_d = BlockScanRaking.DeviceApi<'T>.Init(h.BlockScanRakingHostApi, d.temp_storage.BlockScanRaking, d.linear_tid)
+//                    BlockScanRaking.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h.BlockScanRakingHostApi scan_op bsr_d
+//                        input output block_aggregate block_prefix_callback_op
 
 
 module ExclusiveSum =
     open Template
 
-    module SingleDatumPerThread =        
-    
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-            InternalBlockScan.ExclusiveSum.WithAggregate h scan_op d input output block_aggregate
-            
-
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) =
-            let block_aggregate = __local__.Variable()
-            WithAggregate h scan_op d input output block_aggregate
-            
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-                    (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                ()
-            
-
-
-    module MultipleDataPerThread =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
-            
-            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-                
-            SingleDatumPerThread.WithAggregate h scan_op d !thread_partial thread_partial block_aggregate
-                
-            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) =
-                
-            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-                
-            SingleDatumPerThread.Default h scan_op d !thread_partial thread_partial
-
-            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
+//    module SingleDatumPerThread =        
+//    
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//            InternalBlockScan.ExclusiveSum.WithAggregate h scan_op d input output block_aggregate
+//            
+//
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) =
+//            let block_aggregate = __local__.Variable()
+//            WithAggregate h scan_op d input output block_aggregate
+//            
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//                    (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                ()
+//            
 
 
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-            ()
-            
-
-
-module ExclusiveScan =
-    open Template
-
-    module SingleDatumPerThread =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-            InternalBlockScan.ExclusiveScan.WithAggregate h scan_op d input output identity block_aggregate
-            
-     
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) =
-            let block_aggregate = __local__.Variable<'T>()
-            WithAggregate h scan_op d input output identity block_aggregate
-            
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
-            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-            ()
-            
-
-        module Identityless =
-            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) =
-                InternalBlockScan.ExclusiveScan.Identityless.Default h scan_op d input output
-                
-
-            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-                InternalBlockScan.ExclusiveScan.Identityless.WithAggregate h scan_op d input output block_aggregate
-                
-                    
-
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-                (d:_DeviceApi<'T>)
-                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                InternalBlockScan.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op d input output block_aggregate block_prefix_callback_op
-                
-
-    module MultipleDataPerThread =
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) =
-                
-            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-            SingleDatumPerThread.Default h scan_op d !thread_partial thread_partial identity
-
-            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
-                
-            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-            SingleDatumPerThread.WithAggregate h scan_op d !thread_partial thread_partial identity block_aggregate
-
-            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-            (d:_DeviceApi<'T>)
-            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-            
-            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-            SingleDatumPerThread.WithAggregateAndCallbackOp h scan_op d !thread_partial thread_partial identity block_aggregate block_prefix_callback_op
-
-            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-            
-
-
-        module Identityless =
-            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-                (d:_DeviceApi<'T>)
-                (input:deviceptr<'T>) (output:deviceptr<'T>) =
-                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-                SingleDatumPerThread.Identityless.Default h scan_op d !thread_partial thread_partial
-
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-                
-
-            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int) 
-                (d:_DeviceApi<'T>)
-                (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
-                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-                SingleDatumPerThread.Identityless.WithAggregate h scan_op d !thread_partial thread_partial block_aggregate
-
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
-                
-
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
-                (d:_DeviceApi<'T>)
-                (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-
-                SingleDatumPerThread.Identityless.WithAggregateAndCallbackOp h scan_op d !thread_partial thread_partial block_aggregate block_prefix_callback_op
-
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
-            
+//    module MultipleDataPerThread =
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
+//            
+//            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//                
+//            SingleDatumPerThread.WithAggregate h scan_op d !thread_partial thread_partial block_aggregate
+//                
+//            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) =
+//                
+//            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//                
+//            SingleDatumPerThread.Default h scan_op d !thread_partial thread_partial
+//
+//            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//
+//
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//            ()
+//            
+////
+////
+//module ExclusiveScan =
+//    open Template
+//
+//    module SingleDatumPerThread =
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+//            InternalBlockScan.ExclusiveScan.WithAggregate h scan_op d input output identity block_aggregate
+//            
+//     
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) =
+//            let block_aggregate = __local__.Variable<'T>()
+//            WithAggregate h scan_op d input output identity block_aggregate
+//            
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//            (d:_DeviceApi<'T>)
+//            (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//            ()
+//            
+//
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) =
+//                InternalBlockScan.ExclusiveScan.Identityless.Default h scan_op d input output
+//                
+//
+//            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+//                InternalBlockScan.ExclusiveScan.Identityless.WithAggregate h scan_op d input output block_aggregate
+//                
+//                    
+//
+//            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//                (d:_DeviceApi<'T>)
+//                (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                InternalBlockScan.ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op d input output block_aggregate block_prefix_callback_op
+//                
+//
+//    module MultipleDataPerThread =
+//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) =
+//                
+//            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//            SingleDatumPerThread.Default h scan_op d !thread_partial thread_partial identity
+//
+//            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//
+//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
+//                
+//            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//            SingleDatumPerThread.WithAggregate h scan_op d !thread_partial thread_partial identity block_aggregate
+//
+//            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//            (d:_DeviceApi<'T>)
+//            (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//            
+//            let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//            SingleDatumPerThread.WithAggregateAndCallbackOp h scan_op d !thread_partial thread_partial identity block_aggregate block_prefix_callback_op
+//
+//            ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//            
+//
+//
+//        module Identityless =
+//            let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//                (d:_DeviceApi<'T>)
+//                (input:deviceptr<'T>) (output:deviceptr<'T>) =
+//                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//                SingleDatumPerThread.Identityless.Default h scan_op d !thread_partial thread_partial
+//
+//                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//                
+//
+//            let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int) 
+//                (d:_DeviceApi<'T>)
+//                (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
+//                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//                SingleDatumPerThread.Identityless.WithAggregate h scan_op d !thread_partial thread_partial block_aggregate
+//
+//                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
+//                
+//
+//            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:_HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+//                (d:_DeviceApi<'T>)
+//                (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
+//                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+//
+//                SingleDatumPerThread.Identityless.WithAggregateAndCallbackOp h scan_op d !thread_partial thread_partial block_aggregate block_prefix_callback_op
+//
+//                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial |> ignore
+//            
                 
 
 
@@ -504,41 +504,52 @@ module BlockScan =
             = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage, linear_tid)}
 
 
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input:'T, output:Ref<'T>) 
-            = ExclusiveSum.SingleDatumPerThread.Default h scan_op this.DeviceApi input output
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input:'T, output:Ref<'T>, block_aggregate:Ref<'T>)
-            = ExclusiveSum.SingleDatumPerThread.WithAggregate h scan_op this.DeviceApi input output block_aggregate
-        
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>)
-            = ExclusiveSum.MultipleDataPerThread.Default h scan_op items_per_thread this.DeviceApi input output
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, block_aggregate:Ref<'T>)
-            = ExclusiveSum.MultipleDataPerThread.WithAggregate h scan_op items_per_thread this.DeviceApi input output block_aggregate
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input:'T, output:Ref<'T>) 
+//            = ExclusiveSum.SingleDatumPerThread.Default h scan_op this.DeviceApi input output
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input:'T, output:Ref<'T>, block_aggregate:Ref<'T>)
+//            = ExclusiveSum.SingleDatumPerThread.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>)
+//            = ExclusiveSum.MultipleDataPerThread.Default h scan_op items_per_thread this.DeviceApi input output
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, block_aggregate:Ref<'T>)
+//            = ExclusiveSum.MultipleDataPerThread.WithAggregate h scan_op items_per_thread this.DeviceApi input output block_aggregate
+////
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op:'T -> 'T -> 'T, input:'T, output:Ref<'T>, identity:'T)
+//            = ExclusiveScan.SingleDatumPerThread.Default h scan_op this.DeviceApi input output (__local__.Variable<'T>(identity))
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>, identity:Ref<'T>, block_aggregate:Ref<'T>) 
+//            = ExclusiveScan.SingleDatumPerThread.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op:'T -> 'T -> 'T, items_per_thread:int, input:deviceptr<'T>, output:deviceptr<'T>, identity:'T) 
+//            = ExclusiveScan.MultipleDataPerThread.Default h scan_op items_per_thread this.DeviceApi input output (__local__.Variable<'T>(identity))
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, identity:Ref<'T>, block_aggregate)
+//            = ExclusiveScan.MultipleDataPerThread.WithAggregate h scan_op items_per_thread this.DeviceApi input output identity block_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>) 
+//            = ExclusiveScan.SingleDatumPerThread.Identityless.Default h scan_op this.DeviceApi input output
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) 
+//            = ExclusiveScan.SingleDatumPerThread.Identityless.WithAggregate h scan_op this.DeviceApi input output block_aggregate
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>) 
+//            = ExclusiveScan.MultipleDataPerThread.Identityless.Default h scan_op items_per_thread this.DeviceApi input output
+//        
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, block_aggregate:Ref<'T>) 
+//            = ExclusiveScan.MultipleDataPerThread.Identityless.WithAggregate h scan_op items_per_thread this.DeviceApi input output block_aggregate
 
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op:'T -> 'T -> 'T, input:'T, output:Ref<'T>, identity:'T)
-            = ExclusiveScan.SingleDatumPerThread.Default h scan_op this.DeviceApi input output (__local__.Variable<'T>(identity))
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>, identity:Ref<'T>, block_aggregate:Ref<'T>) 
-            = ExclusiveScan.SingleDatumPerThread.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op:'T -> 'T -> 'T, items_per_thread:int, input:deviceptr<'T>, output:deviceptr<'T>, identity:'T) 
-            = ExclusiveScan.MultipleDataPerThread.Default h scan_op items_per_thread this.DeviceApi input output (__local__.Variable<'T>(identity))
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, identity:Ref<'T>, block_aggregate)
-            = ExclusiveScan.MultipleDataPerThread.WithAggregate h scan_op items_per_thread this.DeviceApi input output identity block_aggregate
 
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>) 
-            = ExclusiveScan.SingleDatumPerThread.Identityless.Default h scan_op this.DeviceApi input output
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input:'T, output:Ref<'T>, block_aggregate:Ref<'T>) 
-            = ExclusiveScan.SingleDatumPerThread.Identityless.WithAggregate h scan_op this.DeviceApi input output block_aggregate
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>) 
-            = ExclusiveScan.MultipleDataPerThread.Identityless.Default h scan_op items_per_thread this.DeviceApi input output
-        
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, items_per_thread, input:deviceptr<'T>, output:deviceptr<'T>, block_aggregate:Ref<'T>) 
-            = ExclusiveScan.MultipleDataPerThread.Identityless.WithAggregate h scan_op items_per_thread this.DeviceApi input output block_aggregate
-
-
+//        module ExclusiveSum =
+//            module SDPT = ()
+//            module MDPT =
+//                let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int) (d:DeviceApi<'T>) (input:deviceptr<'T>) (output:deviceptr<'T>) =
+//                    ExclusiveSum.MultipleDataPerThread.Default h scan_op items_per_thread d input output
+//
+//                let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int) (d:DeviceApi<'T>) (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
+//                    ExclusiveSum.MultipleDataPerThread.WithAggregate h scan_op items_per_thread d input output block_aggregate
+//        
+//        module ExclusiveScan =
+//            module Identityless = ()
 
 
 
