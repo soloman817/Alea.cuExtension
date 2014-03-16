@@ -192,43 +192,43 @@ module InternalStore =
 
     module BlockStoreDirect =
         
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectBlocked.Default h d.linear_tid block_ptr items
+            StoreDirectBlocked.Default h linear_tid block_ptr items
             
 
-        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectBlocked.Guarded h d.linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded h linear_tid block_ptr items valid_items
   
 //        let api (h:_HostApi) = (Default h, Guarded h)
 
 
     module BlockStoreVectorized =
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectBlockedVectorized.Default h d.linear_tid block_ptr items
+            StoreDirectBlockedVectorized.Default h linear_tid block_ptr items
             
 
-        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectBlocked.Guarded h d.linear_tid block_ptr items valid_items
+            StoreDirectBlocked.Guarded h linear_tid block_ptr items valid_items
     
 //        let api (h:_HostApi) = (Default h, Guarded h)
 
 
     module BlockStoreTranspose =
         
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
-            StoreDirectStriped.Default h d.linear_tid block_ptr items
-            BlockExchange.API<'T>.Create(h.BlockExchangeHostApi, d.temp_storage, d.linear_tid).StripedToBlocked(h.BlockExchangeHostApi, items)
+            StoreDirectStriped.Default h linear_tid block_ptr items
+            BlockExchange.API<'T>.Init(h.BlockExchangeHostApi, temp_storage, linear_tid).StripedToBlocked(h.BlockExchangeHostApi, items)
             
 
-        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
-            StoreDirectStriped.Guarded h d.linear_tid block_ptr items valid_items
-            BlockExchange.API<'T>.Create(h.BlockExchangeHostApi, d.temp_storage, d.linear_tid).StripedToBlocked(h.BlockExchangeHostApi, items)
+            StoreDirectStriped.Guarded h linear_tid block_ptr items valid_items
+            BlockExchange.API<'T>.Init(h.BlockExchangeHostApi, temp_storage, linear_tid).StripedToBlocked(h.BlockExchangeHostApi, items)
             
 
 //        let api (h:_HostApi) = (Default h, Guarded h)
@@ -236,41 +236,41 @@ module InternalStore =
 
     module BlockStoreWarpTranspose =
         
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Default (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             let WARP_THREADS = CUB_PTX_WARP_THREADS
             if (h.Params.BLOCK_THREADS % WARP_THREADS) <> 0 then 
                 ()
             else
-                StoreDirectWarpStriped.Default h d.linear_tid block_ptr items
-                BlockExchange.API<'T>.Create(h.BlockExchangeHostApi, d.temp_storage, d.linear_tid).WarpStripedToBlocked(h.BlockExchangeHostApi, items)
+                StoreDirectWarpStriped.Default h linear_tid block_ptr items
+                BlockExchange.API<'T>.Init(h.BlockExchangeHostApi, temp_storage, linear_tid).WarpStripedToBlocked(h.BlockExchangeHostApi, items)
             
 
-        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int)
             (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             let WARP_THREADS = CUB_PTX_WARP_THREADS
             if (h.Params.BLOCK_THREADS % WARP_THREADS) <> 0 then
                 ()
             else
-                StoreDirectWarpStriped.Guarded h d.linear_tid block_ptr items valid_items
-                BlockExchange.API<'T>.Create(h.BlockExchangeHostApi, d.temp_storage, d.linear_tid).WarpStripedToBlocked(h.BlockExchangeHostApi, items)
+                StoreDirectWarpStriped.Guarded h linear_tid block_ptr items valid_items
+                BlockExchange.API<'T>.Init(h.BlockExchangeHostApi, temp_storage, linear_tid).WarpStripedToBlocked(h.BlockExchangeHostApi, items)
             
 
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (d:_DeviceApi<'T>) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
+    let [<ReflectedDefinition>] inline Default (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) =
             h.Params.ALGORITHM |> function
-            | BlockStoreAlgorithm.BLOCK_STORE_DIRECT ->          BlockStoreDirect.Default h d block_ptr items
-            | BlockStoreAlgorithm.BLOCK_STORE_VECTORIZE ->       BlockStoreVectorized.Default h d block_ptr items
-            | BlockStoreAlgorithm.BLOCK_STORE_TRANSPOSE ->       BlockStoreTranspose.Default h d block_ptr items
-            | BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE ->  BlockStoreWarpTranspose.Default h d block_ptr items
-            | _ -> BlockStoreDirect.Default h d block_ptr items
+            | BlockStoreAlgorithm.BLOCK_STORE_DIRECT ->          BlockStoreDirect.Default h temp_storage linear_tid block_ptr items
+            | BlockStoreAlgorithm.BLOCK_STORE_VECTORIZE ->       BlockStoreVectorized.Default h temp_storage linear_tid block_ptr items
+            | BlockStoreAlgorithm.BLOCK_STORE_TRANSPOSE ->       BlockStoreTranspose.Default h temp_storage linear_tid block_ptr items
+            | BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE ->  BlockStoreWarpTranspose.Default h temp_storage linear_tid block_ptr items
+            | _ -> BlockStoreDirect.Default h temp_storage linear_tid block_ptr items
 
-    let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (d:_DeviceApi<'T>) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
+    let [<ReflectedDefinition>] inline Guarded (h:_HostApi) (temp_storage:_TempStorage<'T>) (linear_tid:int) (block_ptr:deviceptr<'T>) (items:deviceptr<'T>) (valid_items:int) =
             h.Params.ALGORITHM |> function
-            | BlockStoreAlgorithm.BLOCK_STORE_DIRECT ->          BlockStoreDirect.Guarded h d block_ptr items valid_items
-            | BlockStoreAlgorithm.BLOCK_STORE_VECTORIZE ->       BlockStoreVectorized.Guarded h d block_ptr items valid_items
-            | BlockStoreAlgorithm.BLOCK_STORE_TRANSPOSE ->       BlockStoreTranspose.Guarded h d block_ptr items valid_items
-            | BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE ->  BlockStoreWarpTranspose.Guarded h d block_ptr items valid_items
-            | _ -> BlockStoreDirect.Guarded h d block_ptr items valid_items
+            | BlockStoreAlgorithm.BLOCK_STORE_DIRECT ->          BlockStoreDirect.Guarded h temp_storage linear_tid block_ptr items valid_items
+            | BlockStoreAlgorithm.BLOCK_STORE_VECTORIZE ->       BlockStoreVectorized.Guarded h temp_storage linear_tid block_ptr items valid_items
+            | BlockStoreAlgorithm.BLOCK_STORE_TRANSPOSE ->       BlockStoreTranspose.Guarded h temp_storage linear_tid block_ptr items valid_items
+            | BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE ->  BlockStoreWarpTranspose.Guarded h temp_storage linear_tid block_ptr items valid_items
+            | _ -> BlockStoreDirect.Guarded h temp_storage linear_tid block_ptr items valid_items
 
    
 module BlockStore =
@@ -285,17 +285,15 @@ module BlockStore =
 
     [<Record>]
     type API<'T> =
-        {
-            mutable DeviceApi  : DeviceApi<'T>
-        }
+        { mutable temp_storage : TempStorage<'T>; mutable linear_tid : int }
 
-        [<ReflectedDefinition>] static member Create(h:HostApi)                                                 = { DeviceApi = DeviceApi<'T>.Init(h, PrivateStorage<'T>(h), threadIdx.x) }
-        [<ReflectedDefinition>] static member Create(h:HostApi, temp_storage:TempStorage<'T>)                   = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage, threadIdx.x) }
-        [<ReflectedDefinition>] static member Create(h:HostApi, linear_tid:int)                                 = { DeviceApi = DeviceApi<'T>.Init(h, PrivateStorage<'T>(h), linear_tid) }
-        [<ReflectedDefinition>] static member Create(h:HostApi, temp_storage:TempStorage<'T>, linear_tid:int)   = { DeviceApi = DeviceApi<'T>.Init(h, temp_storage, linear_tid) }
+        [<ReflectedDefinition>] static member Init(h:HostApi)                                                 = { temp_storage = PrivateStorage<'T>(h); linear_tid = threadIdx.x }
+        [<ReflectedDefinition>] static member Init(h:HostApi, temp_storage:TempStorage<'T>)                   = { temp_storage = temp_storage; linear_tid = threadIdx.x }
+        [<ReflectedDefinition>] static member Init(h:HostApi, linear_tid:int)                                 = { temp_storage = PrivateStorage<'T>(h); linear_tid = linear_tid }
+        [<ReflectedDefinition>] static member Init(h:HostApi, temp_storage:TempStorage<'T>, linear_tid:int)   = { temp_storage = temp_storage; linear_tid = linear_tid }
             
-        [<ReflectedDefinition>] member this.Store(h, block_ptr, items)                              = InternalStore.Default h this.DeviceApi block_ptr items
-        [<ReflectedDefinition>] member this.Store(h, block_ptr, items, valid_items)                 = InternalStore.Guarded h this.DeviceApi block_ptr items valid_items
+        [<ReflectedDefinition>] member this.Store(h, block_ptr, items)                              = InternalStore.Default h this.temp_storage this.linear_tid block_ptr items
+        [<ReflectedDefinition>] member this.Store(h, block_ptr, items, valid_items)                 = InternalStore.Guarded h this.temp_storage this.linear_tid block_ptr items valid_items
         
 
 

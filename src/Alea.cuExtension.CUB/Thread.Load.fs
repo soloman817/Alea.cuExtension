@@ -9,14 +9,13 @@ open Alea.CUDA
 open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 
-
-
-
-module internal ThreadLoad =
+[<AutoOpen>]
+module private InternalThreadLoad =
     let buildThreadLoad (modifier:string) (ctx:IRModuleBuildingContext) (irPointer:IRValue) =
+        
         let irPointerType = irPointer.Type
         let irPointeeType = irPointerType.Pointer.PointeeType
-
+        printfn "%A" irPointeeType
         // ptx inline cannot accept pointer, must convert to integer
         // I got this by print out the link result and the error of nvvm compiler told me that
         // and here we also need to handle the size of the integer, 32 or 64
@@ -52,6 +51,8 @@ module internal ThreadLoad =
             | irPointeeType when isUIntVector 16 4 irPointeeType -> sprintf "ld.%s.v4.u16 {$0, $1, $2, $3}, [$4];" modifier, sprintf "=h,=h,=h,=h,%s" ptrstr
             | irPointeeType when isUIntVector 32 2 irPointeeType -> sprintf "ld.%s.v2.u32 {$0, $1}, [$2];" modifier, sprintf "=r,=r,%s" ptrstr
             | _ -> failwithf "CUBLOAD: %A doesn't support." irPointeeType
+
+
 
         let llvmFunction = LLVMConstInlineAsm(llvmFunctionType, cmdstr, argstr, 0, 0)
         let llvmCall = LLVMBuildCallEx(ctx.IRBuilder.LLVM, llvmFunction, [| irPointerInt.LLVM |], "")
@@ -92,7 +93,7 @@ module internal ThreadLoad =
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
                         let irVal = buildThreadLoad modifier ctx irPtr
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 
@@ -120,7 +121,7 @@ module internal ThreadLoad =
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
                         let irVal = IRCommonInstructionBuilder.Instance.BuildLoad(ctx, irPtr)
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 
@@ -137,189 +138,13 @@ type CacheLoadModifier =
     | LOAD_VOLATILE = 6
 
 
-let [<ReflectedDefinition>] inline DefaultLoad (ptr:deviceptr<'T>) = ptr.[0]
-
-let [<ReflectedDefinition>] inline ThreadLoad<'T> (modifier:CacheLoadModifier) (ptr:deviceptr<'T>) = DefaultLoad ptr
-//    match modifier with
-//    | CacheLoadModifier.LOAD_DEFAULT ->   DefaultLoad ptr
-//    | CacheLoadModifier.LOAD_CA ->        ThreadLoad.ThreadLoad_CA ptr
-//    | CacheLoadModifier.LOAD_CG ->        ThreadLoad.ThreadLoad_CG ptr
-//    | CacheLoadModifier.LOAD_CS ->        ThreadLoad.ThreadLoad_CS ptr
-//    | CacheLoadModifier.LOAD_CV ->        ThreadLoad.ThreadLoad_CV ptr
-//    | CacheLoadModifier.LOAD_LDG ->       ThreadLoad.ThreadLoad_LDG ptr
-//    | CacheLoadModifier.LOAD_VOLATILE ->  
-//    | _ -> failwith "Invalid Load Modifier"
+[<Sealed>]
+type ThreadLoad private () =
     
-
-//let dereference (ptr:deviceptr<int>) = ptr |> __ptr_to_obj
-//
-//let inline threadLoad() =
-//    fun modifier ->
-//        fun (ptr:deviceptr<int>) (vals:deviceptr<int> option) ->
-//            match vals with
-//            | Some vals ->
-//                match modifier with
-//                | LOAD_DEFAULT -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//                | LOAD_CA -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//                | LOAD_CS -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//                | LOAD_CV -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//                | LOAD_LDG -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//                | LOAD_VOLATILE -> 
-//                    ptr.[0] <- vals.[0]
-//                    None
-//            | None ->
-//                ptr |> __ptr_to_obj |> Some
-//
-//
-//
-//let inline iterateThreadLoad count max =
-//    fun modifier ->
-//        let load = modifier |> threadLoad()
-//        fun (ptr:deviceptr<int>) (vals:deviceptr<int>) ->
-//            for i = count to (max - 1) do
-//                (ptr + i, (vals + i) |> Some) 
-//                ||> load 
-//                |> ignore
-
-
-
-
-
-///**
-// * ThreadLoad definition for LOAD_DEFAULT modifier on iterator types
-// */
-//template <typename InputIterator>
-//__device__ __forceinline__ typename std::iterator_traits<InputIterator>::value_type ThreadLoad(
-//    InputIterator           itr,
-//    Int2Type<LOAD_DEFAULT>  modifier,
-//    Int2Type<false>         is_pointer)
-//{
-//    return *itr;
-//}
-//
-//
-///**
-// * ThreadLoad definition for LOAD_DEFAULT modifier on pointer types
-// */
-//template <typename T>
-//__device__ __forceinline__ T ThreadLoad(
-//    T                       *ptr,
-//    Int2Type<LOAD_DEFAULT>  modifier,
-//    Int2Type<true>          is_pointer)
-//{
-//    return *ptr;
-//}
-//
-//
-///**
-// * ThreadLoad definition for LOAD_VOLATILE modifier on primitive pointer types
-// */
-//template <typename T>
-//__device__ __forceinline__ T ThreadLoadVolatilePointer(
-//    T                       *ptr,
-//    Int2Type<true>          is_primitive)
-//{
-//    T retval = *reinterpret_cast<volatile T*>(ptr);
-//
-//#if (CUB_PTX_VERSION <= 130)
-//    if (sizeof(T) == 1) __threadfence_block();
-//#endif
-//
-//    return retval;
-//}
-//
-//
-///**
-// * ThreadLoad definition for LOAD_VOLATILE modifier on non-primitive pointer types
-// */
-//template <typename T>
-//__device__ __forceinline__ T ThreadLoadVolatilePointer(
-//    T                       *ptr,
-//    Int2Type<false>          is_primitive)
-//{
-//
-//#if CUB_PTX_VERSION <= 130
-//
-//    T retval = *ptr;
-//    __threadfence_block();
-//    return retval;
-//
-//#else
-//
-//    typedef typename UnitWord<T>::VolatileWord VolatileWord;   // Word type for memcopying
-//
-//    const int VOLATILE_MULTIPLE =__sizeof(T) /__sizeof(VolatileWord);
-//
-//    VolatileWord words[VOLATILE_MULTIPLE];
-//
-//    IterateThreadLoad<0, VOLATILE_MULTIPLE>::Dereference(
-//        reinterpret_cast<volatile VolatileWord*>(ptr),
-//        words);
-//
-//    return *reinterpret_cast<T*>(words);
-//
-//#endif  // CUB_PTX_VERSION <= 130
-//}
-//
-//
-///**
-// * ThreadLoad definition for LOAD_VOLATILE modifier on pointer types
-// */
-//template <typename T>
-//__device__ __forceinline__ T ThreadLoad(
-//    T                       *ptr,
-//    Int2Type<LOAD_VOLATILE> modifier,
-//    Int2Type<true>          is_pointer)
-//{
-//    // Apply tags for partial-specialization
-//    return ThreadLoadVolatilePointer(ptr, Int2Type<Traits<T>::PRIMITIVE>());
-//}
-//
-//
-///**
-// * ThreadLoad definition for generic modifiers on pointer types
-// */
-//template <typename T, int MODIFIER>
-//__device__ __forceinline__ T ThreadLoad(
-//    T                       *ptr,
-//    Int2Type<MODIFIER>      modifier,
-//    Int2Type<true>          is_pointer)
-//{
-//    typedef typename UnitWord<T>::DeviceWord DeviceWord;
-//
-//    const int DEVICE_MULTIPLE =__sizeof(T) /__sizeof(DeviceWord);
-//
-//    DeviceWord words[DEVICE_MULTIPLE];
-//
-//    IterateThreadLoad<0, DEVICE_MULTIPLE>::template Load<CacheLoadModifier(MODIFIER)>(
-//        reinterpret_cast<DeviceWord*>(ptr),
-//        words);
-//
-//    return *reinterpret_cast<T*>(words);
-//}
-//
-//
-///**
-// * ThreadLoad definition for generic modifiers
-// */
-//template <
-//    CacheLoadModifier MODIFIER,
-//    typename InputIterator>
-//__device__ __forceinline__ typename std::iterator_traits<InputIterator>::value_type ThreadLoad(InputIterator itr)
-//{
-//    // Apply tags for partial-specialization
-//    return ThreadLoad(
-//        itr,
-//        Int2Type<MODIFIER>(),
-//        Int2Type<IsPointer<InputIterator>::VALUE>());
-//}
+    [<ReflectedDefinition>] static member inline LOAD_DEFAULT   (ptr:deviceptr<'T>) : 'T = ptr.[0]
+    [<ReflectedDefinition>] static member inline LOAD_VOLATILE  (ptr:deviceptr<'T>) : 'T = ptr.[0]
+    [<ThreadLoad("ca")>]    static member inline LOAD_CA        (ptr:deviceptr<'T>) : 'T = failwith ""     
+    [<ThreadLoad("cg")>]    static member inline LOAD_CG        (ptr:deviceptr<'T>) : 'T = failwith ""
+    [<ThreadLoad("cs")>]    static member inline LOAD_CS        (ptr:deviceptr<'T>) : 'T = failwith ""
+    [<ThreadLoad("cv")>]    static member inline LOAD_CV        (ptr:deviceptr<'T>) : 'T = failwith ""
+    [<ThreadLoad("ldg")>]   static member inline LOAD_LDG       (ptr:deviceptr<'T>) : 'T = failwith ""

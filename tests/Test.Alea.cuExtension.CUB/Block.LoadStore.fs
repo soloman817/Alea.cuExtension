@@ -64,11 +64,11 @@ let inline template
 
             let data = __local__.Array<int>(items_per_thread) |> __array_to_ptr
 
-            BlockLoad.API<int>.Create(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data)
+            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data)
                 
             __syncthreads()
 
-            BlockStore.API<int>.Create(bstore_h, temp_storage.store).Store(bstore_h, d_out_unguarded + block_offset, data)
+            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_unguarded + block_offset, data)
 
             __syncthreads()
 
@@ -76,11 +76,11 @@ let inline template
 
             __syncthreads()
 
-            BlockLoad.API<int>.Create(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data, guarded_elements)
+            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data, guarded_elements)
 
             __syncthreads()
 
-            BlockStore.API<int>.Create(bstore_h, temp_storage.store).Store(bstore_h, d_out_guarded + block_offset, data, guarded_elements)
+            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_guarded + block_offset, data, guarded_elements)
                 
         @> |> Compiler.DefineKernel
         

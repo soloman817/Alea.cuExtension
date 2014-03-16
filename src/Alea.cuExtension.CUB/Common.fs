@@ -23,34 +23,13 @@ type Offset = int
 
 //type ScanOp<int> = 'T -> 'T -> 'T
 
-type long = nativeint
-type ulong = unativeint
-type double = float
-type longlong = int64
-type ulonglong = uint64
+//type long = nativeint
+//type ulong = unativeint
+//type double = float
+//type longlong = int64
+//type ulonglong = uint64
+////
 //
-//
-[<Struct>]
-type short4 =
-    val mutable x : sbyte
-    val mutable y : sbyte
-    val mutable z : sbyte
-    val mutable w : sbyte
-
-    [<ReflectedDefinition>]
-    new (x, y, z, w) = {x = x; y = y; z = z; w = w}
-    override this.ToString() = sprintf "(%d,%d,%d,%d)" this.x this.y this.z this.w
-
-[<Struct>]
-type ushort4 =
-    val mutable x : byte
-    val mutable y : byte
-    val mutable z : byte
-    val mutable w : byte
-
-    [<ReflectedDefinition>]
-    new (x, y, z, w) = {x = x; y = y; z = z; w = w}
-    override this.ToString() = sprintf "(%d,%d,%d,%d)" this.x this.y this.z this.w
 
 [<Struct>]
 type int2 =
@@ -72,8 +51,8 @@ type uint2 =
 
 [<Struct>]
 type long2 =
-    val mutable x : long
-    val mutable y : long
+    val mutable x : nativeint
+    val mutable y : nativeint
 
     [<ReflectedDefinition>]
     new (x, y) = {x = x; y = y}
@@ -81,8 +60,8 @@ type long2 =
 
 [<Struct>]
 type ulong2 =
-    val mutable x : ulong
-    val mutable y : ulong
+    val mutable x : unativeint
+    val mutable y : unativeint
 
     [<ReflectedDefinition>]
     new (x, y) = {x = x; y = y}
@@ -96,6 +75,59 @@ type float2 =
     [<ReflectedDefinition>]
     new (x, y) = {x = x; y = y}
     override this.ToString() = sprintf "(%f,%f)" this.x this.y
+
+[<Struct>]
+type longlong2 =
+    val mutable x : int64
+    val mutable y : int64
+
+    [<ReflectedDefinition>]
+    new (x, y) = {x = x; y = y}
+    override this.ToString() = sprintf "(%d,%d)" this.x this.y
+
+[<Struct>]
+type ulonglong2 =
+    val mutable x : uint64
+    val mutable y : uint64
+
+    [<ReflectedDefinition>]
+    new (x, y) = {x = x; y = y}
+    override this.ToString() = sprintf "(%d,%d)" this.x this.y
+
+[<Struct>]
+type double2 =
+    val mutable x : float
+    val mutable y : float
+
+    [<ReflectedDefinition>]
+    new (x, y) = {x = x; y = y}
+    override this.ToString() = sprintf "(%f,%f)" this.x this.y
+
+
+
+
+
+[<Struct>]
+type short4 =
+    val mutable x : sbyte
+    val mutable y : sbyte
+    val mutable z : sbyte
+    val mutable w : sbyte
+
+    [<ReflectedDefinition>]
+    new (x, y, z, w) = {x = x; y = y; z = z; w = w}
+    override this.ToString() = sprintf "(%d,%d,%d,%d)" this.x this.y this.z this.w
+
+[<Struct>]
+type ushort4 =
+    val mutable x : byte
+    val mutable y : byte
+    val mutable z : byte
+    val mutable w : byte
+
+    [<ReflectedDefinition>]
+    new (x, y, z, w) = {x = x; y = y; z = z; w = w}
+    override this.ToString() = sprintf "(%d,%d,%d,%d)" this.x this.y this.z this.w
 
 [<Struct>]
 type int4 =
@@ -132,10 +164,10 @@ type float4 =
 
 [<Struct>]
 type long4 =
-    val mutable x : long
-    val mutable y : long
-    val mutable z : long
-    val mutable w : long
+    val mutable x : nativeint
+    val mutable y : nativeint
+    val mutable z : nativeint
+    val mutable w : nativeint
 
     [<ReflectedDefinition>]
     new (x, y, z, w) = {x = x; y = y; z = z; w = w}
@@ -143,48 +175,21 @@ type long4 =
 
 [<Struct>]
 type ulong4 =
-    val mutable x : ulong
-    val mutable y : ulong
-    val mutable z : ulong
-    val mutable w : ulong
+    val mutable x : unativeint
+    val mutable y : unativeint
+    val mutable z : unativeint
+    val mutable w : unativeint
 
     [<ReflectedDefinition>]
     new (x, y, z, w) = {x = x; y = y; z = z; w = w}
     override this.ToString() = sprintf "(%d,%d,%d,%d)" this.x this.y this.z this.w
 
 [<Struct>]
-type longlong2 =
-    val mutable x : longlong
-    val mutable y : longlong
-
-    [<ReflectedDefinition>]
-    new (x, y) = {x = x; y = y}
-    override this.ToString() = sprintf "(%d,%d)" this.x this.y
-
-[<Struct>]
-type ulonglong2 =
-    val mutable x : ulonglong
-    val mutable y : ulonglong
-
-    [<ReflectedDefinition>]
-    new (x, y) = {x = x; y = y}
-    override this.ToString() = sprintf "(%d,%d)" this.x this.y
-
-[<Struct>]
-type double2 =
-    val mutable x : double
-    val mutable y : double
-
-    [<ReflectedDefinition>]
-    new (x, y) = {x = x; y = y}
-    override this.ToString() = sprintf "(%f,%f)" this.x this.y
-
-[<Struct>]
 type longlong4 =
-    val mutable x : longlong
-    val mutable y : longlong
-    val mutable z : longlong
-    val mutable w : longlong
+    val mutable x : int64
+    val mutable y : int64
+    val mutable z : int64
+    val mutable w : int64
 
     [<ReflectedDefinition>]
     new (x, y, z, w) = {x = x; y = y; z = z; w = w}
@@ -192,10 +197,10 @@ type longlong4 =
 
 [<Struct>]
 type ulonglong4 =
-    val mutable x : ulonglong
-    val mutable y : ulonglong
-    val mutable z : ulonglong
-    val mutable w : ulonglong
+    val mutable x : uint64
+    val mutable y : uint64
+    val mutable z : uint64
+    val mutable w : uint64
 
     [<ReflectedDefinition>]
     new (x, y, z, w) = {x = x; y = y; z = z; w = w}
@@ -203,14 +208,15 @@ type ulonglong4 =
 
 [<Struct>]
 type double4 =
-    val mutable x : double
-    val mutable y : double
-    val mutable z : double
-    val mutable w : double
+    val mutable x : float
+    val mutable y : float
+    val mutable z : float
+    val mutable w : float
 
     [<ReflectedDefinition>]
     new (x, y, z, w) = {x = x; y = y; z = z; w = w}
     override this.ToString() = sprintf "(%f,%f,%f,%f)" this.x this.y this.z this.w
+
 
 
 [<Record>]
@@ -234,6 +240,9 @@ type SharedRecord<'T> =
     [<ReflectedDefinition>]
     static member Uninitialized() =
         { Ptr = __null(); Length = 0 }
+
+
+
 //type InputIterator = deviceptr<int>
 //type OutputIterator = deviceptr<int>
 //

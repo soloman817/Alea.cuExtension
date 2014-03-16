@@ -1,5 +1,5 @@
 [<AutoOpen>]
-module Test.Alea.cuExtension.CUB.Utilities.Util
+module Test.Alea.cuExtension.CUB.Utilities.Common
 open System
 open System.Diagnostics
 open System.IO
@@ -14,11 +14,106 @@ let debug = true
 let debug = false
 #endif
 
+
+
+
+let lp11 = LaunchParam(1,1)
+
+
 let stripedData (block_threads:int) (items_per_thread:int) =
     [for i = 0 to (block_threads / items_per_thread) - 1 do
         for j = 0 to items_per_thread - 1 do 
             yield i + j * block_threads] 
     |> Array.ofList
+
+
+
+module GenRandomTypeUtil =
+    open Alea.cuExtension.CUB.Common
+
+    let rng = new System.Random()
+
+
+    module v2 =
+        let rint2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv)
+            int2(r(),r())
+
+        let ruint2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> uint32
+            uint2(r(),r())
+
+        let rlong2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> nativeint
+            long2(r(),r())
+
+        let rulong2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> unativeint
+            ulong2(r(),r())
+
+        let rfloat2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> float32
+            float2(r(),r())
+
+        let rlonglong2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> int64
+            longlong2(r(),r())
+
+        let rulonglong2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> uint64
+            ulonglong2(r(),r())
+
+        let rdouble2(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> float
+            double2(r(),r())
+
+//    type Util(minv:int,maxv:int) =
+//        static member rshort4(minv, maxv) = v4.rshort4(minv,maxv)
+    
+
+    module v4 =
+        let rshort4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> sbyte
+            short4(r(),r(),r(),r())
+
+        let rushort4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> byte
+            ushort4(r(),r(),r(),r())
+
+        let rint4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv)
+            int4(r(),r(),r(),r())
+
+        let ruint4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> uint32
+            uint4(r(),r(),r(),r())
+
+        let rfloat4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> float32
+            float4(r(),r(),r(),r())
+
+        let rlong4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> nativeint
+            long4(r(),r(),r(),r())
+
+        let rulong4(minv,maxv) = 
+            let r() = rng.Next(minv, maxv) |> unativeint
+            ulong4(r(),r(),r(),r())
+
+        let rlonglong4(minv,maxv) =
+            let r() = rng.Next(minv,maxv) |> int64
+            longlong4(r(),r(),r(),r())
+
+        let rulonglong4(minv,maxv) =
+            let r() = rng.Next(minv,maxv) |> uint64
+            ulonglong4(r(),r(),r(),r())
+
+        let rdouble4(minv,maxv) =
+            let r() = rng.Next(minv,maxv) |> float
+            double4(r(),r(),r(),r())
+
+
+
 
 
 module CppOutput =
@@ -173,6 +268,6 @@ module CppOutput =
             //getScanTimingResults(example_block_scan.txt)
 
         
-CppOutput.BlockScan.getScanResults()
-let sct = CppOutput.BlockScan.getScanTimingResults()
-printfn "%A" sct
+//CppOutput.BlockScan.getScanResults()
+//let sct = CppOutput.BlockScan.getScanTimingResults()
+//printfn "%A" sct

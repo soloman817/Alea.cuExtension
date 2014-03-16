@@ -8,44 +8,47 @@ open Alea.CUDA.Utilities
 open Alea.cuExtension.CUB.Common
 
 
-//module Template =   
-//    [<AutoOpen>]
-//    module Params = 
-//        [<Record>]
-//        type API<'T> =
-//            {
-//                LENGTH  : int
-//                //scan_op : 'T -> 'T -> 'T //IScanOp<'T>
-//            }
-//
-//            [<ReflectedDefinition>]
-//            static member Init(length) = //, scan_op) =
-//                {
-//                    LENGTH  = length
-//                    //scan_op = scan_op
-//                }
-//
-//
-//    type _TemplateParams<'T> = Params.API
-
-////type ScanOp<'T> = 'T -> 'T -> 'T
-//module private Internal =
-//    module Sig =
-//        module ThreadScanExclusive =
-//            type Default<'T>                = 'T -> 'T -> deviceptr<'T> -> deviceptr<'T> -> 'T
-//            type WithApplyPrefixDefault<'T> = deviceptr<'T> -> deviceptr<'T> -> 'T -> 'T
-//            type WithApplyPrefix<'T>        = deviceptr<'T> -> deviceptr<'T> -> 'T -> bool -> 'T
-//            
-//       
-//        module ThreadScanInclusive =
-//            type WithPrefix<'T>             = 'T -> deviceptr<'T> -> deviceptr<'T> -> 'T
-//            type Default<'T>                = deviceptr<'T> -> deviceptr<'T> -> 'T
-//            type WithApplyPrefixDefault<'T> = ThreadScanExclusive.WithApplyPrefixDefault<'T>
-//            type WithApplyPrefix<'T>        = ThreadScanExclusive.WithApplyPrefix<'T>
-
 module ThreadScanExclusive =
-//    open Template
-//    open Internal
+    let [<ReflectedDefinition>] inline DefaultInt (length:int)
+        (inclusive:int) (exclusive:int) (input:deviceptr<int>) (output:deviceptr<int>) =
+        let mutable addend = input.[0]
+        let mutable inclusive = addend + exclusive
+        output.[0] <- exclusive
+        let mutable exclusive = inclusive
+
+        for i = 1 to (length - 1) do
+            addend <- input.[i]
+            inclusive <- exclusive + addend
+            output.[i] <- exclusive
+            exclusive <- inclusive
+
+        inclusive
+    
+
+    let [<ReflectedDefinition>] inline WithApplyPrefixDefaultInt (length:int)
+        (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) =
+        let apply_prefix = true
+        let mutable inclusive = input.[0]
+        if apply_prefix then inclusive <- prefix + inclusive
+
+        output.[0] <- prefix
+        let exclusive = inclusive
+
+        DefaultInt length inclusive exclusive input output
+        
+        
+
+    let [<ReflectedDefinition>] inline WithApplyPrefixInt (length:int)
+        (input:deviceptr<int>) (output:deviceptr<int>) (prefix:int) (apply_prefix:bool) =
+        let mutable inclusive = input.[0]
+        if apply_prefix then inclusive <- prefix + inclusive
+
+        output.[0] <- prefix
+        let exclusive = inclusive
+        
+        DefaultInt length inclusive exclusive input output
+
+
 
 
     let [<ReflectedDefinition>] inline Default (length:int) (scan_op:'T -> 'T -> 'T)

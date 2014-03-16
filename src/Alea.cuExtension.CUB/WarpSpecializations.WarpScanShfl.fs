@@ -57,10 +57,10 @@ module Template =
 
 
 
-    let [<ReflectedDefinition>] inline Broadcast<'T> logical_warp_threads (input:'T) (src_lane:int) =
-        (logical_warp_threads |> __ptx__.ShuffleBroadcast)
-            (input)
-            (src_lane)
+    let [<ReflectedDefinition>] inline Broadcast<'T> logical_warp_threads (input:'T) (src_lane:int) = input
+//        (logical_warp_threads |> __ptx__.ShuffleBroadcast)
+//            (input)
+//            (src_lane)
 
 
     type _TemplateParams    = Host.Params.API
@@ -85,7 +85,7 @@ module InclusiveScan =
 
         for STEP = 0 to (c.STEPS - 1) do
             let OFFSET = 1 <<< STEP
-            let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
+            let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
                 
             if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
 
@@ -103,7 +103,7 @@ module InclusiveScan =
 
         for STEP = 0 to (c.STEPS - 1) do
             let OFFSET = 1 <<< STEP
-            let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
+            let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
                 
             if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret) + !output
 
@@ -216,7 +216,7 @@ module InclusiveSum =
         
 
     [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type private InclusiveSumPtx_ULongLongAttribute() =
+    type private InclusiveSumPtx_uint64Attribute() =
         inherit Attribute()
 
         interface ICustomCallBuilder with
@@ -225,7 +225,7 @@ module InclusiveSum =
                 | None, temp :: shlStep :: shfl_c :: [] ->
                     let clrType = info.GetGenericArguments().[0]
                     let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
-                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<ulonglong -> int -> int-> ulonglong>)
+                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint64 -> int -> int-> uint64>)
                     let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
                     IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
                         "{
@@ -243,11 +243,11 @@ module InclusiveSum =
                         }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
                 | _ -> None
 
-    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
+    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_uint64 (output:uint64) (shlStep:int) (shfl_c:int) : uint64 = failwith ""
     
-    let [<ReflectedDefinition>] inline ULongLongSpecialized (h:_HostApi)
-        (d:_DeviceApi<ulonglong>)
-        (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) =
+    let [<ReflectedDefinition>] inline uint64Specialized (h:_HostApi)
+        (d:_DeviceApi<uint64>)
+        (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
         let p = h.Params
         let c = h.Constants
 
@@ -258,7 +258,7 @@ module InclusiveSum =
     
         output := input
         for STEP = 0 to (STEPS - 1) do
-            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_ULongLong
+            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_uint64
             
         warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
         
@@ -288,9 +288,9 @@ module ExclusiveScan =
         let inclusive = __local__.Variable<'T>()
         InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
 
-        let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
+//        let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
 
-        output := if d.lane_id = 0 then identity else exclusive |> __obj_reinterpret
+//        output := if d.lane_id = 0 then identity else exclusive |> __obj_reinterpret
         
 
     
@@ -308,7 +308,7 @@ module ExclusiveScan =
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
             let inclusive = __local__.Variable<'T>()
             InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
-            output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
+//            output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
             
 
         let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
@@ -341,8 +341,8 @@ module WarpScanShfl =
         [<ReflectedDefinition>] member this.InclusiveSum(h, d:DeviceApi<float32>, input:float32, output:Ref<float32>, warp_aggregate:Ref<float32>) 
             = InclusiveSum.Float32Specialized h d input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.InclusiveSum(h, d:DeviceApi<ulonglong>, input:ulonglong, output:Ref<ulonglong>, warp_aggregate:Ref<ulonglong>) 
-            = InclusiveSum.ULongLongSpecialized h d input output warp_aggregate
+        [<ReflectedDefinition>] member this.InclusiveSum(h, d:DeviceApi<uint64>, input:uint64, output:Ref<uint64>, warp_aggregate:Ref<uint64>) 
+            = InclusiveSum.uint64Specialized h d input output warp_aggregate
 
         [<ReflectedDefinition>] member this.InclusiveSum(h, input, output, warp_aggregate) 
             = InclusiveSum.Generic h this.DeviceApi input output warp_aggregate
@@ -379,7 +379,7 @@ module WarpScanShfl =
 //                SingleShfl              : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //                MultiShfl               : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //                Float32Specialized      : Function<_DeviceApi<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
-//                ULongLongSpecialized    : Function<_DeviceApi<ulonglong> -> ulonglong -> Ref<ulonglong> -> Ref<ulonglong> -> unit>
+//                uint64Specialized    : Function<_DeviceApi<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
 //                Generic                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //                Default                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>      
 //            }
@@ -404,7 +404,7 @@ module WarpScanShfl =
 //            SingleShfl              : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //            MultiShfl               : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //            Float32Specialized      : Function<_DeviceApi<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
-//            ULongLongSpecialized    : Function<_DeviceApi<ulonglong> -> ulonglong -> Ref<ulonglong> -> Ref<ulonglong> -> unit>
+//            uint64Specialized    : Function<_DeviceApi<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
 //            Generic                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //            Default                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>      
 //        }
@@ -413,7 +413,7 @@ module WarpScanShfl =
 //        let! singleshfl     = h |> SingleShfl           |> Compiler.DefineFunction
 //        let! multishfl      = h |> MultiShfl            |> Compiler.DefineFunction
 //        let! float32spec    = h |> Float32Specialized   |> Compiler.DefineFunction
-//        let! ulonglongspec  = h |> ULongLongSpecialized |> Compiler.DefineFunction
+//        let! uint64spec  = h |> uint64Specialized |> Compiler.DefineFunction
 //        let! generic        = h |> Generic              |> Compiler.DefineFunction
 //        let! dfault         = h |> Default              |> Compiler.DefineFunction
 //
@@ -422,7 +422,7 @@ module WarpScanShfl =
 //                SingleShfl              = singleshfl
 //                MultiShfl               = multishfl
 //                Float32Specialized      = float32spec
-//                ULongLongSpecialized    = ulonglongspec
+//                uint64Specialized    = uint64spec
 //                Generic                 = generic
 //                Default                 = dfault
 //            }
@@ -559,7 +559,7 @@ module WarpScanShfl =
 //        
 //
 //    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-//    type private InclusiveSumPtx_ULongLongAttribute() =
+//    type private InclusiveSumPtx_uint64Attribute() =
 //        inherit Attribute()
 //
 //        interface ICustomCallBuilder with
@@ -568,7 +568,7 @@ module WarpScanShfl =
 //                | None, temp :: shlStep :: shfl_c :: [] ->
 //                    let clrType = info.GetGenericArguments().[0]
 //                    let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
-//                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<ulonglong -> int -> int-> ulonglong>)
+//                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint64 -> int -> int-> uint64>)
 //                    let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
 //                    IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
 //                        "{
@@ -586,10 +586,10 @@ module WarpScanShfl =
 //                        }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
 //                | _ -> None
 //
-//    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_ULongLong (output:ulonglong) (shlStep:int) (shfl_c:int) : ulonglong = failwith ""
+//    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_uint64 (output:uint64) (shlStep:int) (shfl_c:int) : uint64 = failwith ""
 //    
-//    let [<ReflectedDefinition>] inline ULongLongSpecialized (h:_HostApi)
-//        (d:_DeviceApi<'T>) (input:ulonglong) (output:Ref<ulonglong>) (warp_aggregate:Ref<ulonglong>) =
+//    let [<ReflectedDefinition>] inline uint64Specialized (h:_HostApi)
+//        (d:_DeviceApi<'T>) (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
 //        let p = h.Params
 //        let c = h.Constants
 //
@@ -600,7 +600,7 @@ module WarpScanShfl =
 //    
 //        output := input
 //        for STEP = 0 to (STEPS - 1) do
-//            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_ULongLong
+//            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_uint64
 //            
 //        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
 //    
@@ -865,7 +865,7 @@ module WarpScanShfl =
 //
 //            // Grab aggregate from last warp lane
 //            warp_aggregate := this.Broadcast(!output, LOGICAL_WARP_THREADS - 1)
-//        | ty when ty = typeof<ulonglong> ->
+//        | ty when ty = typeof<uint64> ->
 //            output := input
 //
 //            // Iterate scan steps
@@ -921,7 +921,7 @@ module WarpScanShfl =
 //
 ////
 ////    /// Inclusive prefix sum with aggregate (specialized for unsigned long long)
-////    member this.InclusiveSum(input:ulonglong, output:Ref<ulonglong>, warp_aggregate:Ref<ulonglong>) =
+////    member this.InclusiveSum(input:uint64, output:Ref<uint64>, warp_aggregate:Ref<uint64>) =
 ////        let LOGICAL_WARP_THREADS = this.LOGICAL_WARP_THREADS
 ////        let STEPS = this.Constants.STEPS
 ////

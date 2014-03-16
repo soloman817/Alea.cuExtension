@@ -9,6 +9,7 @@ open NUnit.Framework
 open Alea.cuExtension.CUB
 open Alea.cuExtension.CUB.Thread
 open Alea.cuExtension.CUB.Block
+open Alea.cuExtension.CUB.Block.BlockSpecializations
 
 let BLOCKS = 1
 let THREADS = 32
@@ -176,187 +177,122 @@ type ScanTimingResults =
     static member Init(resultString:string) = ()
 
 
-
-
 [<Record>]
 type TempStorage<'T> =
     {
-        mutable load    : BlockLoad.TempStorage<'T>
-        mutable store   : BlockStore.TempStorage<'T>
-        mutable scan    : BlockScan.TempStorage<'T>
+        load    : BlockLoad.TempStorage<'T>
+        store   : BlockStore.TempStorage<'T>
+        scan    : BlockScan.TempStorage<'T>
+//        scan    : BlockScanWarpScans.TempStorage<'T>
     }
-    [<ReflectedDefinition>] static member Init(load, store, scan) = { load = load; store = store; scan = scan }
 
-[<Record>]
-type DeviceApi<'T> =
-    {
-        mutable Load    : BlockLoad.API<'T> 
-        mutable Store   : BlockStore.API<'T>
-        mutable Scan    : BlockScan.API<'T>
-    }
-    [<ReflectedDefinition>] static member Init(load,store,scan) = { Load = load; Store = store; Scan = scan }
-
-//[<Record>]
-//type FunctionApi<'T> =
-//    {
-//        Load    : BlockLoad.FunctionApi<'T>
-//        Store   : BlockStore.FunctionApi<'T>
-//        Scan    : BlockScan.FunctionApi<'T>
-//    }
-//    [<ReflectedDefinition>] static member Init(load,store,scan) = { Load = load; Store = store; Scan = scan }
+    [<ReflectedDefinition>]
+    static member Init(bload_h:BlockLoad.HostApi, bstore_h:BlockStore.HostApi, bscan_h:BlockScan.HostApi) =
+        {
+            load = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
+            store = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
+            scan = BlockScan.TempStorage<'T>.Uninitialized(bscan_h.BlockScanWarpScansHostApi)
+        }
 
 
-let inline test<'T> (block_threads:int) (algorithm:BlockScanAlgorithm) (scan_op:Expr<'T -> 'T -> 'T>) (items_per_thread:int) = 
-        cuda {
-            let bload_h  = BlockLoad.HostApi.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
-            let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
-            let bscan_h  = BlockScan.HostApi.Init(block_threads, algorithm)
+let [<ReflectedDefinition>] ExclusiveSum (h:BlockScan.HostApi) temp_storage linear_tid input output = 
+    BlockScan.ExclusiveScan.MultipleDataPerThread.Identityless.Default h (+) ITEMS_PER_THREAD 
+        temp_storage linear_tid 
+        input output
 
 
-//            let! scan = 
-//                <@ fun (d:DeviceApi<'T>) (input:deviceptr<'T>) (output:deviceptr<'T>) (agg:Ref<'T>) -> 
-//                    BlockScan.ExclusiveSum.MDPT.WithAggregate bscan_h %scan_op items_per_thread d.Scan.DeviceApi input output agg
-//                @> |> Compiler.DefineFunction
+let inline intTest (block_threads:int) (items_per_thread:int) = 
+    cuda {
+        let bload_h = BlockLoad.HostApi.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
+        let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
+        let bscan_h = BlockScan.HostApi.Init(block_threads, BlockScanAlgorithm.BLOCK_SCAN_WARP_SCANS)
+            
+        let bsws_h = BlockScanWarpScans.HostApi.Init(block_threads)    
 
-            let! kernel = 
-                <@ fun (d_in:deviceptr<'T>) (d_out:deviceptr<'T>) ->
-                    let tid = threadIdx.x
-                    
-                    let dApi = 
-                        DeviceApi<'T>.Init(
-                            BlockLoad.API<'T>.Create(bload_h),
-                            BlockStore.API<'T>.Create(bstore_h),
-                            BlockScan.API<'T>.Create(bscan_h))
+
+
+        let! kernel = 
+            <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
+                let tid = threadIdx.x
+                        
+//                let temp_storage = TempStorage<int>.Init(bload_h, bstore_h, bsws_h)
+                let temp_storage = TempStorage<int>.Init(bload_h, bstore_h, bscan_h)
+
+                let data = __local__.Array<int>(items_per_thread)
+                let dptr = data |> __array_to_ptr
+                        
+                BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in, dptr)
+                __syncthreads()
+
+                let aggregate = __local__.Variable<int>()
+                //BlockScan.ExclusiveSum.MultipleDataPerThread.WithAggregateInt bscan_h items_per_thread temp_storage.scan tid dptr dptr aggregate
+                //BlockScan.IntApi.Init(bscan_h, temp_storage.scan).ExclusiveSum(bscan_h, items_per_thread, dptr, dptr, aggregate)
+                let x = ExclusiveSum bscan_h temp_storage.scan tid dptr dptr
                 
-                    let temp_storage = 
-                        TempStorage<'T>.Init(
-                            dApi.Load.DeviceApi.temp_storage,
-                            dApi.Store.DeviceApi.temp_storage,
-                            dApi.Scan.DeviceApi.temp_storage)
-
-                    //let fApi = FunctionApi<'T>.Init(bload_fApi, bstore_fApi, bscan_fApi)
-
-                    let data = __local__.Array<'T>(items_per_thread)
-                    let dptr = data |> __array_to_ptr
-                    dApi.Load.Load(bload_h, d_in, dptr)//dApi.Load.device d_in (dptr)
-                    
-                    __syncthreads()
-
-                    let aggregate = __local__.Variable<'T>()
-                    //BlockScan.ExclusiveSum.MDPT.WithAggregate bscan_h %scan_op items_per_thread dApi.Scan.DeviceApi dptr dptr aggregate
-//                    scan.Invoke dApi dptr dptr aggregate
-
-                    __syncthreads()
-
-                    dApi.Store.Store(bstore_h, d_out, dptr)
-
-                    if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate
-
-                @> |> Compiler.DefineKernel
+                //BlockScanWarpScans.API<int>.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, temp_storage.scan, dptr.[tid], dptr.Ref(tid), aggregate)
+                __syncthreads()
 
 
-            return Entry(fun (program:Program) ->
-                let worker = program.Worker
-                let kernel = program.Apply kernel
+                BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out, dptr)
 
-                fun (input:'T[]) ->
-                    use d_in = worker.Malloc(input)
-                    use d_out = worker.Malloc<'T>(input.Length)
+                if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate
 
-                    let lp = LaunchParam(BLOCKS,THREADS)
-                    kernel.Launch lp d_in.Ptr d_out.Ptr
+            @> |> Compiler.DefineKernel
 
-                    d_out.Gather()
-            )}
+
+        return Entry(fun (program:Program) ->
+            let worker = program.Worker
+            let kernel = program.Apply kernel
+
+            fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
+                let lp = LaunchParam(1,block_threads)
+                kernel.Launch lp d_in d_out
+
+        )}
 
 let scanAlgorithms = [
     BlockScanAlgorithm.BLOCK_SCAN_RAKING
     BlockScanAlgorithm.BLOCK_SCAN_RAKING_MEMOIZE
     BlockScanAlgorithm.BLOCK_SCAN_WARP_SCANS]
 
-let [<ReflectedDefinition>] inline Sum() = fun (x:'T) (y:'T) -> x + y
 
 [<Test>]
-let ``block scan example`` () =
-    let input = Array.init N (fun i -> i)
-    
-    //let sum() = fun x y -> x + y
-    
-    let hresult = Array.scan (+) 0 input
+let ``BlockScan exclusive sum`` () =
+    let worker = Worker.Default
+    let run block_threads items_per_thread =
+        let TILE_SIZE = block_threads * items_per_thread
+        let h_in = Array.zeroCreate<int> TILE_SIZE
+        let h_reference = Array.zeroCreate<int> TILE_SIZE
+        let h_gpu = Array.zeroCreate<int> (TILE_SIZE + 1)
 
-    
-    for a in scanAlgorithms do
-        let program = test<int> BLOCK_THREADS a <@ Sum() @> ITEMS_PER_THREAD |> Compiler.load Worker.Default
-        printfn "HostResult:\n%A\n" hresult
-        printfn "DeviceResult:\n%A\n" (program.Run input)
+        let mutable inclusive = 0
 
+        let h_aggregate =
+            for i = 0 to TILE_SIZE - 1 do
+                h_in.[i] <- i % 17
+                h_reference.[i] <- inclusive
+                inclusive <- inclusive + h_in.[i]
+            inclusive
 
+        //let input = Array.init N (fun _ -> 1)
 
-//
-//[<Test>]
-//let ``block scan basic`` () =
-//    
-//    
-//    let template block_threads items_per_thread (algorithm:BlockScanAlgorithm) = cuda {
-//        let BlockLoad = BlockLoad.Create(block_threads, items_per_thread, BLOCK_LOAD_WARP_TRANSPOSE)
-//        let BlockStore = BlockStore.Create(block_threads, items_per_thread, BLOCK_STORE_WARP_TRANSPOSE)
-//        let BlockScan = BlockScan.Create(block_threads, algorithm)
-//        
-// 
-//
-//        let! kernel = 
-//            <@ fun (blockLoad:BlockLoad) (blockStore:BlockStore) (blockScan:BlockScan) (d_in:deviceptr<int>) (d_out:deviceptr<int>) (d_elapsed:deviceptr<float>) ->
-//                let temp_storage_load = __shared__.Extern()
-//                let temp_storage_store = __shared__.Extern()
-//                let temp_storage_scan = __shared__.Extern()
-//
-//                let data = __local__.Array<int>(items_per_thread)
-//                blockLoad.Initialize(temp_storage_load).Load(d_in, data |> __array_to_ptr)
-//
-//                __syncthreads()
-//
-//                let start = 0.0 //clock()
-//                let aggregate = __local__.Variable()
-//                let x = blockScan.Initialize(temp_storage_scan).ExclusiveSum(items_per_thread, data |> __array_to_ptr, data |> __array_to_ptr, aggregate)
-//
-//                let stop = 0.0 //clock()
-//
-//                __syncthreads()
-//
-//                blockStore.Initialize(temp_storage_store).Store(d_out, data |> __array_to_ptr)
-//
-//                if threadIdx.x = 0 then
-//                    d_elapsed.[0] <- if start > stop then start - stop else stop - start
-//                    d_out.[block_threads * items_per_thread] <- !aggregate
-//            @> |> Compiler.DefineKernel
-//
-//        return Entry(fun program ->
-//            let worker = program.Worker
-//            let kernel = program.Apply kernel
-//
-//            let run (input:int[]) =
-//                use d_in = worker.Malloc(input)
-//                use d_out = worker.Malloc<int>(input.Length + 1)
-//                use d_elapsed = worker.Malloc<float>(input.Length)
-//
-//                kernel.Launch (LaunchParam(1, 128, items_per_thread)) BlockLoad BlockStore BlockScan d_in.Ptr d_out.Ptr d_elapsed.Ptr
-//
-//                d_out.Gather()
-//
-//            run
-//        )}
-//
-//    let BLOCK_THREADS = 32
-//    let ITEMS_PER_THREAD = 32
-//    let TILE_SIZE = BLOCK_THREADS * ITEMS_PER_THREAD
-//
-//    let h_in = Array.init TILE_SIZE (fun i -> i)
-//    let h_out = Array.scan (fun r e -> r + e) 0
-//
-//    printfn "Input: %A" h_in
-//    printfn "Host Output: %A" h_out 
-//
-//    let program = template BLOCK_THREADS ITEMS_PER_THREAD BLOCK_SCAN_RAKING |> Compiler.load Worker.Default
-//    let output = program.Run h_in
-//
-//    printfn "Device Output: %A" output
+        
+
+        let runTest() = 
+            use program = intTest block_threads items_per_thread |> Compiler.load worker
+            use d_in  = worker.Malloc(h_in)
+            use d_out = worker.Malloc<int>(TILE_SIZE + 1)
+            worker.Eval <| fun _ -> program.Run d_in.Ptr d_out.Ptr
+            d_out.Gather()
+        
+        let d_out = runTest()
+        let d_aggregate = d_out.[TILE_SIZE]
+        printfn "H_in:\n%A\nH_Reference:\n%A\nH_Aggregate:\n%A\nD_Out:\n%A\nD_Aggegate:\n%A\n" h_in h_reference h_aggregate d_out d_aggregate
+
+//    run 128 4
+//    run 1024 1
+//    run 512 2
+//    run 128 8
+//    run 64 16
+//    run 32 32
+    run 16 1

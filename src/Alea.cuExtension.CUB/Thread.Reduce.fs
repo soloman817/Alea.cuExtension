@@ -25,7 +25,23 @@ module ThreadReduce =
         (input:deviceptr<'T>) =
         WithPrefix length reduction_op input input.[0]
 
-                    
+
+    let [<ReflectedDefinition>] inline WithPrefixInt (length:int)
+        (input:deviceptr<int>) (prefix:int) =
+        let mutable addend = input.[0]
+        let mutable prefix = prefix + addend
+
+        for i = 1 to length - 1 do
+            addend <- input.[i]
+            prefix <- prefix + addend
+
+        prefix
+    
+
+    let [<ReflectedDefinition>] inline DefaultInt (length:int)
+        (input:deviceptr<int>) =
+        WithPrefixInt length input input.[0]
+                   
 //let threadReduce length reduction_op =
 //    let reduction_op = reduction_op.op
 //    <@ fun (input:deviceptr<int>) (prefix:int)  ->

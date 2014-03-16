@@ -57,16 +57,16 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Utilities.Util.fs" />
-    <Compile Include="Utilities.Test.fs" />
+    <Compile Include="Common.fs" />
+    <Compile Include="Utilities.Ptx.fs" />
     <Compile Include="Thread.Operators.fs" />
     <Compile Include="Thread.Load.fs" />
+    <Compile Include="Thread.Store.fs" />
     <Compile Include="Thread.Scan.fs" />
     <Compile Include="Thread.Reduce.fs" />
-    <Compile Include="Thread.Store.fs" />
     <Compile Include="Warp.Reduce.fs" />
-    <Compile Include="Warp.Scan.fs" />
     <Compile Include="Warp.Specializations.fs" />
+    <Compile Include="Warp.Scan.fs" />
     <Compile Include="Iterator.fs" />
     <Compile Include="Block.Specializations.fs" />
     <Compile Include="Block.LoadStore.fs" />
