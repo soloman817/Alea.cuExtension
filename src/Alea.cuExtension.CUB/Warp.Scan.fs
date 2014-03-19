@@ -76,17 +76,27 @@ module WarpScan =
                 (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
                 WarpScanSmem.InclusiveSum.WithAggregateInt h.WarpScanSmemHostApi temp_storage warp_id lane_id input output warp_aggregate                
 
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline _Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
                 (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
                 (input:'T) (output:Ref<'T>) = 
                 WarpScanSmem.InclusiveSum.Default h.WarpScanSmemHostApi scan_op temp_storage (warp_id |> uint32) (lane_id |> uint32) input output
 
 
-
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline _WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
                 (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
                 (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
                 WarpScanSmem.InclusiveSum.WithAggregate h.WarpScanSmemHostApi scan_op temp_storage warp_id lane_id input output warp_aggregate
+
+
+            let [<ReflectedDefinition>] inline Default (h:HostApi)
+                (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+                (input:'T) (output:Ref<'T>) =
+                _Default h (+) temp_storage warp_id lane_id input output
+
+            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
+                (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+                _WithAggregate h (+) temp_storage warp_id lane_id input output warp_aggregate
 
 
         module InclusiveScan =
@@ -122,7 +132,7 @@ module WarpScan =
                 let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
                     (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
                     (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                    WarpScanSmem.ExclusiveScan.Identityless.WithAggregate h.WarpScanSmemHostApi scan_op temp_storage warp_id lane_id input output
+                    WarpScanSmem.ExclusiveScan.Identityless.WithAggregate h.WarpScanSmemHostApi scan_op temp_storage warp_id lane_id input output warp_aggregate
                 
     
  
@@ -131,20 +141,29 @@ module WarpScan =
     module PrivateExclusiveSum =
         open InternalWarpScan
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T  -> 'T)
+        let [<ReflectedDefinition>] inline Default (h:HostApi)
             (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
             (input:'T) (output:Ref<'T>) =
             let inclusive = __local__.Variable<'T>()
-            InclusiveSum.Default h scan_op temp_storage warp_id lane_id input output
-            output := scan_op !inclusive input
+            InclusiveSum.Default h temp_storage warp_id lane_id input output
+            output := !inclusive + input
         
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
             (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
             let inclusive = __local__.Variable<'T>()
-            InclusiveSum.WithAggregate h scan_op temp_storage warp_id lane_id input inclusive warp_aggregate
-            output := scan_op !inclusive input
+            InclusiveSum.WithAggregate h temp_storage warp_id lane_id input inclusive warp_aggregate
+            output := !inclusive + input
 
+//        let [<ReflectedDefinition>] inline Default (h:HostApi)
+//            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+//            (input:'T) (output:Ref<'T>) =
+//            _Default h (+) temp_storage warp_id lane_id input output
+//        
+//        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
+//            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+//            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//            _WithAggregate h (+) temp_storage warp_id lane_id input output warp_aggregate
 
         let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
             (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
@@ -164,15 +183,15 @@ module WarpScan =
 
     module ExclusiveSum =
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+        let [<ReflectedDefinition>] inline Default (h:HostApi)
             (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
             (input:'T) (output:Ref<'T>) = 
-            PrivateExclusiveSum.Default h scan_op temp_storage warp_id lane_id input output
+            PrivateExclusiveSum.Default h temp_storage warp_id lane_id input output
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
             (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            PrivateExclusiveSum.WithAggregate h scan_op temp_storage warp_id lane_id input output warp_aggregate
+            PrivateExclusiveSum.WithAggregate h temp_storage warp_id lane_id input output warp_aggregate
           
 
         let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
@@ -278,7 +297,7 @@ module WarpScan =
     
 
 
-
+//    type API<'T when 'T : static member 'T -> get_zero> = 
     [<Record>]
     type API<'T> = 
         { mutable temp_storage : TempStorage<'T>; mutable warp_id : int; mutable lane_id : int }
@@ -315,39 +334,39 @@ module WarpScan =
 
     
 //        ^T when ^T : (static member (+): ^T * ^T -> ^T)
-        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output)
-            = InternalWarpScan.InclusiveSum.Default h scan_op this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output
+//        [<ReflectedDefinition>] member this.InclusiveSum(h, input, output)
+//            = InternalWarpScan.InclusiveSum.Default h this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output
 
-        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, warp_aggregate)
-            = InternalWarpScan.InclusiveSum.WithAggregate h scan_op this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
-
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output)
-            = InternalWarpScan.InclusiveScan.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output
-    
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate)
-            = InternalWarpScan.InclusiveScan.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output)
-            = ExclusiveSum.Default h scan_op this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output
-
-
+//        [<ReflectedDefinition>] member this.InclusiveSum(h, input, output, warp_aggregate)
+//            = InternalWarpScan.InclusiveSum.WithAggregate h this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output)
+//            = InternalWarpScan.InclusiveScan.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output
+//    
+//        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate)
+//            = InternalWarpScan.InclusiveScan.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output)
+//            = ExclusiveSum.Default h scan_op this.temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output
+//
+//
         [<ReflectedDefinition>] member this.ExclusiveSumInt(h, temp_storage, input, output)
             = ExclusiveSum.DefaultInt h temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output
 
         [<ReflectedDefinition>] member this.ExclusiveSumInt(h, temp_storage, input, output, warp_aggregate)
             = ExclusiveSum.WithAggregateInt h temp_storage (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
-    
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, warp_aggregate)
-            = ExclusiveSum.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
+               
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, input, output, warp_aggregate)
+//            = ExclusiveSum.WithAggregate h this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity)
-            = InternalWarpScan.ExclusiveScan.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output identity
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate)
-            = InternalWarpScan.ExclusiveScan.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output identity warp_aggregate
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output)
-            = InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output
-
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate)
-            = InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity)
+//            = InternalWarpScan.ExclusiveScan.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output identity
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate)
+//            = InternalWarpScan.ExclusiveScan.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output identity warp_aggregate
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output)
+//            = InternalWarpScan.ExclusiveScan.Identityless.Default h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output
+//
+//        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate)
+//            = InternalWarpScan.ExclusiveScan.Identityless.WithAggregate h scan_op this.temp_storage  (this.warp_id |> uint32) (this.lane_id |> uint32) input output warp_aggregate

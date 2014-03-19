@@ -58,12 +58,58 @@ let ``warp scan smem - initialization`` () =
     let hinput = Array.init N (fun _ -> 1)
     let doutput = program.Run hinput
     printfn "%A" doutput
+ 
+[<Test>]
+let ``warp scan smem - scanstep`` () =
+    let template = cuda{
+        let h = WarpScanSmem.HostApi.Init(1,32)
+
+        let! kernel = 
+            <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
+                let tid = threadIdx.x
+                let warp_id = threadIdx.x / h.Params.LOGICAL_WARP_THREADS
+                let lane_id = __ptx__.LaneId()
+                let temp_storage = WarpScanSmem.TempStorage<int>.Uninitialized(h)
+                output.[tid] <- WarpScanSmem.BasicScanInt h true true temp_storage (warp_id |> uint32) lane_id (input.[tid])
+                //if threadIdx.x = 0 then for i = 0 to BLOCK_THREADS - 1 do output.[i] <- temp_storage.[i]
+            @> |> Compiler.DefineKernel
+
+        return Entry(fun (program:Program) ->
+            let worker = program.Worker
+            let kernel = program.Apply kernel
+
+            fun (input:int[]) ->
+                use d_in = worker.Malloc(input)
+                use d_out = worker.Malloc<int>(input.Length)
+
+                let lp = LaunchParam(BLOCKS, BLOCK_THREADS)
+
+                kernel.Launch lp d_in.Ptr d_out.Ptr
+
+                d_out.Gather()
+        )}
+
+    let program = template |> Compiler.load Worker.Default
+    let hinput = Array.init N (fun _ -> 1)
+    let doutput = program.Run hinput
+    let houtput() = 
+        [for i = 0 to ITEMS_PER_THREAD - 1 do 
+            let b = 1 + i * BLOCK_THREADS
+            
+            let h = hinput |> Array.sub <|| (b,31) |> Array.scan (+) 0
+            printfn "%A" h
+            for item in h do yield item]
+    
+    let hout = houtput() |> Array.ofList
+
+    printfn "Host:\n%A\nDevice:\n%A\n" hout doutput
+    (hout, doutput) ||> Array.iter2 (fun h d -> Assert.AreEqual(h, d))
     
 
 [<Test>]
 let ``warp scan smem - int`` () =
     let template = cuda{
-        let h = WarpScanSmem.HostApi.Init(4)
+        let h = WarpScanSmem.HostApi.Init(1)
 
         let! kernel = 
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
@@ -74,7 +120,7 @@ let ``warp scan smem - int`` () =
                 let thread_data = __local__.Variable<int>(input.[tid])
                 //if threadIdx.x < 32 then
                 //WarpScanSmem.InclusiveSum.DefaultInt h temp_storage warp_id lane_id !thread_data thread_data
-                WarpScanSmem.IntApi.Init(temp_storage, warp_id |> uint32, lane_id).ExclusiveScan(h, input.[tid], (output.Ref(tid)))
+                WarpScanSmem.IntApi.Init(temp_storage, warp_id |> uint32, lane_id).ExclusiveScan(h, input.[tid], (output |> __ptr_to_ref))
 
 
                 //output.[tid] <- temp_storage.[tid]
@@ -102,7 +148,7 @@ let ``warp scan smem - int`` () =
     let doutput = program.Run hinput
     let houtput() = 
         [for i = 0 to ITEMS_PER_THREAD - 1 do 
-            let b = 1 + i * 32
+            let b = 1 + i * BLOCK_THREADS
             
             let h = hinput |> Array.sub <|| (b,31) |> Array.scan (+) 0
             printfn "%A" h

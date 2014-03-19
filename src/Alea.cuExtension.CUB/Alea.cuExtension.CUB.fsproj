@@ -111,6 +111,7 @@
     <Compile Include="AssemblyInfo.fs" />
     <None Include="packages.config" />
     <None Include="Script.fsx" />
+    <Compile Include="File1.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Alea.cuExtension\Alea.cuExtension.fsproj">

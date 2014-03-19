@@ -1,9 +1,9 @@
-﻿module Lab.Lab
+﻿module File1
+
 
 open System
-open Microsoft.FSharp.Quotations
-
 open Alea.CUDA
+open Alea.CUDA.Utilities
 
 #nowarn "9"
 #nowarn "51"
@@ -12,9 +12,6 @@ let buildThreadLoad (modifier:string) (ctx:IRModuleBuildingContext) (irPointer:I
     let irPointerType = irPointer.Type
     let irPointeeType = irPointerType.Pointer.PointeeType
         
-    // ptx inline cannot accept pointer, must convert to integer
-    // I got this by print out the link result and the error of nvvm compiler told me that
-    // and here we also need to handle the size of the integer, 32 or 64
     let irPointerInt, ptrstr = ctx.CompileOptions.AddressSize |> function
         | AddressSize.Address32 -> IRCommonInstructionBuilder.Instance.BuildPtrToInt(ctx, irPointer, IRTypeBuilder.Instance.Build(ctx, typeof<uint32>)), "r"
         | AddressSize.Address64 -> IRCommonInstructionBuilder.Instance.BuildPtrToInt(ctx, irPointer, IRTypeBuilder.Instance.Build(ctx, typeof<uint64>)), "l"
@@ -36,7 +33,6 @@ let buildThreadLoad (modifier:string) (ctx:IRModuleBuildingContext) (irPointer:I
             | true -> "global.nc"
             | false -> "global"
         | _ -> modifier
-
 
     let cmdstr, argstr = irPointeeType |> function
         | irPointeeType when isUInt  8 irPointeeType -> sprintf "ld.%s.u8 $0, [$1];" modifier, sprintf "=c,%s" ptrstr
@@ -66,11 +62,13 @@ type ThreadLoadAttribute(modifier:string) =
             | None, irPointer :: [] -> buildThreadLoad modifier ctx irPointer |> Some
             | _ -> None
 
-let [<ThreadLoad("ca")>] inline ThreadLoad_CA (ptr:deviceptr<'T>) : 'T = failwith ""
-let [<ThreadLoad("cg")>] inline ThreadLoad_CG (ptr:deviceptr<'T>) : 'T = failwith ""
-let [<ThreadLoad("cs")>] inline ThreadLoad_CS (ptr:deviceptr<'T>) : 'T = failwith ""
-let [<ThreadLoad("cv")>] inline ThreadLoad_CV (ptr:deviceptr<'T>) : 'T = failwith ""
-let [<ThreadLoad("ldg")>] inline ThreadLoad_LDG (ptr:deviceptr<'T>) : 'T = failwith ""
+let [<ThreadLoad("ca")>]  inline ThreadLoad_CA  (ptr:deviceptr<'T>) : 'T = failwith "device only"
+let [<ThreadLoad("cg")>]  inline ThreadLoad_CG  (ptr:deviceptr<'T>) : 'T = failwith "device only"
+let [<ThreadLoad("cs")>]  inline ThreadLoad_CS  (ptr:deviceptr<'T>) : 'T = failwith "device only"
+let [<ThreadLoad("cv")>]  inline ThreadLoad_CV  (ptr:deviceptr<'T>) : 'T = failwith "device only"
+let [<ThreadLoad("ldg")>] inline ThreadLoad_LDG (ptr:deviceptr<'T>) : 'T = failwith "device only"
+
+
 
 type IterateThreadLoadAttribute(modifier:string) =
     inherit Attribute()
@@ -87,11 +85,13 @@ type IterateThreadLoadAttribute(modifier:string) =
                 // think of this job as the C++ template expanding job, same thing!
                 for i = 0 to max - 1 do
                     let irIndex = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, i)
-                    let irPtr   = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
-                    let irVal   = buildThreadLoad modifier ctx irPtr
-                    let irPtr   = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
+                    let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
+                    let irVal = buildThreadLoad modifier ctx irPtr
+                    let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
                     IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
 
                 IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 
             | _ -> None
+
+let [<IterateThreadLoad("ca")>] inline IterateThreadLoad_CA (max:int) (ptr:deviceptr<'T>) (vals:deviceptr<'T>) : unit = failwith ""

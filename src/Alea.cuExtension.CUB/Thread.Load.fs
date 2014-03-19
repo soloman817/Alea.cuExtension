@@ -12,10 +12,9 @@ open Alea.cuExtension.CUB.Common
 [<AutoOpen>]
 module private InternalThreadLoad =
     let buildThreadLoad (modifier:string) (ctx:IRModuleBuildingContext) (irPointer:IRValue) =
-        
         let irPointerType = irPointer.Type
         let irPointeeType = irPointerType.Pointer.PointeeType
-        printfn "%A" irPointeeType
+        
         // ptx inline cannot accept pointer, must convert to integer
         // I got this by print out the link result and the error of nvvm compiler told me that
         // and here we also need to handle the size of the integer, 32 or 64
@@ -93,7 +92,7 @@ module private InternalThreadLoad =
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
                         let irVal = buildThreadLoad modifier ctx irPtr
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 
@@ -121,7 +120,7 @@ module private InternalThreadLoad =
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
                         let irVal = IRCommonInstructionBuilder.Instance.BuildLoad(ctx, irPtr)
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 

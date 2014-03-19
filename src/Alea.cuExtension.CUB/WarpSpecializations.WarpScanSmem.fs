@@ -22,19 +22,19 @@ module WarpScanSmem =
 
     type Constants =
         {
-            POW_OF_TWO          : bool
+            //POW_OF_TWO          : bool
             STEPS               : int
             HALF_WARP_THREADS   : int
             WARP_SMEM_ELEMENTS  : int
         }
 
         static member Init(p:Params) =                    
-            let pow_of_two          = ((p.LOGICAL_WARP_THREADS &&& (p.LOGICAL_WARP_THREADS - 1)) = 0)
+            //let pow_of_two          = ((p.LOGICAL_WARP_THREADS &&& (p.LOGICAL_WARP_THREADS - 1)) = 0)
             let steps               = p.LOGICAL_WARP_THREADS |> log2
             let half_warp_threads   = 1 <<< (steps - 1)
             let warp_smem_elements  = p.LOGICAL_WARP_THREADS + half_warp_threads
             {
-                POW_OF_TWO          = pow_of_two
+                //POW_OF_TWO          = pow_of_two
                 STEPS               = steps
                 HALF_WARP_THREADS   = half_warp_threads
                 WARP_SMEM_ELEMENTS  = warp_smem_elements
@@ -96,73 +96,64 @@ module WarpScanSmem =
 
     ///@TODO
     module InitIdentity =    
-        let [<ReflectedDefinition>] inline True (h:HostApi) (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) =
-            let c = h.Constants
+        let [<ReflectedDefinition>] inline True (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) =
             ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, lane_id)) 0G
             
             
-        let [<ReflectedDefinition>] inline False (h:HostApi) (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) = ()
+        let [<ReflectedDefinition>] inline False (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) = ()
             
 
-        let inline api (has_identity:bool) = if has_identity then True else False
+        let [<ReflectedDefinition>] inline api (has_identity:bool) 
+            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) = 
+            if has_identity then True temp_storage warp_id lane_id else False temp_storage warp_id lane_id
 
 
-//    module ScanStep =
-//        type private ScanStepAttribute(modifier:string) =
-//            inherit Attribute()
-//
-//            interface ICustomCallBuilder with
-//                member this.Build(ctx, irObject, info, irParams) =
-//                    match irObject, irParams with
-//                    | None, irMax :: irPtr :: irVals :: [] ->
-//                        let max = irMax.HasObject |> function
-//                            | true -> irMax.Object :?> int
-//                            | false -> failwith "max must be constant"
-//
-//                        // if we do the loop here, it is unrolled by compiler, not kernel runtime
-//                        // think of this job as the C++ template expanding job, same thing!
-//                        for i = 0 to max - 1 do
-//                            let irIndex = IRCommonInstructionBuilder.Instance.BuildConstant(ctx, i)
-//                            let irVal = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
-//                            let irPtr = ()
-//                    
-//                            let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-//                            IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
-//
-//                        IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
-//
-//                    | _ -> None
-//        
-//        let [<ScanStep>] scanStep ()
+    let [<ReflectedDefinition>] inline _ScanStep (h:HostApi) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
+        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        (partial:Ref<'T>) (_STEP:int) =
+        let c = h.Constants
+        let OFFSET = 1u <<< _STEP
+        ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) !partial
+
+        if has_identity || (lane_id >= OFFSET) then
+            let addend =    ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
+            partial := (addend, !partial) ||> scan_op
+        
 
     let [<ReflectedDefinition>] inline ScanStep (h:HostApi) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
         (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
         (partial:Ref<'T>) =
         let c = h.Constants
-        for STEP = 0 to c.STEPS - 1 do
-            let OFFSET = 1u <<< STEP
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) !partial
+        _ScanStep h has_identity scan_op temp_storage warp_id lane_id partial 0
+        for STEP = 1 to c.STEPS - 1 do
+            _ScanStep h has_identity scan_op temp_storage warp_id lane_id partial STEP
 
-            if has_identity || (lane_id >= OFFSET) then
-                let addend =    ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
-                partial := (addend, !partial) ||> scan_op
+
+    let [<ReflectedDefinition>] inline _ScanStepInt (h:HostApi) (has_identity:bool)
+        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+        (partial:Ref<int>) (_STEP:int) =
+        let c = h.Constants
+        let OFFSET = 1u <<< _STEP
+        ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET)) (!partial)
+
+        if has_identity || (lane_id >= OFFSET) then
+            let addend = ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
+            partial := addend + !partial
         
-
+    
     let [<ReflectedDefinition>] inline ScanStepInt (h:HostApi) (has_identity:bool)
         (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
         (partial:Ref<int>) =
         let c = h.Constants
-        for STEP = 0 to c.STEPS - 1 do
-            let OFFSET = 1u <<< STEP
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET)) (!partial)
-
-            if has_identity || (lane_id >= OFFSET) then
-                let addend = ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
-                partial := addend + !partial
+        _ScanStepInt h has_identity temp_storage warp_id lane_id partial 0
+        for STEP = 1 to c.STEPS - 1 do
+            _ScanStepInt h has_identity temp_storage warp_id lane_id partial STEP
+            
 
 
     let [<ReflectedDefinition>] inline BasicScan (h:HostApi) (has_identity:bool) (share_final:bool) (scan_op:'T -> 'T -> 'T)
-        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) (partial:'T) =
+        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) 
+        (partial:'T) =
         let c = h.Constants
         let partial = __local__.Variable<'T>(partial)
         ScanStep h has_identity scan_op temp_storage warp_id lane_id partial
@@ -174,25 +165,23 @@ module WarpScanSmem =
     let [<ReflectedDefinition>] inline BasicScanInt (h:HostApi) (has_identity:bool) (share_final:bool)
         (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32) (partial:int) =
         let c = h.Constants
-        let partial = __local__.Variable<int>(partial)
-        ScanStepInt h has_identity temp_storage warp_id lane_id partial
+        //let mutable partial = partial
+        ScanStepInt h has_identity temp_storage warp_id lane_id (partial |> __obj_to_ref)
         if share_final then 
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) (!partial)
-        !partial
+            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) (partial)
+        partial
 
 
 
 
-    module InclusiveSum =
-        open Template
-    
+    module InclusiveSum =   
 
         let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
             (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
             (input:'T) (output:Ref<'T>) =
             let has_identity = true //PRIMITIVE()
             let share_final = false
-                //(%InitIdentity) d
+            InitIdentity.api has_identity temp_storage warp_id lane_id
             output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input
    
         let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
@@ -200,7 +189,7 @@ module WarpScanSmem =
             (input:int) (output:Ref<int>) =
             let has_identity = true //PRIMITIVE()
             let share_final = false
-                //(%InitIdentity) d
+            InitIdentity.api has_identity temp_storage warp_id lane_id
             output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input  
       
     
@@ -212,7 +201,7 @@ module WarpScanSmem =
             let p = h.Params
             let c = h.Constants
             
-            //(%InitIdentity) d
+            InitIdentity.api has_identity temp_storage warp_id lane_id
             
             output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input            
         
@@ -227,10 +216,11 @@ module WarpScanSmem =
             let p = h.Params
             let c = h.Constants
             
-            //(%InitIdentity) d
+            InitIdentity.api has_identity temp_storage warp_id lane_id
             
             output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input            
             warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id |> int, c.WARP_SMEM_ELEMENTS - 1))
+
 
 
     module InclusiveScan =

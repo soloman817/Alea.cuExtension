@@ -62,7 +62,56 @@ module ReduceWarpReduction =
     let f() = "reduce warp reduction"
 
 module BlockScanRaking =
-    let f() = "scan raking"
+    let block_threads = 16
+    let items_per_thread = 1
+    let n = block_threads * items_per_thread
+    
+    [<Test>]
+    let ``BlockScanRaking exclusive sum - int`` () =
+        let template = cuda {
+            let bload_h = BlockLoad.HostApi.Init(block_threads, items_per_thread)
+            let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread)
+            let bsr_h = BlockScanRaking.HostApi.Init(block_threads, true)
+
+            let! kernel =
+                <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
+                    let tid = threadIdx.x
+                    let temp_storage = BlockScanRaking.TempStorage<int>.Uninitialized(bsr_h)
+                    let cached_segment = __local__.Array<int>(bsr_h.Constants.SEGMENT_LENGTH)
+                    
+                        
+                    //BlockLoad.API<int>.Init(bload_h, __null()).Load(bload_h, d_in, dptr)
+                    let thread_data = __local__.Variable<int>(d_in.[tid])
+                    __syncthreads()
+
+                    let aggregate = __local__.Variable<int>()
+
+
+                    BlockScanRaking.ExclusiveSum.WithAggregateInt bsr_h temp_storage tid cached_segment !thread_data thread_data aggregate
+                    
+                    __syncthreads()
+
+                    d_out.[tid] <- !aggregate
+                    //if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate                    
+                    
+                @> |> Compiler.DefineKernel
+            
+            return Entry(fun (program:Program) ->
+                let worker = program.Worker
+                let kernel = program.Apply kernel                
+                fun (input:int[]) ->
+                    use d_in = worker.Malloc(input)
+                    use d_out = worker.Malloc(d_in.Length)
+                    let lp = LaunchParam(1,block_threads)
+                    kernel.Launch lp d_in.Ptr d_out.Ptr
+                    d_out.Gather()
+            )}
+
+        let program = template |> Compiler.load Worker.Default
+        let hinput = Array.init n (fun _ -> 1)
+        let doutput = program.Run hinput
+        printfn "%A" doutput
+
 
 module BlockScanWarpScans =
     open Alea.cuExtension.CUB.Utilities
@@ -112,6 +161,12 @@ module BlockScanWarpScans =
                         let tid = threadIdx.x
                         
                         let temp_storage = ScanTempStorage<int>.Init(bload_h, bstore_h, bsws_h)
+                        //let temp_load = SharedRecord<int>.Init(N)
+                        //let temp_store = SharedRecord<int>.Init(N)
+                        let temp_scan = BlockScanWarpScans.TempStorage<int>.Uninitialized(bsws_h)
+
+                        let warp_id = BlockScanWarpScans.warp_id block_threads tid
+                        let lane_id = BlockScanWarpScans.lane_id block_threads tid
 
                         let data = __local__.Array<int>(items_per_thread)
                         let dptr = data |> __array_to_ptr
@@ -120,10 +175,10 @@ module BlockScanWarpScans =
                         __syncthreads()
 
                         let aggregate = __local__.Variable<int>()
-                        BlockScanWarpScans.IntApi.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, dptr.[tid], dptr.Ref(tid), aggregate)
+                        //BlockScanWarpScans.IntApi.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, dptr.[tid], dptr.Ref(tid), aggregate)
+                        BlockScanWarpScans.ExclusiveSum.WithAggregateInt bsws_h temp_scan tid warp_id lane_id d_in.[tid] (d_out.Ref(tid)) aggregate
                         __syncthreads()
 
-                        //d.store.Store(bstore_h, d_out, dptr)
                         BlockStore.API<int>.Init(bstore_h, temp_storage.store, tid).Store(bstore_h, d_out, dptr)
 
                         if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate

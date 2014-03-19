@@ -113,3 +113,39 @@ let run (h_in:int[]) block_threads items_per_thread grid_size fraction_valid =
 let ``load store test`` () = 
     let d_in, d_out_unguarded, d_out_guarded = run h_in BLOCK_THREADS ITEMS_PER_THREAD 1 1.0
     printfn "d_in:\n%A\n\nd_out_unguarded:\n%A\n\nd_out_guarded:\n%A" d_in d_out_unguarded d_out_guarded
+
+
+[<Test>]
+let ``load test - int`` () =
+    let block_threads = 16
+    let items_per_thread = 4
+    let n = block_threads * items_per_thread
+
+    let template = cuda{
+        let h = BlockLoad.HostApi.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT, false)
+
+        let! kernel =
+            <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
+                let tid = threadIdx.x
+                let thread_data = __local__.Array<int>(items_per_thread)
+                BlockLoad.API<int>.Init(h).Load(h, d_in, (thread_data |> __array_to_ptr))
+                d_out.[tid] <- thread_data.[items_per_thread - 1]
+            @> |> Compiler.DefineKernel
+
+        return Entry(fun (program:Program) ->
+            let worker = program.Worker
+            let kernel = program.Apply kernel
+
+            fun (h_in:int[]) ->
+                let lp = LaunchParam(1,block_threads)
+                use d_in = worker.Malloc(h_in)
+                use d_out = worker.Malloc<int>(h_in.Length)
+                kernel.Launch lp d_in.Ptr d_out.Ptr
+
+                d_out.Gather()
+        )}
+    
+    let program = template |> Compiler.load Worker.Default
+    let input = Array.init n (fun i -> i % 4)
+    let output = program.Run input
+    printfn "Host:\n%A\nDevice:\n%A\n" input output

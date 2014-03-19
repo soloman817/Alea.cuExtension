@@ -195,10 +195,10 @@ type TempStorage<'T> =
         }
 
 
-let [<ReflectedDefinition>] ExclusiveSum (h:BlockScan.HostApi) temp_storage linear_tid input output = 
-    BlockScan.ExclusiveScan.MultipleDataPerThread.Identityless.Default h (+) ITEMS_PER_THREAD 
-        temp_storage linear_tid 
-        input output
+//let [<ReflectedDefinition>] ExclusiveSum (h:BlockScan.HostApi) temp_storage linear_tid input output = 
+//    BlockScan.ExclusiveScan.MultipleDataPerThread.Identityless.Default h (+) ITEMS_PER_THREAD 
+//        temp_storage linear_tid 
+//        input output
 
 
 let inline intTest (block_threads:int) (items_per_thread:int) = 
@@ -225,9 +225,10 @@ let inline intTest (block_threads:int) (items_per_thread:int) =
                 __syncthreads()
 
                 let aggregate = __local__.Variable<int>()
-                //BlockScan.ExclusiveSum.MultipleDataPerThread.WithAggregateInt bscan_h items_per_thread temp_storage.scan tid dptr dptr aggregate
-                //BlockScan.IntApi.Init(bscan_h, temp_storage.scan).ExclusiveSum(bscan_h, items_per_thread, dptr, dptr, aggregate)
-                let x = ExclusiveSum bscan_h temp_storage.scan tid dptr dptr
+                
+                //BlockScan.ExclusiveSum.MultipleDataPerThread.WithAggregate bscan_h items_per_thread temp_storage.scan tid dptr dptr aggregate
+                
+                BlockScan.IntApi.Init(bscan_h, temp_storage.scan).ExclusiveSum(bscan_h, items_per_thread, dptr, dptr, aggregate)
                 
                 //BlockScanWarpScans.API<int>.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, temp_storage.scan, dptr.[tid], dptr.Ref(tid), aggregate)
                 __syncthreads()
@@ -295,4 +296,4 @@ let ``BlockScan exclusive sum`` () =
 //    run 128 8
 //    run 64 16
 //    run 32 32
-    run 16 1
+    run 32 4

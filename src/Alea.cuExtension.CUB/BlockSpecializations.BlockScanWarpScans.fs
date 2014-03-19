@@ -127,13 +127,13 @@ module BlockScanWarpScans =
             WarpScan.IntApi.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveSum(h.WarpScanHostApi, input, output, warp_aggregate)
             ApplyWarpAggregates.WithLaneValidationInt h temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate (lane_id > 0)
         
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
             (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
             (input:int) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
             let p = h.Params
             let warp_aggregate = __local__.Variable<'T>()
-            WarpScan.ExclusiveSum.WithAggregate h.WarpScanHostApi scan_op temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
-            ApplyWarpAggregates.WithLaneValidationInt h temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate (lane_id > 0)
+            WarpScan.ExclusiveSum.WithAggregate h.WarpScanHostApi temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
+            ApplyWarpAggregates.WithLaneValidation h (+) temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate (lane_id > 0)
         
 
 //        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
@@ -159,7 +159,8 @@ module BlockScanWarpScans =
             (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
             (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
             let warp_aggregate = __local__.Variable<'T>()
-            WarpScan.API<'T>.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !identity, warp_aggregate)
+            //WarpScan.API<'T>.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !identity, warp_aggregate)
+            WarpScan.ExclusiveScan.WithAggregate h.WarpScanHostApi scan_op temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output !identity warp_aggregate
             ApplyWarpAggregates.Default h scan_op temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate
             
     
@@ -175,7 +176,7 @@ module BlockScanWarpScans =
                 (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
                 (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
                 let warp_aggregate = __local__.Variable<'T>()
-                WarpScan.API<'T>.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !warp_aggregate, block_aggregate)
+                WarpScan.ExclusiveScan.Identityless.WithAggregate h.WarpScanHostApi scan_op temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
                 ApplyWarpAggregates.Default h scan_op temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate
                 
     

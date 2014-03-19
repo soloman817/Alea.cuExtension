@@ -89,7 +89,7 @@ module private InternalThreadStore =
                         let irPtr = buildThreadStore modifier ctx irVal
                     
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 
@@ -117,7 +117,7 @@ module private InternalThreadStore =
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irPtr, irIndex :: [])
                         let irVal = IRCommonInstructionBuilder.Instance.BuildLoad(ctx, irPtr)
                         let irPtr = IRCommonInstructionBuilder.Instance.BuildGEP(ctx, irVals, irIndex :: [])
-                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) 
+                        IRCommonInstructionBuilder.Instance.BuildStore(ctx, irPtr, irVal) |> ignore
 
                     IRCommonInstructionBuilder.Instance.BuildNop(ctx) |> Some
 

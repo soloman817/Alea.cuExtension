@@ -75,7 +75,7 @@ module BlockScan =
             { ScanKind = kind; BlockScanWarpScansHostApi = bsws_h; BlockScanRakingHostApi = bsr_h; Params = p; Constants = c }
 
     
-    type TempStorage<'T> = BlockScanWarpScans.TempStorage<'T>
+    type TempStorage<'T> = BlockScanRaking.TempStorage<'T>
 
     module InternalBlockScan =
 //        module BlockScanRaking =
@@ -84,14 +84,15 @@ module BlockScan =
 //            module InclusiveSum = ()
 
         module ExclusiveSum =
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-                let warp_id = BlockScanWarpScans.warp_id h.Params.BLOCK_THREADS linear_tid
-                let lane_id = BlockScanWarpScans.lane_id h.Params.BLOCK_THREADS linear_tid
-                BlockScanWarpScans.ExclusiveSum.WithAggregate h.BlockScanWarpScansHostApi scan_op
-                    temp_storage linear_tid warp_id lane_id
-                    input output block_aggregate
+//                let warp_id = BlockScanWarpScans.warp_id h.Params.BLOCK_THREADS linear_tid
+//                let lane_id = BlockScanWarpScans.lane_id h.Params.BLOCK_THREADS linear_tid
+                let cached_segment = BlockScanRaking.CachedSegment<'T>(h.BlockScanRakingHostApi)
+                BlockScanRaking.ExclusiveSum.WithAggregate h.BlockScanRakingHostApi
+                    temp_storage linear_tid
+                    cached_segment input output block_aggregate
 
 
             let [<ReflectedDefinition>] inline WithAggregateInt (h:HostApi)
@@ -100,11 +101,11 @@ module BlockScan =
                 BlockScanWarpScans.IntApi.Init(h.BlockScanWarpScansHostApi, temp_storage, linear_tid).ExclusiveSum(
                     h.BlockScanWarpScansHostApi, input, output, block_aggregate)
     
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline Default (h:HostApi)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:'T) (output:Ref<'T>) =
                 let block_aggregate = __local__.Variable<'T>()
-                WithAggregate h scan_op temp_storage linear_tid input output block_aggregate
+                WithAggregate h temp_storage linear_tid input output block_aggregate
 
             let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
                 (temp_storage:TempStorage<int>) (linear_tid:int)
@@ -179,17 +180,17 @@ module BlockScan =
                 let block_aggregate = __local__.Variable<int>()
                 ExclusiveSum.DefaultInt h temp_storage linear_tid input output
             
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-                InternalBlockScan.ExclusiveSum.WithAggregate h scan_op temp_storage linear_tid input output block_aggregate
+                InternalBlockScan.ExclusiveSum.WithAggregate h temp_storage linear_tid input output block_aggregate
             
 
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
+            let [<ReflectedDefinition>] inline Default (h:HostApi)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:'T) (output:Ref<'T>) =
                 let block_aggregate = __local__.Variable()
-                WithAggregate h scan_op temp_storage linear_tid input output block_aggregate
+                WithAggregate h temp_storage linear_tid input output block_aggregate
             
 
 //            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
@@ -216,27 +217,27 @@ module BlockScan =
                 let x = ThreadScanExclusive.WithApplyPrefixDefaultInt items_per_thread input output !thread_partial
                 ()
 
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (items_per_thread:int)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:deviceptr<'T>) (output:deviceptr<'T>) (block_aggregate:Ref<'T>) =
             
-                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread (+) input)
                 
-                SingleDatumPerThread.WithAggregate h scan_op temp_storage linear_tid !thread_partial thread_partial block_aggregate
+                SingleDatumPerThread.WithAggregate h temp_storage linear_tid !thread_partial thread_partial block_aggregate
                 
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
-            
+                let x =ThreadScanExclusive.WithApplyPrefixDefault items_per_thread (+) input output !thread_partial 
+                ()
 
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
+            let [<ReflectedDefinition>] inline Default (h:HostApi) (items_per_thread:int)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:deviceptr<'T>) (output:deviceptr<'T>) =
                 
-                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
+                let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread (+) input)
                 
-                SingleDatumPerThread.Default h scan_op temp_storage linear_tid !thread_partial thread_partial
+                SingleDatumPerThread.Default h temp_storage linear_tid !thread_partial thread_partial
 
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
-            
+                let x = ThreadScanExclusive.WithApplyPrefixDefault items_per_thread (+) input output !thread_partial 
+                ()
 
 
 
@@ -293,13 +294,11 @@ module BlockScan =
             let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
                 (input:deviceptr<'T>) (output:deviceptr<'T>) (identity:Ref<'T>) =
-                    
+
                 let thread_partial = __local__.Variable<'T>(ThreadReduce.Default items_per_thread scan_op input)
-    
                 SingleDatumPerThread.Default h scan_op temp_storage linear_tid !thread_partial thread_partial identity
-    
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
-                
+                let x =ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
+                ()                
     
             let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
                 (temp_storage:TempStorage<'T>) (linear_tid:int)
@@ -309,8 +308,8 @@ module BlockScan =
     
                 SingleDatumPerThread.WithAggregate h scan_op temp_storage linear_tid !thread_partial thread_partial identity block_aggregate
     
-                ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
-                
+                let x = ThreadScanExclusive.WithApplyPrefixDefault items_per_thread scan_op input output !thread_partial 
+                ()
     
 //            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T) (items_per_thread:int)
 //                (temp_storage:TempStorage<'T>) (linear_tid:int)
