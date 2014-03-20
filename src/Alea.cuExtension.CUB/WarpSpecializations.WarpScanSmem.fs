@@ -15,42 +15,29 @@ open Alea.cuExtension.CUB.Thread
 
 module WarpScanSmem =
     
-    type Params = { LOGICAL_WARPS : int;    LOGICAL_WARP_THREADS : int }
-
-                    static member inline Init(logical_warps, logical_warp_threads) =
-                        { LOGICAL_WARPS = logical_warps; LOGICAL_WARP_THREADS = logical_warp_threads }
-
-    type Constants =
-        {
-            //POW_OF_TWO          : bool
-            STEPS               : int
-            HALF_WARP_THREADS   : int
-            WARP_SMEM_ELEMENTS  : int
+    type StaticParam = 
+        { 
+            LOGICAL_WARPS           : int
+            LOGICAL_WARP_THREADS    : int
+            STEPS                   : int
+            HALF_WARP_THREADS       : int
+            WARP_SMEM_ELEMENTS      : int
         }
 
-        static member Init(p:Params) =                    
-            //let pow_of_two          = ((p.LOGICAL_WARP_THREADS &&& (p.LOGICAL_WARP_THREADS - 1)) = 0)
-            let steps               = p.LOGICAL_WARP_THREADS |> log2
+        static member Init(logical_warps:int, logical_warp_threads:int) =
+            let steps               = logical_warp_threads |> log2
             let half_warp_threads   = 1 <<< (steps - 1)
-            let warp_smem_elements  = p.LOGICAL_WARP_THREADS + half_warp_threads
+            let warp_smem_elements  = logical_warp_threads + half_warp_threads
             {
-                //POW_OF_TWO          = pow_of_two
-                STEPS               = steps
-                HALF_WARP_THREADS   = half_warp_threads
-                WARP_SMEM_ELEMENTS  = warp_smem_elements
+                LOGICAL_WARPS           = logical_warps
+                LOGICAL_WARP_THREADS    = logical_warp_threads
+                STEPS                   = steps
+                HALF_WARP_THREADS       = half_warp_threads
+                WARP_SMEM_ELEMENTS      = warp_smem_elements
             }
+        
+        static member Init(logical_warps) = StaticParam.Init(logical_warps, CUB_PTX_WARP_THREADS)
                     
-    type HostApi =
-        { Params : Params; Constants : Constants; SharedMemoryLength : int }
-            
-        static member Init(logical_warps, logical_warp_threads) =
-            let p = Params.Init(logical_warps, logical_warp_threads)
-            let c = Constants.Init(p)
-            { Params = p; Constants = c; SharedMemoryLength = p.LOGICAL_WARPS * c.WARP_SMEM_ELEMENTS }
-
-        static member Init(logical_warps) = HostApi.Init(logical_warps, CUB_PTX_WARP_THREADS)
-
-
 
     [<Record>]
     type TempStorage<'T> =
@@ -73,102 +60,109 @@ module WarpScanSmem =
         [<ReflectedDefinition>] member this.GetPtr(i:uint32, j:uint32) : deviceptr<'T> = this.Ptr + ((j |> int) + (i |> int) * this.Cols)
 
         [<ReflectedDefinition>]
-        static member Uninitialized(h:HostApi) =
-            let rows = h.Params.LOGICAL_WARPS
-            let cols = h.Constants.WARP_SMEM_ELEMENTS
+        static member Init(sp:StaticParam) =
+            let rows = sp.LOGICAL_WARPS
+            let cols = sp.WARP_SMEM_ELEMENTS
             let s = __shared__.Array<'T>(rows * cols)
             let ptr = s |> __array_to_ptr
             { Ptr = ptr; Rows = rows; Cols = cols }
 
 
 
+    [<Record>]
+    type InstanceParam<'T> =
+        {
+            mutable temp_storage    : TempStorage<'T>
+            mutable warp_id         : uint32
+            mutable lane_id         : uint32
+        }
+        
+        [<ReflectedDefinition>]
+        static member Init(temp_storage:TempStorage<'T>, warp_id:uint32, lane_id:uint32) = 
+            { temp_storage = temp_storage; warp_id = warp_id; lane_id = lane_id }
 
 
-
-
-
-
-    let [<ReflectedDefinition>] inline Broadcast (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) (input:'T) (src_lane:uint32) =
-        if lane_id = src_lane then ThreadStore.STORE_VOLATILE (temp_storage.Ptr + (warp_id |> int)) (input)
+    let [<ReflectedDefinition>] inline Broadcast (ip:InstanceParam<'T>) (input:'T) (src_lane:uint32) =
+        if ip.lane_id = src_lane then ThreadStore.STORE_VOLATILE (ip.temp_storage.Ptr + (ip.warp_id |> int)) (input)
             
-        ThreadLoad.LOAD_VOLATILE (temp_storage.Ptr + (warp_id |> int))
+        ThreadLoad.LOAD_VOLATILE (ip.temp_storage.Ptr + (ip.warp_id |> int))
 
 
     ///@TODO
     module InitIdentity =    
-        let [<ReflectedDefinition>] inline True (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) =
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, lane_id)) 0G
+        let [<ReflectedDefinition>] inline True (ip:InstanceParam<'T>) =
+            ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, ip.lane_id)) 0G
             
             
-        let [<ReflectedDefinition>] inline False (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) = ()
+        let [<ReflectedDefinition>] inline False (ip:InstanceParam<'T>) = ()
             
 
         let [<ReflectedDefinition>] inline api (has_identity:bool) 
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) = 
-            if has_identity then True temp_storage warp_id lane_id else False temp_storage warp_id lane_id
+            (ip:InstanceParam<'T>) = 
+            if has_identity then True ip else False ip
 
 
-    let [<ReflectedDefinition>] inline _ScanStep (h:HostApi) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
-        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+    let [<ReflectedDefinition>] inline _ScanStep (sp:StaticParam) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
+        (ip:InstanceParam<'T>)
         (partial:Ref<'T>) (_STEP:int) =
-        let c = h.Constants
+        
         let OFFSET = 1u <<< _STEP
-        ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) !partial
+        ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id)) !partial
 
-        if has_identity || (lane_id >= OFFSET) then
-            let addend =    ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
+        if has_identity || (ip.lane_id >= OFFSET) then
+            let addend =    ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - OFFSET))
             partial := (addend, !partial) ||> scan_op
         
 
-    let [<ReflectedDefinition>] inline ScanStep (h:HostApi) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
-        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+    let [<ReflectedDefinition>] inline ScanStep (sp:StaticParam) (has_identity:bool) (scan_op:'T -> 'T -> 'T) 
+        (ip:InstanceParam<'T>)
         (partial:Ref<'T>) =
-        let c = h.Constants
-        _ScanStep h has_identity scan_op temp_storage warp_id lane_id partial 0
-        for STEP = 1 to c.STEPS - 1 do
-            _ScanStep h has_identity scan_op temp_storage warp_id lane_id partial STEP
+        
+        _ScanStep sp has_identity scan_op ip partial 0
+        for STEP = 1 to sp.STEPS - 1 do
+            _ScanStep sp has_identity scan_op ip partial STEP
 
 
-    let [<ReflectedDefinition>] inline _ScanStepInt (h:HostApi) (has_identity:bool)
-        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+    let [<ReflectedDefinition>] inline _ScanStepInt (sp:StaticParam) (has_identity:bool)
+        (ip:InstanceParam<int>)
         (partial:Ref<int>) (_STEP:int) =
-        let c = h.Constants
+        
         let OFFSET = 1u <<< _STEP
-        ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET)) (!partial)
+        ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - OFFSET)) (!partial)
 
-        if has_identity || (lane_id >= OFFSET) then
-            let addend = ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - OFFSET))
+        if has_identity || (ip.lane_id >= OFFSET) then
+            let addend = ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - OFFSET))
             partial := addend + !partial
         
     
-    let [<ReflectedDefinition>] inline ScanStepInt (h:HostApi) (has_identity:bool)
-        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+    let [<ReflectedDefinition>] inline ScanStepInt (sp:StaticParam) (has_identity:bool)
+        (ip:InstanceParam<int>)
         (partial:Ref<int>) =
-        let c = h.Constants
-        _ScanStepInt h has_identity temp_storage warp_id lane_id partial 0
-        for STEP = 1 to c.STEPS - 1 do
-            _ScanStepInt h has_identity temp_storage warp_id lane_id partial STEP
+        
+        _ScanStepInt sp has_identity ip partial 0
+        for STEP = 1 to sp.STEPS - 1 do
+            _ScanStepInt sp has_identity ip partial STEP
             
 
 
-    let [<ReflectedDefinition>] inline BasicScan (h:HostApi) (has_identity:bool) (share_final:bool) (scan_op:'T -> 'T -> 'T)
-        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) 
+    let [<ReflectedDefinition>] inline BasicScan (sp:StaticParam) (has_identity:bool) (share_final:bool) (scan_op:'T -> 'T -> 'T)
+        (ip:InstanceParam<'T>) 
         (partial:'T) =
-        let c = h.Constants
+        
         let partial = __local__.Variable<'T>(partial)
-        ScanStep h has_identity scan_op temp_storage warp_id lane_id partial
+        ScanStep sp has_identity scan_op ip partial
         if share_final then 
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) (!partial)
+            ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id)) (!partial)
         !partial
         
 
-    let [<ReflectedDefinition>] inline BasicScanInt (h:HostApi) (has_identity:bool) (share_final:bool)
-        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32) (partial:int) =
-        let c = h.Constants
+    let [<ReflectedDefinition>] inline BasicScanInt (sp:StaticParam) (has_identity:bool) (share_final:bool)
+        (ip:InstanceParam<int>) (partial:int) =
+        
         //let mutable partial = partial
-        ScanStepInt h has_identity temp_storage warp_id lane_id (partial |> __obj_to_ref)
+        ScanStepInt sp has_identity ip (partial |> __obj_to_ref)
         if share_final then 
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id)) (partial)
+            ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id)) (partial)
         partial
 
 
@@ -176,140 +170,138 @@ module WarpScanSmem =
 
     module InclusiveSum =   
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) =
             let has_identity = true //PRIMITIVE()
             let share_final = false
-            InitIdentity.api has_identity temp_storage warp_id lane_id
-            output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input
+            InitIdentity.api has_identity ip
+            output := BasicScan sp has_identity share_final scan_op ip input
    
-        let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
-            (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline DefaultInt (sp:StaticParam)
+            (ip:InstanceParam<int>)
             (input:int) (output:Ref<int>) =
             let has_identity = true //PRIMITIVE()
             let share_final = false
-            InitIdentity.api has_identity temp_storage warp_id lane_id
-            output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input  
+            InitIdentity.api has_identity ip
+            output := BasicScanInt sp has_identity share_final ip input  
       
     
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
             let has_identity = true //PRIMITIVE()
             let share_final = true
-            let p = h.Params
-            let c = h.Constants
+            let p = sp
             
-            InitIdentity.api has_identity temp_storage warp_id lane_id
             
-            output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input            
+            InitIdentity.api has_identity ip
+            
+            output := BasicScan sp has_identity share_final scan_op ip input            
         
-            warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id |> int, c.WARP_SMEM_ELEMENTS - 1))
+            warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id |> int, sp.WARP_SMEM_ELEMENTS - 1))
 
 
-        let [<ReflectedDefinition>] inline WithAggregateInt (h:HostApi)
-            (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline WithAggregateInt (sp:StaticParam)
+            (ip:InstanceParam<int>)
             (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
             let has_identity = true //PRIMITIVE()
             let share_final = true
-            let p = h.Params
-            let c = h.Constants
+            let p = sp
             
-            InitIdentity.api has_identity temp_storage warp_id lane_id
             
-            output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input            
-            warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id |> int, c.WARP_SMEM_ELEMENTS - 1))
+            InitIdentity.api has_identity ip
+            
+            output := BasicScanInt sp has_identity share_final ip input            
+            warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id |> int, sp.WARP_SMEM_ELEMENTS - 1))
 
 
 
     module InclusiveScan =
-        open Template
+        
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) =
-            output := BasicScan h false false scan_op temp_storage warp_id lane_id input
+            output := BasicScan sp false false scan_op ip input
         
 
-        let [<ReflectedDefinition>] WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            let c = h.Constants
+            
         
-            output := BasicScan h true false scan_op temp_storage warp_id lane_id input
-            warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id |> int, c.WARP_SMEM_ELEMENTS - 1))
+            output := BasicScan sp true false scan_op ip input
+            warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id |> int, sp.WARP_SMEM_ELEMENTS - 1))
 
     module ExclusiveSum = ()
     
     module ExclusiveScan =
-        open Template
+        
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (identity:'T) =
-            let c = h.Constants
-            ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, lane_id)) (identity)
+            
+            ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, ip.lane_id)) (identity)
 
-            let inclusive = BasicScan h true true scan_op temp_storage warp_id lane_id input
-            output := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - 1u))
+            let inclusive = BasicScan sp true true scan_op ip input
+            output := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - 1u))
         
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
-            let c = h.Constants
+            
         
-            Default h scan_op temp_storage warp_id lane_id input output identity
-            warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - 1u))
+            Default sp scan_op ip input output identity
+            warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - 1u))
         
 
         module Identityless =
-            let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) 
+            let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam<'T>) 
                 (input:'T) (output:Ref<'T>) =
-                let c = h.Constants
+                
 
-                let inclusive = BasicScan h false true scan_op temp_storage warp_id lane_id input
-                output := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - 1u))
+                let inclusive = BasicScan sp false true scan_op ip input
+                output := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - 1u))
             
-            let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
-                (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32) 
+            let [<ReflectedDefinition>] inline DefaultInt (sp:StaticParam)
+                (ip:InstanceParam<int>) 
                 (input:int) (output:Ref<int>) =
-                let c = h.Constants
+                
 
-                let inclusive = BasicScanInt h false true temp_storage warp_id lane_id input
-                output := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, (c.HALF_WARP_THREADS |> uint32) + lane_id - 1u))
+                let inclusive = BasicScanInt sp false true ip input
+                output := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, (sp.HALF_WARP_THREADS |> uint32) + ip.lane_id - 1u))
             
 
 
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+            let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam<'T>)
                 (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-                let c = h.Constants
+                
             
-                Default h scan_op temp_storage warp_id lane_id input output
+                Default sp scan_op ip input output
 
     [<Record>]
     type IntApi =
         {
-            mutable temp_storage    : TempStorage<int>
-            mutable warp_id         : uint32
-            mutable lane_id         : uint32
+            mutable InstanceParam : InstanceParam<int>
         }
         
-        [<ReflectedDefinition>] static member Init(temp_storage, warp_id, lane_id) = { temp_storage = temp_storage; warp_id = warp_id; lane_id = lane_id }
+        [<ReflectedDefinition>] static member Init(temp_storage, warp_id, lane_id) = { InstanceParam = InstanceParam<int>.Init(temp_storage, warp_id, lane_id) }
 
         [<ReflectedDefinition>] 
-        member this.InclusiveSum(h, input:int, output:Ref<int>) = 
-            InclusiveSum.DefaultInt h this.temp_storage this.warp_id this.lane_id input output
+        member this.InclusiveSum(sp, input:int, output:Ref<int>) = 
+            InclusiveSum.DefaultInt sp this.InstanceParam input output
 
         [<ReflectedDefinition>]
-        member this.InclusiveSum(h, input:int, output:Ref<int>, warp_aggregate) =
-            InclusiveSum.WithAggregateInt h this.temp_storage this.warp_id this.lane_id input output warp_aggregate
+        member this.InclusiveSum(sp, input:int, output:Ref<int>, warp_aggregate) =
+            InclusiveSum.WithAggregateInt sp this.InstanceParam input output warp_aggregate
         
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, input, output) 
-            = ExclusiveScan.Identityless.DefaultInt h this.temp_storage this.warp_id this.lane_id input output
+        [<ReflectedDefinition>] member this.ExclusiveScan(sp, input, output) 
+            = ExclusiveScan.Identityless.DefaultInt sp this.InstanceParam input output
 
 
 
@@ -321,38 +313,38 @@ module WarpScanSmem =
 //            mutable lane_id         : uint32
 //        }
 //        
-//        [<ReflectedDefinition>] static member Init(temp_storage, warp_id, lane_id) = { temp_storage = temp_storage; warp_id = warp_id; lane_id = lane_id }
+//        [<ReflectedDefinition>] static member Init(ip.temp_storage, warp_id, ip.lane_id) = { temp_storage = temp_storage; warp_id = warp_id; lane_id = lane_id }
 //
 //        [<ReflectedDefinition>] 
 //        member this.InclusiveSum(h, input:int, output:Ref<int>) = 
-//            InclusiveSum.DefaultInt h this.temp_storage this.warp_id this.lane_id input output
+//            InclusiveSum.DefaultInt sp this.temp_storage this.warp_id this.lane_id input output
 
 //        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output) 
-//            = InclusiveSum.Default h scan_op this.temp_storage this.warp_id this.lane_id input output
+//            = InclusiveSum.Default sp scan_op this.temp_storage this.warp_id this.lane_id input output
 ////        
 //        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, warp_aggregate) 
-//            = InclusiveSum.WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
+//            = InclusiveSum.WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
 //
 //        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output) 
-//            = InclusiveScan.Default h scan_op this.temp_storage this.warp_id this.lane_id input output
+//            = InclusiveScan.Default sp scan_op this.temp_storage this.warp_id this.lane_id input output
 //        
 //        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate) 
-//            = InclusiveScan.WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate  
+//            = InclusiveScan.WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate  
 //
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity) 
-//            = ExclusiveScan.Default h scan_op this.temp_storage this.warp_id this.lane_id input output identity
+//            = ExclusiveScan.Default sp scan_op this.temp_storage this.warp_id this.lane_id input output identity
 //        
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate) 
-//            = ExclusiveScan.WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output identity warp_aggregate
+//            = ExclusiveScan.WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output identity warp_aggregate
 //        
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output) 
-//            = ExclusiveScan.Identityless.Default h scan_op this.temp_storage this.warp_id this.lane_id input output
+//            = ExclusiveScan.Identityless.Default sp scan_op this.temp_storage this.warp_id this.lane_id input output
 //        
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, input, output) 
-//            = ExclusiveScan.Identityless.Default h this.temp_storage this.warp_id this.lane_id input output
+//            = ExclusiveScan.Identityless.Default sp this.temp_storage this.warp_id this.lane_id input output
         
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate) 
-//            = ExclusiveScan.Identityless.WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
+//            = ExclusiveScan.Identityless.WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
 
 
 
@@ -398,111 +390,111 @@ module WarpScanSmem =
 //
 ////        
 //module InclusiveSum =
-//    open Template
+//    
 //    
 //
-//    let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-//        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+//    let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//        (ip:InstanceParam<'T>)
 //        (input:'T) (output:Ref<'T>) =
 //        let has_identity = true //PRIMITIVE()
 //        let share_final = false
 //            //(%InitIdentity) d
-//        output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input
+//        output := BasicScan sp has_identity share_final scan_op ip input
 //   
-//    let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
-//        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+//    let [<ReflectedDefinition>] inline DefaultInt (sp:StaticParam)
+//        (ip:InstanceParam<int>)
 //        (input:int) (output:Ref<int>) =
 //        let has_identity = true //PRIMITIVE()
 //        let share_final = false
 //            //(%InitIdentity) d
-//        output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input  
+//        output := BasicScanInt sp has_identity share_final ip input  
 //      
 //    
-//    let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-//        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+//    let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//        (ip:InstanceParam<'T>)
 //        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
 //        let has_identity = true //PRIMITIVE()
 //        let share_final = true
-//        let p = h.Params
-//        let c = h.Constants
+//        let p = sp
+//        
 //            
 //        //(%InitIdentity) d
 //            
-//        output := BasicScan h has_identity share_final scan_op temp_storage warp_id lane_id input            
+//        output := BasicScan sp has_identity share_final scan_op ip input            
 //        
-//        warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.WARP_SMEM_ELEMENTS - 1))
+//        warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.WARP_SMEM_ELEMENTS - 1))
 //
 //
-//    let [<ReflectedDefinition>] inline WithAggregateInt (h:HostApi)
-//        (temp_storage:TempStorage<int>) (warp_id:uint32) (lane_id:uint32)
+//    let [<ReflectedDefinition>] inline WithAggregateInt (sp:StaticParam)
+//        (ip:InstanceParam<int>)
 //        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
 //        let has_identity = true //PRIMITIVE()
 //        let share_final = true
-//        let p = h.Params
-//        let c = h.Constants
+//        let p = sp
+//        
 //            
 //        //(%InitIdentity) d
 //            
-//        output := BasicScanInt h has_identity share_final temp_storage warp_id lane_id input            
-//        warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.WARP_SMEM_ELEMENTS - 1))
+//        output := BasicScanInt sp has_identity share_final ip input            
+//        warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.WARP_SMEM_ELEMENTS - 1))
 ////
 ////module InclusiveScan =
-////    open Template
+////    
 ////
-////    let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+////    let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////        (ip:InstanceParam<'T>)
 ////        (input:'T) (output:Ref<'T>) =
-////        output := BasicScan h false false scan_op temp_storage warp_id lane_id input
+////        output := BasicScan sp false false scan_op ip input
 ////        
 ////
-////    let [<ReflectedDefinition>] WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+////    let [<ReflectedDefinition>] WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////        (ip:InstanceParam<'T>)
 ////        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-////        let c = h.Constants
 ////        
-////        output := BasicScan h true false scan_op temp_storage warp_id lane_id input
-////        warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.WARP_SMEM_ELEMENTS - 1))
+////        
+////        output := BasicScan sp true false scan_op ip input
+////        warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.WARP_SMEM_ELEMENTS - 1))
 ////
 //
 ////module ExclusiveScan =
-////    open Template
+////    
 ////
-////    let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+////    let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////        (ip:InstanceParam<'T>)
 ////        (input:'T) (output:Ref<'T>) (identity:'T) =
-////        let c = h.Constants
-////        ThreadStore.STORE_VOLATILE (temp_storage.GetPtr(warp_id, lane_id)) (identity)
+////        
+////        ThreadStore.STORE_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, ip.lane_id)) (identity)
 ////
-////        let inclusive = BasicScan h true true scan_op temp_storage warp_id lane_id input
-////        output := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.HALF_WARP_THREADS + lane_id - 1))
+////        let inclusive = BasicScan sp true true scan_op ip input
+////        output := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.HALF_WARP_THREADS + ip.lane_id - 1))
 ////        
 ////
-////    let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////        (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+////    let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////        (ip:InstanceParam<'T>)
 ////        (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
-////        let c = h.Constants
 ////        
-////        Default h scan_op temp_storage warp_id lane_id input output identity
-////        warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.HALF_WARP_THREADS + lane_id - 1))
+////        
+////        Default sp scan_op ip input output identity
+////        warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.HALF_WARP_THREADS + ip.lane_id - 1))
 ////        
 ////
 ////    module Identityless =
-////        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32) 
+////        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////            (ip:InstanceParam<'T>) 
 ////            (input:'T) (output:Ref<'T>) =
-////            let c = h.Constants
-////
-////            let inclusive = BasicScan h false true scan_op temp_storage warp_id lane_id input
-////            output := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.HALF_WARP_THREADS + lane_id - 1))
 ////            
 ////
-////        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-////            (temp_storage:TempStorage<'T>) (warp_id:uint32) (lane_id:uint32)
+////            let inclusive = BasicScan sp false true scan_op ip input
+////            output := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.HALF_WARP_THREADS + ip.lane_id - 1))
+////            
+////
+////        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+////            (ip:InstanceParam<'T>)
 ////            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-////            let c = h.Constants
 ////            
-////            Default h scan_op temp_storage warp_id lane_id input output
-////            warp_aggregate := ThreadLoad.LOAD_VOLATILE (temp_storage.GetPtr(warp_id, c.HALF_WARP_THREADS + lane_id - 1))
+////            
+////            Default sp scan_op ip input output
+////            warp_aggregate := ThreadLoad.LOAD_VOLATILE (ip.temp_storage.GetPtr(ip.warp_id, sp.HALF_WARP_THREADS + ip.lane_id - 1))
 //    
 ////    [<Record>]
 ////    type API<'T> =
@@ -510,26 +502,26 @@ module WarpScanSmem =
 ////            mutable DeviceApi : _DeviceApi<'T>
 ////        }
 ////
-////        [<ReflectedDefinition>] static member Create(temp_storage, warp_id, lane_id) = { DeviceApi = _DeviceApi<'T>.Init(temp_storage, warp_id, lane_id)}
+////        [<ReflectedDefinition>] static member Create(ip.temp_storage, warp_id, ip.lane_id) = { DeviceApi = _DeviceApi<'T>.Init(ip.temp_storage, warp_id, ip.lane_id)}
 ////
 ////        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity) 
-////            = Default h scan_op this.temp_storage this.warp_id this.lane_id input output identity
+////            = Default sp scan_op this.temp_storage this.warp_id this.lane_id input output identity
 ////        
 ////        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate) 
-////            = WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output identity warp_aggregate
+////            = WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output identity warp_aggregate
 ////        
 ////        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output) 
-////            = Identityless.Default h scan_op this.temp_storage this.warp_id this.lane_id input output
+////            = Identityless.Default sp scan_op this.temp_storage this.warp_id this.lane_id input output
 ////        
 ////        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate) 
-////            = Identityless.WithAggregate h scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
+////            = Identityless.WithAggregate sp scan_op this.temp_storage this.warp_id this.lane_id input output warp_aggregate
 //    module InclusiveSum =
 //        type FunctionApi<'T> = Template.InclusiveSum._FunctionApi<'T>
 //
-//        let inline api (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveSum.api h scan_op
+//        let inline api (sp:StaticParam) (scan_op:'T -> 'T -> 'T) = InclusiveSum.api sp scan_op
 //        
 //        let inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
-//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            let sp = HostApi.Init(logical_warps, logical_warp_threads)
 //            
 //            let! dfault = (h, scan_op) ||> InclusiveSum.Default |> Compiler.DefineFunction
 //            let! waggr  = (h, scan_op) ||> InclusiveSum.WithAggregate |> Compiler.DefineFunction
@@ -542,10 +534,10 @@ module WarpScanSmem =
 //    module InclusiveScan =
 //        type FunctionApi<'T> = Template.InclusiveScan._FunctionApi<'T>
 //
-//        let inline api (h:HostApi) (scan_op:'T -> 'T -> 'T) = InclusiveScan.api h scan_op
+//        let inline api (sp:StaticParam) (scan_op:'T -> 'T -> 'T) = InclusiveScan.api sp scan_op
 //
 //        let inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
-//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            let sp = HostApi.Init(logical_warps, logical_warp_threads)
 //            
 //            let! dfault = (h, scan_op) ||> InclusiveScan.Default |> Compiler.DefineFunction
 //            let! waggr  = (h, scan_op) ||> InclusiveScan.WithAggregate |> Compiler.DefineFunction
@@ -558,10 +550,10 @@ module WarpScanSmem =
 //    module ExclusiveScan =
 //        type FunctionApi<'T> = Template.ExclusiveScan._FunctionApi<'T>
 //
-//        let inline api (h:HostApi) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.api h scan_op
+//        let inline api (sp:StaticParam) (scan_op:'T -> 'T -> 'T) = ExclusiveScan.api sp scan_op
 //
 //        let inline template<'T> (logical_warps:int) (logical_warp_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
-//            let h = HostApi.Init(logical_warps, logical_warp_threads)
+//            let sp = HostApi.Init(logical_warps, logical_warp_threads)
 //        
 //            let! dfault = (h, scan_op) ||> ExclusiveScan.Default                    |> Compiler.DefineFunction
 //            let! dfaultnoid = (h, scan_op) ||> ExclusiveScan.Identityless.Default   |> Compiler.DefineFunction
@@ -608,14 +600,14 @@ module WarpScanSmem =
 //            match has_identity with
 //            | true ->
 //                let identity = ZeroInitialize() |> __ptr_to_obj
-//                (temp_storage.[warp_id, lane_id] |> __array_to_ptr, identity) ||> store
+//                (ip.temp_storage.[warp_id, ip.lane_id] |> __array_to_ptr, identity) ||> store
 //            | false ->
 //                ()
 //
 //let scanStep logical_warps logical_warp_threads =
 //    let HALF_WARP_THREADS = logical_warp_threads |> HALF_WARP_THREADS
 //    let STEPS = logical_warp_threads |> STEPS
-//    fun (temp_storage:int[,]) warp_id lane_id ->
+//    fun (ip.temp_storage:int[,]) warp_id lane_id ->
 //        let load = LOAD_VOLATILE |> threadLoad()
 //        let store = STORE_VOLATILE |> threadStore()
 //        fun has_identity step ->
@@ -624,22 +616,22 @@ module WarpScanSmem =
 //                while !step < STEPS do
 //                    let OFFSET = 1 <<< !step
 //                    
-//                    //(temp_storage |> __array_to_ptr, !partial) ||> store
+//                    //(ip.temp_storage |> __array_to_ptr, !partial) ||> store
 //
-//                    if has_identity || (lane_id >= OFFSET) then
-//                        let addend = (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id)] |> __obj_to_ptr, Some(partial |> __ref_to_ptr)) ||> load
+//                    if has_identity || (ip.lane_id >= OFFSET) then
+//                        let addend = (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id)] |> __obj_to_ptr, Some(partial |> __ref_to_ptr)) ||> load
 //                        partial := (addenValue, !partial) ||> scan_op
 //                        
 //                    step := !step + 1
 //
 //
 //let broadcast =
-//    fun (temp_storage:TempStorage<int>) warp_id lane_id ->
+//    fun (ip.temp_storage:TempStorage<int>) warp_id lane_id ->
 //        let load = LOAD_VOLATILE |> threadLoad()
 //        let store = STORE_VOLATILE |> threadStore()
 //        fun input src_lane ->
-//            if lane_id = src_lane then (temp_storage.[warp_id] |> __obj_to_ptr, input) ||> store
-//            (temp_storage.[warp_id] |> __obj_to_ptr, None) ||> load
+//            if ip.lane_id = src_lane then (ip.temp_storage.[warp_id] |> __obj_to_ptr, input) ||> store
+//            (ip.temp_storage.[warp_id] |> __obj_to_ptr, None) ||> load
 //            |> Option.get
 //
 //
@@ -647,15 +639,15 @@ module WarpScanSmem =
 //    let HALF_WARP_THREADS = logical_warp_threads |> HALF_WARP_THREADS
 //    let scanStep = (logical_warps, logical_warp_threads) ||> scanStep
 //    fun has_identity share_final ->
-//        fun (temp_storage:int[,]) warp_id lane_id ->
+//        fun (ip.temp_storage:int[,]) warp_id lane_id ->
 //            let store = STORE_VOLATILE |> threadStore()
 //            fun (partial:int) (scan_op:(int -> int -> int)) ->
 //                let partial = partial |> __obj_to_ref
 //                scanStep
-//                <|||    (temp_storage, warp_id, lane_id)
+//                <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                <||     (has_identity, 0)
 //                <||     (partial, scan_op)
-//                if share_final then (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id)] |> __obj_to_ptr, !partial) ||> store
+//                if share_final then (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id)] |> __obj_to_ptr, !partial) ||> store
 //                !partial
 //
 //
@@ -664,7 +656,7 @@ module WarpScanSmem =
 //    let initIdentity = (logical_warps, logical_warp_threads) ||> initIdentity
 //    let basicScan = (logical_warps, logical_warp_threads) ||> basicScan
 //
-//    fun (temp_storage:int[,]) warp_id lane_id ->
+//    fun (ip.temp_storage:int[,]) warp_id lane_id ->
 //        let load = LOAD_VOLATILE |> threadLoad()
 //            
 //        fun (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<int> option) ->
@@ -673,28 +665,28 @@ module WarpScanSmem =
 //                let HAS_IDENTITY = true // Traits<int>::PRIMITIVE
 //                initIdentity
 //                <|  HAS_IDENTITY 
-//                <|| (warp_id, lane_id)
+//                <|| (ip.warp_id, ip.lane_id)
 //                
 //                output :=
 //                    basicScan
 //                    <||     (HAS_IDENTITY, false)
-//                    <|||    (temp_storage, warp_id, lane_id) 
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id) 
 //                    <||     (input, ( + ))
 //
 //            | Some warp_aggregate ->
 //                let HAS_IDENTITY = true // Traits<int>::PRIMITIVE
 //                initIdentity
 //                <|  HAS_IDENTITY
-//                <|| (warp_id, lane_id)
+//                <|| (ip.warp_id, ip.lane_id)
 //
 //                output :=
 //                    basicScan
 //                    <||     (HAS_IDENTITY, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, ( + ))
 //
 //                warp_aggregate :=
-//                    (temp_storage.[warp_id, (WARP_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None) 
+//                    (ip.temp_storage.[warp_id, (ip.warp_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None) 
 //                    ||> load
 //                    |> Option.get
 //
@@ -703,7 +695,7 @@ module WarpScanSmem =
 //    let WARP_SMEM_ELEMENTS = logical_warp_threads |> WARP_SMEM_ELEMENTS
 //    let basicScan = (logical_warps, logical_warp_threads) ||> basicScan
 //
-//    fun (temp_storage:int[,]) warp_id lane_id ->
+//    fun (ip.temp_storage:int[,]) warp_id lane_id ->
 //        let load = LOAD_VOLATILE |> threadLoad()
 //
 //        fun (input:'T) (output:Ref<'T>) (scan_op:(int -> int -> int)) (warp_aggregate:Ref<int> option) ->
@@ -712,18 +704,18 @@ module WarpScanSmem =
 //                output :=
 //                    basicScan
 //                    <||     (false, false)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //            | Some warp_aggregate ->
 //                output :=
 //                    basicScan
 //                    <||     (false, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //                warp_aggregate :=
-//                    (temp_storage.[warp_id, (WARP_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None) 
+//                    (ip.temp_storage.[warp_id, (ip.warp_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None) 
 //                    ||> load
 //                    |> Option.get 
 //
@@ -733,40 +725,40 @@ module WarpScanSmem =
 //    let WARP_SMEM_ELEMENTS = logical_warp_threads |> WARP_SMEM_ELEMENTS
 //    let basicScan = (logical_warps, logical_warp_threads) ||> basicScan
 //
-//    fun (temp_storage:int[,]) warp_id lane_id ->
+//    fun (ip.temp_storage:int[,]) warp_id lane_id ->
 //        let load = LOAD_VOLATILE |> threadLoad()
 //        let store = STORE_VOLATILE |> threadStore()
 //
 //        fun (input:'T) (output:Ref<'T>) (scan_op:(int -> int -> int)) (identity:int option) (warp_aggregate:Ref<int> option) ->
 //            match identity, warp_aggregate with
 //            | Some identity, None ->
-//                (temp_storage.[warp_id, lane_id] |> __obj_to_ptr, identity) ||> store
+//                (ip.temp_storage.[warp_id, ip.lane_id] |> __obj_to_ptr, identity) ||> store
 //                let inclusive =
 //                    basicScan
 //                    <||     (true, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //                output :=
-//                    (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id - 1)] |> __obj_to_ptr, None) 
+//                    (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id - 1)] |> __obj_to_ptr, None) 
 //                    ||> load
 //                    |> Option.get
 //
 //            | Some identity, Some warp_aggregate ->
-//                (temp_storage.[warp_id, lane_id] |> __obj_to_ptr, identity) ||> store
+//                (ip.temp_storage.[warp_id, ip.lane_id] |> __obj_to_ptr, identity) ||> store
 //                let inclusive =
 //                    basicScan
 //                    <||     (true, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //                output :=
-//                    (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id - 1)] |> __obj_to_ptr, None) 
+//                    (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id - 1)] |> __obj_to_ptr, None) 
 //                    ||> load
 //                    |> Option.get
 //
 //                warp_aggregate :=
-//                    (temp_storage.[warp_id, (WARP_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None)
+//                    (ip.temp_storage.[warp_id, (ip.warp_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None)
 //                    ||> load
 //                    |> Option.get
 //
@@ -774,11 +766,11 @@ module WarpScanSmem =
 //                let inclusive =
 //                    basicScan
 //                    <||     (false, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //                output :=
-//                    (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id - 1)] |> __obj_to_ptr, None)
+//                    (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id - 1)] |> __obj_to_ptr, None)
 //                    ||> load
 //                    |> Option.get
 //
@@ -786,16 +778,16 @@ module WarpScanSmem =
 //                let inclusive =
 //                    basicScan
 //                    <||     (false, true)
-//                    <|||    (temp_storage, warp_id, lane_id)
+//                    <|||    (ip.temp_storage, warp_id, ip.lane_id)
 //                    <||     (input, scan_op)
 //
 //                output :=
-//                    (temp_storage.[warp_id, (HALF_WARP_THREADS + lane_id - 1)] |> __obj_to_ptr, None)
+//                    (ip.temp_storage.[warp_id, (HALF_WARP_THREADS + ip.lane_id - 1)] |> __obj_to_ptr, None)
 //                    ||> load
 //                    |> Option.get
 //
 //                warp_aggregate :=
-//                    (temp_storage.[warp_id, (WARP_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None)
+//                    (ip.temp_storage.[warp_id, (ip.warp_SMEM_ELEMENTS - 1)] |> __obj_to_ptr, None)
 //                    ||> load
 //                    |> Option.get
 //
@@ -824,7 +816,7 @@ module WarpScanSmem =
 //        lane_id : uint32
 //    }
 //
-//    static member Init(temp_storage:int[,], warp_id:uint32, lane_id:uint32) =
+//    static member Init(ip.temp_storage:int[,], warp_id:uint32, lane_id:uint32) =
 //        {
 //            temp_storage = temp_storage
 //            warp_id = warp_id
@@ -867,12 +859,12 @@ module WarpScanSmem =
 //
 //    static member Create(logical_warps, logical_warp_threads) =
 //        let c = logical_warp_threads |> Constants.Init
-//        //let temp_storage = Array2zeroCreate logical_warps c.WARP_SMEM_ELEMENTS
+//        //let temp_storage = Array2zeroCreate logical_warps sp.WARP_SMEM_ELEMENTS
 //        let temp_storage = __shared__.Array2D(logical_warps)
 //        {
 //            LOGICAL_WARPS           = logical_warps
 //            LOGICAL_WARP_THREADS    = logical_warp_threads
 //            Constants               = c
 //            //TempStorage             = temp_storage
-//            //ThreadFields            = (temp_storage, 0u, 0u) |> ThreadFields.Init
+//            //ThreadFields            = (ip.temp_storage, 0u, 0u) |> ThreadFields.Init
 //        }

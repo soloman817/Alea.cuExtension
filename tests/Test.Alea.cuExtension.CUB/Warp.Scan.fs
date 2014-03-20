@@ -23,12 +23,12 @@ let N = BLOCK_THREADS * ITEMS_PER_THREAD
 let ``warp scan initialization`` () =
     
     let template = cuda {
-        let h = WarpScan.HostApi.Init()
+        let h = WarpScan.StaticParam.Init()
 
         let! kernel =
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
                 let r = output.[threadIdx.x] |> __obj_to_ref
-                let temp_storage = WarpScan.TempStorage<int>.Uninitialized(h.WarpScanSmemHostApi)
+                let temp_storage = WarpScan.TempStorage<int>.Init(h.WarpScanSmemParam)
                 //let ws_d = WarpScan.API<int>.Init(ws_h) //.ExclusiveSumInt(ws_h, input.[threadIdx.x], r)
                 let x = temp_storage.[0]
 //                let aggregate = __local__.Variable<int>()
@@ -65,12 +65,12 @@ let ``warp scan initialization`` () =
 let ``exclusive sum int`` () =
     
     let template = cuda {
-        let ws_h = WarpScan.HostApi.Init(4)
+        let ws_h = WarpScan.StaticParam.Init(4)
 
         let! kernel =
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
                 let r = output.[threadIdx.x] |> __obj_to_ref
-                let ws_d = WarpScan.API<int>.Init(ws_h) //.ExclusiveSumInt(ws_h, input.[threadIdx.x], r)
+//                let ws_d = WarpScan.API<int>.Init(ws_h) //.ExclusiveSumInt(ws_h, input.[threadIdx.x], r)
                 let aggregate = __local__.Variable<int>()
                 let thread_data = __local__.Variable<int>(input.[threadIdx.x])
 //                WarpScan.ExclusiveSum.DefaultInt ws_h ws_d.DeviceAp !thread_data thread_data

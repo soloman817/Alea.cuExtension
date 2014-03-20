@@ -13,15 +13,10 @@ open Macro
 
 module BlockRakingLayout =
 
-    type Params =
-        { BLOCK_THREADS   : int; BLOCK_STRIPS    : int }
-        static member Init(block_threads, block_strips) = 
-            {BLOCK_THREADS = block_threads; BLOCK_STRIPS = block_strips }
-        static member Init(block_threads) = 
-            { BLOCK_THREADS = block_threads; BLOCK_STRIPS = 1 }
-
-    type Constants =
+    type StaticParam =
         {
+            BLOCK_THREADS       : int
+            BLOCK_STRIPS        : int
             SHARED_ELEMENTS     : int
             MAX_RAKING_THREADS  : int
             SEGMENT_LENGTH      : int
@@ -29,17 +24,20 @@ module BlockRakingLayout =
             SEGMENT_PADDING     : int
             GRID_ELEMENTS       : int
             UNGUARDED           : bool
-        }
 
-        static member Init(p:Params) =
-            let shared_elements     = p.BLOCK_THREADS * p.BLOCK_STRIPS
-            let max_raking_threads  = CUB_MIN p.BLOCK_THREADS CUB_PTX_WARP_THREADS
+            SharedMemoryLength  : int
+        }
+        static member Init(block_threads:int, block_strips:int) = 
+            let shared_elements     = block_threads * block_strips
+            let max_raking_threads  = CUB_MIN block_threads CUB_PTX_WARP_THREADS
             let segment_length      = (shared_elements + max_raking_threads - 1) / max_raking_threads
             let raking_threads      = (shared_elements + segment_length - 1) / segment_length
             let segment_padding     = if (CUB_PTX_SMEM_BANKS % segment_length = 0) then 1 else 0
             let grid_elements       = raking_threads * (segment_length + segment_padding)
             let unguarded           = (shared_elements % raking_threads = 0)
             {
+                BLOCK_THREADS       = block_threads
+                BLOCK_STRIPS        = block_strips
                 SHARED_ELEMENTS     = shared_elements
                 MAX_RAKING_THREADS  = max_raking_threads
                 SEGMENT_LENGTH      = max_raking_threads
@@ -47,45 +45,56 @@ module BlockRakingLayout =
                 SEGMENT_PADDING     = segment_padding
                 GRID_ELEMENTS       = grid_elements
                 UNGUARDED           = unguarded
+                
+                SharedMemoryLength  = grid_elements              
             }
-
-    type HostApi =
-        { Params : Params; Constants : Constants; SharedMemoryLength : int }
-
-        static member Init(block_threads, block_strips) =
-            let p = Params.Init(block_threads, block_strips)
-            let c = Constants.Init(p)
-            { Params = p; Constants = c; SharedMemoryLength = c.GRID_ELEMENTS }
-
-        static member Init(block_threads) = HostApi.Init(block_threads, 1)
+        
+        
+        static member Init(block_threads) = StaticParam.Init(block_threads, 1)
 
 
-    let [<ReflectedDefinition>] inline TempStorage<'T>(h:HostApi) = __shared__.Array<'T>(h.Constants.GRID_ELEMENTS) |> __array_to_ptr
+    let [<ReflectedDefinition>] inline TempStorage<'T>(sp:StaticParam) = __shared__.Array<'T>(sp.SharedMemoryLength) |> __array_to_ptr
+
+    [<Record>]
+    type InstanceParam<'T> =
+        {
+            mutable temp_storage    : deviceptr<'T>
+            mutable linear_tid      : int
+        }
+
+        [<ReflectedDefinition>]
+        static member Init(sp:StaticParam, linear_tid:int) =
+            { temp_storage = TempStorage<'T>(sp); linear_tid = linear_tid }
+
+        [<ReflectedDefinition>]
+        static member Init(temp_storage, linear_tid) = { temp_storage = temp_storage; linear_tid = linear_tid }
+
+
 
     module PlacementPtr =
 
-        let [<ReflectedDefinition>] inline WithBlockStrips (h:HostApi)
-            (temp_storage:deviceptr<'T>) (linear_tid:int) (block_strip:int) =
-            let p = h.Params
-            let c = h.Constants
-            let mutable offset = (block_strip * p.BLOCK_THREADS) + linear_tid
-            if c.SEGMENT_PADDING > 0 then offset <- offset + offset / c.SEGMENT_LENGTH
+        let [<ReflectedDefinition>] inline WithBlockStrips (sp:StaticParam)
+            (ip:InstanceParam<'T>) (block_strip:int) =
+            
+            
+            let mutable offset = (block_strip * sp.BLOCK_THREADS) + ip.linear_tid
+            if sp.SEGMENT_PADDING > 0 then offset <- offset + offset / sp.SEGMENT_LENGTH
 
-            temp_storage + offset
+            ip.temp_storage + offset
     
 
-        let [<ReflectedDefinition>] inline Default (h:HostApi)
-            (temp_storage:deviceptr<'T>) (linear_tid:int) =
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam)
+            (ip:InstanceParam<'T>) =
             let block_strip = 0
-            WithBlockStrips h temp_storage linear_tid block_strip
+            WithBlockStrips sp ip block_strip
         
     
 
     module RakingPtr =
-        let [<ReflectedDefinition>] inline Default (h:HostApi)
-            (temp_storage:deviceptr<'T>) (linear_tid:int) =
-            let c = h.Constants
-            temp_storage + (linear_tid * (c.SEGMENT_LENGTH + c.SEGMENT_PADDING))
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam)
+            (ip:InstanceParam<'T>) =
+            
+            ip.temp_storage + (ip.linear_tid * (sp.SEGMENT_LENGTH + sp.SEGMENT_PADDING))
     
     
 
@@ -105,7 +114,7 @@ module BlockRakingLayout =
 //            let c = _Constants.Init template
 //            {
 //                Constants       = c
-//                TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
+//                TempStorage     = _TempStorage<'T>.Init sp.GRID_ELEMENTS
 //                PlacementPtr    = PlacementPtr.api template
 //                RakingPtr       = RakingPtr.api template
 //            }
@@ -116,7 +125,7 @@ module BlockRakingLayout =
 //            let c = _Constants.Init template
 //            {
 //                Constants       = c
-//                TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
+//                TempStorage     = _TempStorage<'T>.Init sp.GRID_ELEMENTS
 //                PlacementPtr    = PlacementPtr.api template
 //                RakingPtr       = RakingPtr.api template
 //            }
@@ -126,7 +135,7 @@ module BlockRakingLayout =
 //        let c = _Constants.Init template
 //        {
 //            Constants       = c
-//            TempStorage     = _TempStorage<'T>.Init c.GRID_ELEMENTS
+//            TempStorage     = _TempStorage<'T>.Init sp.GRID_ELEMENTS
 //            PlacementPtr    = PlacementPtr.api template
 //            RakingPtr       = RakingPtr.api template
 //        }

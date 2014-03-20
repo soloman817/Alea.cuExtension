@@ -51,24 +51,24 @@ let inline template
         
     let TILE_SIZE = block_threads * items_per_thread
 
-    let bload_h = BlockLoad.HostApi.Init(block_threads, items_per_thread, load_algorithm, warp_time_slicing)
-    let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread, store_algorithm, warp_time_slicing)
+    let bload_h = BlockLoad.StaticParam.Init(block_threads, items_per_thread, load_algorithm, warp_time_slicing)
+    let bstore_h = BlockStore.StaticParam.Init(block_threads, items_per_thread, store_algorithm, warp_time_slicing)
 
     let! kernel =
         <@ fun (d_in:deviceptr<int>) (d_out_unguarded:deviceptr<int>) (d_out_guarded:deviceptr<int>) (num_items:int) ->
             
-            let temp_storage = TempStorage<int>.Init(BlockLoad.PrivateStorage<int>(bload_h), BlockStore.PrivateStorage<int>(bstore_h))
+            let temp_storage = TempStorage<int>.Init(BlockLoad.PrivateStorage<int>(bload_h.BlockExchangeParam), BlockStore.PrivateStorage<int>(bstore_h))
 
             let block_offset = blockIdx.x * TILE_SIZE
             let guarded_elements = num_items - block_offset
 
             let data = __local__.Array<int>(items_per_thread) |> __array_to_ptr
 
-            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data)
+//            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data)
                 
             __syncthreads()
 
-            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_unguarded + block_offset, data)
+//            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_unguarded + block_offset, data)
 
             __syncthreads()
 
@@ -76,11 +76,11 @@ let inline template
 
             __syncthreads()
 
-            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data, guarded_elements)
+//            BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data, guarded_elements)
 
             __syncthreads()
 
-            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_guarded + block_offset, data, guarded_elements)
+//            BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_guarded + block_offset, data, guarded_elements)
                 
         @> |> Compiler.DefineKernel
         
@@ -122,13 +122,13 @@ let ``load test - int`` () =
     let n = block_threads * items_per_thread
 
     let template = cuda{
-        let h = BlockLoad.HostApi.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT, false)
+        let h = BlockLoad.StaticParam.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_DIRECT, false)
 
         let! kernel =
             <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
                 let tid = threadIdx.x
                 let thread_data = __local__.Array<int>(items_per_thread)
-                BlockLoad.API<int>.Init(h).Load(h, d_in, (thread_data |> __array_to_ptr))
+//                BlockLoad.API<int>.Init(h).Load(h, d_in, (thread_data |> __array_to_ptr))
                 d_out.[tid] <- thread_data.[items_per_thread - 1]
             @> |> Compiler.DefineKernel
 

@@ -30,14 +30,14 @@ module ScanShfl   =
 [<Test>]
 let ``warp scan smem - initialization`` () =
     let template = cuda{
-        let h = WarpScanSmem.HostApi.Init(1)
+        let h = WarpScanSmem.StaticParam.Init(1)
 
         let! kernel = 
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
                 let tid = threadIdx.x
-                let warp_id = threadIdx.x / h.Params.LOGICAL_WARP_THREADS
+                let warp_id = threadIdx.x / h.LOGICAL_WARP_THREADS
                 let lane_id = __ptx__.LaneId()
-                let temp_storage = WarpScanSmem.TempStorage<int>.Uninitialized(h)
+                let temp_storage = WarpScanSmem.TempStorage<int>.Init(h)
                 let warpscan = WarpScanSmem.IntApi.Init(temp_storage, warp_id |> uint32, lane_id)
                 ()
             @> |> Compiler.DefineKernel
@@ -62,15 +62,16 @@ let ``warp scan smem - initialization`` () =
 [<Test>]
 let ``warp scan smem - scanstep`` () =
     let template = cuda{
-        let h = WarpScanSmem.HostApi.Init(1,32)
+        let h = WarpScanSmem.StaticParam.Init(1,32)
 
         let! kernel = 
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
                 let tid = threadIdx.x
-                let warp_id = threadIdx.x / h.Params.LOGICAL_WARP_THREADS
+                let warp_id = threadIdx.x / h.LOGICAL_WARP_THREADS
                 let lane_id = __ptx__.LaneId()
-                let temp_storage = WarpScanSmem.TempStorage<int>.Uninitialized(h)
-                output.[tid] <- WarpScanSmem.BasicScanInt h true true temp_storage (warp_id |> uint32) lane_id (input.[tid])
+                let temp_storage = WarpScanSmem.TempStorage<int>.Init(h)
+                let wssip = WarpScanSmem.InstanceParam<int>.Init(temp_storage, warp_id |> uint32, lane_id)
+                output.[tid] <- WarpScanSmem.BasicScanInt h true true wssip (input.[tid])
                 //if threadIdx.x = 0 then for i = 0 to BLOCK_THREADS - 1 do output.[i] <- temp_storage.[i]
             @> |> Compiler.DefineKernel
 
@@ -109,14 +110,14 @@ let ``warp scan smem - scanstep`` () =
 [<Test>]
 let ``warp scan smem - int`` () =
     let template = cuda{
-        let h = WarpScanSmem.HostApi.Init(1)
+        let h = WarpScanSmem.StaticParam.Init(1)
 
         let! kernel = 
             <@ fun (input:deviceptr<int>) (output:deviceptr<int>) ->
                 let tid = threadIdx.x
-                let warp_id = threadIdx.x / h.Params.LOGICAL_WARP_THREADS
+                let warp_id = threadIdx.x / h.LOGICAL_WARP_THREADS
                 let lane_id = __ptx__.LaneId()
-                let temp_storage = WarpScanSmem.TempStorage<int>.Uninitialized(h)
+                let temp_storage = WarpScanSmem.TempStorage<int>.Init(h)
                 let thread_data = __local__.Variable<int>(input.[tid])
                 //if threadIdx.x < 32 then
                 //WarpScanSmem.InclusiveSum.DefaultInt h temp_storage warp_id lane_id !thread_data thread_data

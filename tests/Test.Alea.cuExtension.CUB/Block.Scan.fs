@@ -187,15 +187,15 @@ type TempStorage<'T> =
     }
 
     [<ReflectedDefinition>]
-    static member Init(bload_h:BlockLoad.HostApi, bstore_h:BlockStore.HostApi, bscan_h:BlockScan.HostApi) =
+    static member Init(bload_h:BlockLoad.StaticParam, bstore_h:BlockStore.StaticParam, bscan_h:BlockScan.StaticParam) =
         {
-            load = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
-            store = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
-            scan = BlockScan.TempStorage<'T>.Uninitialized(bscan_h.BlockScanWarpScansHostApi)
+            load = __shared__.Array<'T>(bload_h.BlockExchangeParam.SharedMemoryLength) |> __array_to_ptr
+            store = __shared__.Array<'T>(bload_h.BlockExchangeParam.SharedMemoryLength) |> __array_to_ptr
+            scan = BlockScan.TempStorage<'T>.Init(bscan_h.BlockScanRakingParam)
         }
 
 
-//let [<ReflectedDefinition>] ExclusiveSum (h:BlockScan.HostApi) temp_storage linear_tid input output = 
+//let [<ReflectedDefinition>] ExclusiveSum (h:BlockScan.StaticParam) temp_storage linear_tid input output = 
 //    BlockScan.ExclusiveScan.MultipleDataPerThread.Identityless.Default h (+) ITEMS_PER_THREAD 
 //        temp_storage linear_tid 
 //        input output
@@ -203,11 +203,11 @@ type TempStorage<'T> =
 
 let inline intTest (block_threads:int) (items_per_thread:int) = 
     cuda {
-        let bload_h = BlockLoad.HostApi.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
-        let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
-        let bscan_h = BlockScan.HostApi.Init(block_threads, BlockScanAlgorithm.BLOCK_SCAN_WARP_SCANS)
+        let bload_h = BlockLoad.StaticParam.Init(block_threads, items_per_thread, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
+        let bstore_h = BlockStore.StaticParam.Init(block_threads, items_per_thread, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
+        let bscan_h = BlockScan.StaticParam.Init(block_threads, BlockScanAlgorithm.BLOCK_SCAN_WARP_SCANS)
             
-        let bsws_h = BlockScanWarpScans.HostApi.Init(block_threads)    
+        let bsws_h = BlockScanWarpScans.StaticParam.Init(block_threads)    
 
 
 
@@ -221,20 +221,20 @@ let inline intTest (block_threads:int) (items_per_thread:int) =
                 let data = __local__.Array<int>(items_per_thread)
                 let dptr = data |> __array_to_ptr
                         
-                BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in, dptr)
+//                BlockLoad.API<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in, dptr)
                 __syncthreads()
 
                 let aggregate = __local__.Variable<int>()
                 
                 //BlockScan.ExclusiveSum.MultipleDataPerThread.WithAggregate bscan_h items_per_thread temp_storage.scan tid dptr dptr aggregate
                 
-                BlockScan.IntApi.Init(bscan_h, temp_storage.scan).ExclusiveSum(bscan_h, items_per_thread, dptr, dptr, aggregate)
+//                BlockScan.IntApi.Init(bscan_h, temp_storage.scan).ExclusiveSum(bscan_h, items_per_thread, dptr, dptr, aggregate)
                 
                 //BlockScanWarpScans.API<int>.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, temp_storage.scan, dptr.[tid], dptr.Ref(tid), aggregate)
                 __syncthreads()
 
 
-                BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out, dptr)
+//                BlockStore.API<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out, dptr)
 
                 if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate
 

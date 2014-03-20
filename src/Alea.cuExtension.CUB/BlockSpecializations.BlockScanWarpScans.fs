@@ -15,29 +15,23 @@ open Alea.cuExtension.CUB.Warp
 
 module BlockScanWarpScans =
 
-    type Params =
-        { BLOCK_THREADS   : int }
-        static member inline Init(block_threads) = { BLOCK_THREADS = block_threads }
+    type StaticParam =
+        { 
+            BLOCK_THREADS   : int
+            WARPS           : int
 
-    type Constants =
-            { WARPS : int }
-
-            static member Init(block_threads) = { WARPS = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
-            static member Init(p:Params) = { WARPS = (p.BLOCK_THREADS + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS }
-
-
-    type HostApi =
-        {
-            Params              : Params
-            Constants           : Constants
-            WarpScanHostApi     : WarpScan.HostApi
+            WarpScanParam   : WarpScan.StaticParam
         }
+        
+        static member inline Init(block_threads) = 
+            let warps = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
+            { 
+                BLOCK_THREADS   = block_threads
+                WARPS           = warps
 
-        static member Init(block_threads) =
-            let p = Params.Init(block_threads)
-            let c = Constants.Init(p)
-            let ws = WarpScan.HostApi.Init(c.WARPS, CUB_PTX_WARP_THREADS)
-            { Params = p; Constants = c; WarpScanHostApi = ws }
+                WarpScanParam   = WarpScan.StaticParam.Init(warps, CUB_PTX_WARP_THREADS)
+            }
+
 
     [<Record>]
     type TempStorage<'T> =
@@ -48,10 +42,10 @@ module BlockScanWarpScans =
         }
 
         [<ReflectedDefinition>]
-        static member inline Uninitialized(h:HostApi) =
+        static member Init(sp:StaticParam) =
             { 
-                warp_scan       = WarpScan.TempStorage<'T>.Uninitialized(h.WarpScanHostApi.WarpScanSmemHostApi)
-                warp_aggregates = SharedRecord<'T>.Init(h.Constants.WARPS)
+                warp_scan       = WarpScan.TempStorage<'T>.Init(sp.WarpScanParam.WarpScanSmemParam)
+                warp_aggregates = SharedRecord<'T>.Init(sp.WARPS)
                 block_prefix    = __shared__.Variable<'T>()
             }
 
@@ -62,54 +56,74 @@ module BlockScanWarpScans =
     let [<ReflectedDefinition>] lane_id (block_threads:int) (linear_tid:int) = 
         if (block_threads <= CUB_PTX_WARP_THREADS) then linear_tid else linear_tid % CUB_PTX_WARP_THREADS
 
+
+    [<Record>]
+    type InstanceParam<'T> =
+        {
+            mutable temp_storage    : TempStorage<'T>
+            mutable linear_tid      : int
+            mutable warp_id         : int
+            mutable lane_id         : int
+        }
+                
+        [<ReflectedDefinition>]
+        static member Init(sp:StaticParam, temp_storage, linear_tid) = 
+            {   temp_storage    = temp_storage; 
+                linear_tid      = linear_tid; 
+                warp_id         = 
+                    if (sp.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then 0 else linear_tid / CUB_PTX_WARP_THREADS;
+                lane_id         = 
+                    if (sp.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then linear_tid else linear_tid % CUB_PTX_WARP_THREADS }
+
+
     module ApplyWarpAggregates =
 
-        let [<ReflectedDefinition>] inline WithLaneValidationInt (h:HostApi)
-            (temp_storage:TempStorage<int>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithLaneValidationInt (sp:StaticParam)
+            (ip:InstanceParam<int>)
             (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool) =
-            let p = h.Params
-            let c = h.Constants
-
-            temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
-
-            __syncthreads()
-
-            block_aggregate := temp_storage.warp_aggregates.[0]
-
-            for WARP = 1 to c.WARPS - 1 do
-                if warp_id = WARP then
-                    partial := if lane_valid then !block_aggregate + !partial else !block_aggregate
-                block_aggregate := !block_aggregate + temp_storage.warp_aggregates.[WARP]
-     
-      
-        let [<ReflectedDefinition>] inline DefaultInt (h:HostApi)
-            (temp_storage:TempStorage<int>) (linear_tid:int) (warp_id:int) (lane_id:int)
-            (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) =
-            WithLaneValidationInt h temp_storage linear_tid warp_id lane_id partial warp_aggregate block_aggregate true
-
-
-
-        let [<ReflectedDefinition>] inline WithLaneValidation (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
-            (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool) =
-            let c = h.Constants
             
-            temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
+            
+
+            ip.temp_storage.warp_aggregates.[ip.warp_id] <- warp_aggregate
 
             __syncthreads()
 
-            block_aggregate := temp_storage.warp_aggregates.[0]
+            block_aggregate := ip.temp_storage.warp_aggregates.[0]
 
-            for WARP = 1 to c.WARPS - 1 do
-                if warp_id = WARP then
-                    partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-                block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
+            for WARP = 1 to sp.WARPS - 1 do
+                if ip.warp_id = WARP then
+                    partial := if lane_valid then !block_aggregate + !partial else !block_aggregate
+                block_aggregate := !block_aggregate + ip.temp_storage.warp_aggregates.[WARP]
      
       
-        let [<ReflectedDefinition>] inline Default (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline DefaultInt (sp:StaticParam)
+            (ip:InstanceParam<int>)
+            (partial:Ref<int>) (warp_aggregate:int) (block_aggregate:Ref<int>) =
+            WithLaneValidationInt sp ip partial warp_aggregate block_aggregate true
+
+
+
+        let [<ReflectedDefinition>] inline WithLaneValidation (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
+            (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) (lane_valid:bool) =
+            
+            
+            ip.temp_storage.warp_aggregates.[ip.warp_id] <- warp_aggregate
+
+            __syncthreads()
+
+            block_aggregate := ip.temp_storage.warp_aggregates.[0]
+
+            for WARP = 1 to sp.WARPS - 1 do
+                if ip.warp_id = WARP then
+                    partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
+                block_aggregate := (!block_aggregate, ip.temp_storage.warp_aggregates.[WARP]) ||> scan_op
+     
+      
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (partial:Ref<'T>) (warp_aggregate:'T) (block_aggregate:Ref<'T>) =
-            WithLaneValidation h scan_op temp_storage linear_tid warp_id lane_id partial warp_aggregate block_aggregate true
+            WithLaneValidation sp scan_op ip partial warp_aggregate block_aggregate true
         
 
 
@@ -118,70 +132,70 @@ module BlockScanWarpScans =
         
        
 
-        let [<ReflectedDefinition>] inline WithAggregateInt (h:HostApi)
-            (temp_storage:TempStorage<int>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregateInt (sp:StaticParam)
+            (ip:InstanceParam<int>)
             (input:int) (output:Ref<int>) (block_aggregate:Ref<int>) =
-            let p = h.Params
+            let wsip = WarpScan.InstanceParam<int>.Init(sp.WarpScanParam, ip.temp_storage.warp_scan, ip.warp_id, ip.lane_id)
             let warp_aggregate = __local__.Variable<int>()
-            WarpScan.ExclusiveSum.WithAggregateInt h.WarpScanHostApi temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
-            WarpScan.IntApi.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveSum(h.WarpScanHostApi, input, output, warp_aggregate)
-            ApplyWarpAggregates.WithLaneValidationInt h temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate (lane_id > 0)
+            WarpScan.ExclusiveSum.WithAggregateInt sp.WarpScanParam wsip input output warp_aggregate
+            ApplyWarpAggregates.WithLaneValidationInt sp ip output !warp_aggregate block_aggregate (ip.lane_id > 0)
         
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
-            (input:int) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
-            let p = h.Params
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
+            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) =
+            let wsip = WarpScan.InstanceParam<'T>.Init(sp.WarpScanParam, ip.temp_storage.warp_scan, ip.warp_id, ip.lane_id)
             let warp_aggregate = __local__.Variable<'T>()
-            WarpScan.ExclusiveSum.WithAggregate h.WarpScanHostApi temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
-            ApplyWarpAggregates.WithLaneValidation h (+) temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate (lane_id > 0)
+            WarpScan.ExclusiveSum.WithAggregate sp.WarpScanParam wsip input output warp_aggregate
+            ApplyWarpAggregates.WithLaneValidation sp (+) ip output !warp_aggregate block_aggregate (ip.lane_id > 0)
         
 
-//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
-//            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+//        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//            (ip:InstanceParam<'T>)
 //            (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
-//            WithAggregate h scan_op temp_storage linear_tid warp_id lane_id input output block_aggregate
+//            WithAggregate sp scan_op ip input output block_aggregate
 //    
-//            if warp_id = 0 then 
+//            if ip.warp_id = 0 then 
 //                let block_prefix = !block_aggregate |> !block_prefix_callback_op
 //                if lane_id = 0 then
-//                    temp_storage.block_prefix := block_prefix
+//                    ip.temp_storage.block_prefix := block_prefix
 //    
 //            __syncthreads()
 //    
-//            output := (!temp_storage.block_prefix, !output) ||> scan_op
+//            output := (!ip.temp_storage.block_prefix, !output) ||> scan_op
 
         
 
     module ExclusiveScan =
         ()
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) =
             let warp_aggregate = __local__.Variable<'T>()
-            //WarpScan.API<'T>.Init(h.WarpScanHostApi, temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(h.WarpScanHostApi, scan_op, input, output, !identity, warp_aggregate)
-            WarpScan.ExclusiveScan.WithAggregate h.WarpScanHostApi scan_op temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output !identity warp_aggregate
-            ApplyWarpAggregates.Default h scan_op temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate
+            let wsip = WarpScan.InstanceParam<'T>.Init(sp.WarpScanParam, ip.temp_storage.warp_scan, ip.warp_id, ip.lane_id)
+            WarpScan.ExclusiveScan.WithAggregate sp.WarpScanParam scan_op wsip input output !identity warp_aggregate
+            ApplyWarpAggregates.Default sp scan_op ip output !warp_aggregate block_aggregate
             
     
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp  (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (identity:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = 
             () 
             
     
     
         module Identityless =
-            let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+            let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam<'T>)
                 (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
                 let warp_aggregate = __local__.Variable<'T>()
-                WarpScan.ExclusiveScan.Identityless.WithAggregate h.WarpScanHostApi scan_op temp_storage.warp_scan (warp_id |> uint32) (lane_id |> uint32) input output warp_aggregate
-                ApplyWarpAggregates.Default h scan_op temp_storage linear_tid warp_id lane_id output !warp_aggregate block_aggregate
+                let wsip = WarpScan.InstanceParam<'T>.Init(sp.WarpScanParam, ip.temp_storage.warp_scan, ip.warp_id, ip.lane_id)
+                WarpScan.ExclusiveScan.Identityless.WithAggregate sp.WarpScanParam scan_op wsip input output warp_aggregate
+                ApplyWarpAggregates.Default sp scan_op ip output !warp_aggregate block_aggregate
                 
     
-            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
-                (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+            let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam<'T>)
                 (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
                 ()
                 
@@ -191,14 +205,14 @@ module BlockScanWarpScans =
     module InclusiveSum =
         
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
             () 
         
 
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) = 
             () 
         
@@ -208,100 +222,67 @@ module BlockScanWarpScans =
     module InclusiveScan =
         
 
-        let [<ReflectedDefinition>] inline WithAggregate (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) = 
             ()
         
 
-        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (h:HostApi) (scan_op:'T -> 'T -> 'T)
-            (temp_storage:TempStorage<'T>) (linear_tid:int) (warp_id:int) (lane_id:int)
+        let [<ReflectedDefinition>] inline WithAggregateAndCallbackOp (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam<'T>)
             (input:'T) (output:Ref<'T>) (block_aggregate:Ref<'T>) (block_prefix_callback_op:Ref<'T -> 'T>) =
             ()
 
 
 
-    [<Record>]
-    type API<'T> =
-        {
-            mutable temp_storage    : TempStorage<'T>
-            mutable linear_tid      : int
-            mutable warp_id         : int
-            mutable lane_id         : int
-        }
-                
-        [<ReflectedDefinition>]
-        static member Init(h:HostApi, temp_storage, linear_tid) = 
-            let p = h.Params
-            {   temp_storage    = temp_storage; 
-                linear_tid      = linear_tid; 
-                warp_id         = 
-                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then 0 else linear_tid / CUB_PTX_WARP_THREADS;
-                lane_id         = 
-                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then linear_tid else linear_tid % CUB_PTX_WARP_THREADS }
-
-        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, block_aggregate)
-            = InclusiveSum.WithAggregate h scan_op this.temp_storage this.linear_tid this.warp_id this.lane_id input output block_aggregate
-
-        [<ReflectedDefinition>] member this.InclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = InclusiveSum.WithAggregateAndCallbackOp h scan_op this.temp_storage this.linear_tid this.warp_id this.lane_id input output block_aggregate block_prefix_callback_op
-
-
-
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, block_aggregate)
-            = InclusiveScan.WithAggregate h scan_op this.temp_storage this.linear_tid this.warp_id this.lane_id input output
-
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-            = InclusiveScan.WithAggregateAndCallbackOp h scan_op this.temp_storage this.linear_tid this.warp_id this.lane_id input output block_aggregate block_prefix_callback_op
-
-
-    [<Record>]
-    type IntApi =
-        {
-            mutable temp_storage    : TempStorage<int>
-            mutable linear_tid      : int
-            mutable warp_id         : int
-            mutable lane_id         : int
-        }
-                
-        [<ReflectedDefinition>]
-        static member Init(h:HostApi, temp_storage, linear_tid) = 
-            let p = h.Params
-            {   temp_storage    = temp_storage; 
-                linear_tid      = linear_tid; 
-                warp_id         = 
-                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then 0 else linear_tid / CUB_PTX_WARP_THREADS;
-                lane_id         = 
-                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then linear_tid else linear_tid % CUB_PTX_WARP_THREADS }
-
-
-
-        [<ReflectedDefinition>] member this.ExclusiveSum(h, input, output, block_aggregate)
-            = ExclusiveSum.WithAggregateInt h this.temp_storage this.linear_tid this.warp_id this.lane_id input output block_aggregate
+//
+//    [<Record>]
+//    type IntApi =
+//        {
+//            mutable temp_storage    : TempStorage<int>
+//            mutable linear_tid      : int
+//            mutable warp_id         : int
+//            mutable lane_id         : int
+//        }
+//                
+//        [<ReflectedDefinition>]
+//        static member Init(sp:StaticParam, temp_storage, linear_tid) = 
+//            
+//            {   temp_storage    = temp_storage; 
+//                linear_tid      = linear_tid; 
+//                warp_id         = 
+//                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then 0 else linear_tid / CUB_PTX_WARP_THREADS;
+//                lane_id         = 
+//                    if (p.BLOCK_THREADS <= CUB_PTX_WARP_THREADS) then linear_tid else linear_tid % CUB_PTX_WARP_THREADS }
+//
+//
+//
+//        [<ReflectedDefinition>] member this.ExclusiveSum(h, input, output, block_aggregate)
+//            = ExclusiveSum.WithAggregateInt sp this.temp_storage this.linear_tid this.warp_id this.lane_id input output block_aggregate
 
 //        [<ReflectedDefinition>] member this.ExclusiveSum(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-//            = ExclusiveSum.WithAggregateAndCallbackOp h scan_op this.temp_storage this.warp_id this.lane_id input output
+//            = ExclusiveSum.WithAggregateAndCallbackOp sp scan_op this.temp_storage this.warp_id this.lane_id input output
 
 
 //
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate)
-//            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity block_aggregate
+//            = ExclusiveScan.WithAggregate sp scan_op this.DeviceApi input output identity block_aggregate
 //
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, block_aggregate, block_prefix_callback_op)
-//            = ExclusiveScan.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
+//            = ExclusiveScan.WithAggregateAndCallbackOp sp scan_op this.DeviceApi input output identity block_aggregate block_prefix_callback_op
 //
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate)
-//            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output
+//            = ExclusiveScan.Identityless.WithAggregate sp scan_op this.DeviceApi input output
 //
 //        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, block_aggregate, block_prefix_callback_op)
-//            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp h scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
+//            = ExclusiveScan.Identityless.WithAggregateAndCallbackOp sp scan_op this.DeviceApi input output block_aggregate block_prefix_callback_op
 //
 
 //    module ExclusiveSum =
 //        type FunctionApi<'T> = Template.ExclusiveSum._FunctionApi<'T>
 //
 //        let [<ReflectedDefinition>] inline template<'T> (block_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
-//            let h = HostApi.Init(block_threads)
+//            let sp = HostApi.Init(block_threads)
 //            let! waggr      = (h, scan_op) ||> ExclusiveSum.WithAggregate              |> Compiler.DefineFunction
 //            
 //            return h, {
@@ -312,7 +293,7 @@ module BlockScanWarpScans =
 //        type FunctionApi<'T> = Template.ExclusiveScan._FunctionApi<'T>
 //
 //        let [<ReflectedDefinition>] inline template<'T> (block_threads:int) (scan_op:'T -> 'T -> 'T) : Template<HostApi*FunctionApi<'T>> = cuda {
-//            let h = HostApi.Init(block_threads)
+//            let sp = HostApi.Init(block_threads)
 //            let! waggr      = (h, scan_op) ||> ExclusiveScan.WithAggregate              |> Compiler.DefineFunction
 //            let! waggr_noid = (h, scan_op) ||> ExclusiveScan.Identityless.WithAggregate |> Compiler.DefineFunction
 //
@@ -415,17 +396,17 @@ module BlockScanWarpScans =
 //    let WARPS = block_threads |> WARPS
 //    fun (partial:Ref<int>) (scan_op:(int -> int -> int)) (warp_aggregate:int) (block_aggregate:Ref<int>) (lane_valid:bool option) =
 //        let lane_valid = if lane_valiIsSome then lane_valiValue else true
-//        fun (temp_storage:TempStorage) (warp_id:int) =
-//            temp_storage.warp_aggregates.[warp_id] <- warp_aggregate
+//        fun (temp_storage:TempStorage) (ip.warp_id:int) =
+//            ip.temp_storage.warp_aggregates.[ip.warp_id] <- warp_aggregate
 //
 //            __syncthreads()
 //
-//            block_aggregate := temp_storage.warp_aggregates.[0]
+//            block_aggregate := ip.temp_storage.warp_aggregates.[0]
 //
 //            for WARP = 1 to WARPS - 1 do
-//                if warp_id = WARP then
+//                if ip.warp_id = WARP then
 //                    partial := if lane_valid then (!block_aggregate, !partial) ||> scan_op else !block_aggregate
-//                block_aggregate := (!block_aggregate, temp_storage.warp_aggregates.[WARP]) ||> scan_op
+//                block_aggregate := (!block_aggregate, ip.temp_storage.warp_aggregates.[WARP]) ||> scan_op
 //            
 //     
 //[<Record>]
@@ -438,7 +419,7 @@ module BlockScanWarpScans =
 //
 //
 //    member inline this.Initialize(temp_storage:deviceptr<int>, linear_tid) =
-//        this.ThreadFields.temp_storage.warp_scan <- temp_storage
+//        this.ThreadFields.ip.temp_storage.warp_scan <- temp_storage
 //        this.ThreadFields.linear_tid <- linear_tid
 //        this
 //
@@ -450,7 +431,7 @@ module BlockScanWarpScans =
 //    
 //        
 //    member this.ExclusiveScan(input:int, output:Ref<int>, identity:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) = 
-//        let temp_storage = this.ThreadFields.temp_storage.warp_scan
+//        let temp_storage = this.ThreadFields.ip.temp_storage.warp_scan
 //        let warp_id = this.ThreadFields.warp_id
 //        let lane_id = this.ThreadFields.lane_id
 //
@@ -465,13 +446,13 @@ module BlockScanWarpScans =
 //        let identity = identity |> __obj_to_ref
 //            
 //        this.ExclusiveScan(input, output, identity, scan_op, block_aggregate)
-//        if warp_id = 0 then
+//        if ip.warp_id = 0 then
 //            let block_prefix = !block_aggregate |> !block_prefix_callback_op 
-//            if lane_id = 0 then temp_storage.block_prefix <- block_prefix
+//            if lane_id = 0 then ip.temp_storage.block_prefix <- block_prefix
 //
 //        __syncthreads()
 //
-//        output := (temp_storage.block_prefix, !output) ||> scan_op
+//        output := (ip.temp_storage.block_prefix, !output) ||> scan_op
 //
 //    member this.ExclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) = 
 //        let temp_storage = this.ThreadFields.temp_storage
@@ -479,7 +460,7 @@ module BlockScanWarpScans =
 //        let lane_id = this.ThreadFields.lane_id
 //
 //        let warp_aggregate = __null() |> __ptr_to_ref
-//        this.Constants.WarpScan.Initialize(temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(input, output, scan_op, warp_aggregate)
+//        this.Constants.WarpScan.Initialize(ip.temp_storage.warp_scan, warp_id, lane_id).ExclusiveScan(input, output, scan_op, warp_aggregate)
 //            
 //        this.ApplyWarpAggregates(output, scan_op, !warp_aggregate, block_aggregate, lane_id > 0)
 //
@@ -491,14 +472,14 @@ module BlockScanWarpScans =
 //
 //        this.ExclusiveScan(input, output, scan_op, block_aggregate)
 //
-//        if warp_id = 0 then
+//        if ip.warp_id = 0 then
 //            let block_prefix = !block_aggregate |> !block_prefix_callback_op
-//            if lane_id = 0 then temp_storage.block_prefix <- block_prefix
+//            if lane_id = 0 then ip.temp_storage.block_prefix <- block_prefix
 //
 //        __syncthreads()
 //
-//        output :=   if linear_tid = 0 then temp_storage.block_prefix 
-//                    else (temp_storage.block_prefix, !output) ||> scan_op
+//        output :=   if linear_tid = 0 then ip.temp_storage.block_prefix 
+//                    else (ip.temp_storage.block_prefix, !output) ||> scan_op
 //
 //
 //
@@ -508,7 +489,7 @@ module BlockScanWarpScans =
 //        let lane_id = this.ThreadFields.lane_id
 //            
 //        let warp_aggregate = __null() |> __ptr_to_ref
-//        this.Constants.WarpScan.Initialize(temp_storage.warp_scan, warp_id, lane_id).ExclusiveSum(input, output, warp_aggregate)
+//        this.Constants.WarpScan.Initialize(ip.temp_storage.warp_scan, warp_id, lane_id).ExclusiveSum(input, output, warp_aggregate)
 //        let [<ReflectedDefinition>] inline sum x y = x + y
 //        this.ApplyWarpAggregates(output, (+), !warp_aggregate, block_aggregate)
 //
@@ -519,13 +500,13 @@ module BlockScanWarpScans =
 //
 //        this.ExclusiveSum(input, output, block_aggregate)
 //
-//        if warp_id = 0 then
+//        if ip.warp_id = 0 then
 //            let block_prefix = !block_aggregate |> !block_prefix_callback_op
-//            if lane_id = 0 then temp_storage.block_prefix <- block_prefix 
+//            if lane_id = 0 then ip.temp_storage.block_prefix <- block_prefix 
 //
 //        __syncthreads()
 //
-//        output := (temp_storage.block_prefix, !output) ||> (+)
+//        output := (ip.temp_storage.block_prefix, !output) ||> (+)
 //
 //
 //    member this.InclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), block_aggregate:Ref<int>) = 
@@ -534,7 +515,7 @@ module BlockScanWarpScans =
 //        let lane_id = this.ThreadFields.lane_id
 //
 //        let warp_aggregate = __null() |> __ptr_to_ref
-//        this.Constants.WarpScan.Initialize(temp_storage.warp_scan, warp_id, lane_id).InclusiveScan(input, output, scan_op, warp_aggregate)
+//        this.Constants.WarpScan.Initialize(ip.temp_storage.warp_scan, warp_id, lane_id).InclusiveScan(input, output, scan_op, warp_aggregate)
 //
 //        this.ApplyWarpAggregates(output, scan_op, !warp_aggregate, block_aggregate)
 //
@@ -546,13 +527,13 @@ module BlockScanWarpScans =
 //
 //        this.InclusiveScan(input, output, scan_op, block_aggregate)
 //
-//        if warp_id = 0 then
+//        if ip.warp_id = 0 then
 //            let block_prefix = !block_aggregate |> !block_prefix_callback_op
-//            if lane_id = 0 then temp_storage.block_prefix <- block_prefix
+//            if lane_id = 0 then ip.temp_storage.block_prefix <- block_prefix
 //
 //        __syncthreads()
 //
-//        output := (temp_storage.block_prefix, !output) ||> scan_op
+//        output := (ip.temp_storage.block_prefix, !output) ||> scan_op
 //
 //    member this.InclusiveSum(input:int, output:Ref<int>, block_aggregate:Ref<int>) = 
 //        let temp_storage = this.ThreadFields.temp_storage
@@ -560,7 +541,7 @@ module BlockScanWarpScans =
 //        let lane_id = this.ThreadFields.lane_id
 //
 //        let warp_aggregate = __null() |> __ptr_to_ref
-//        this.Constants.WarpScan.Initialize(temp_storage.warp_scan, warp_id, lane_id).InclusiveSum(input, output, warp_aggregate)
+//        this.Constants.WarpScan.Initialize(ip.temp_storage.warp_scan, warp_id, lane_id).InclusiveSum(input, output, warp_aggregate)
 //
 //        this.ApplyWarpAggregates(output, (+), !warp_aggregate, block_aggregate)
 //
@@ -571,13 +552,13 @@ module BlockScanWarpScans =
 //
 //        this.InclusiveSum(input, output, block_aggregate)
 //
-//        if warp_id = 0 then
+//        if ip.warp_id = 0 then
 //            let block_prefix = !block_aggregate |> !block_prefix_callback_op
-//            if lane_id = 0 then temp_storage.block_prefix <- block_prefix
+//            if lane_id = 0 then ip.temp_storage.block_prefix <- block_prefix
 //
 //        __syncthreads()
 //
-//        output := (temp_storage.block_prefix, !output) ||> (+)
+//        output := (ip.temp_storage.block_prefix, !output) ||> (+)
 //
 //   
 //
@@ -607,7 +588,7 @@ module BlockScanWarpScans =
 //let exclusiveScan (block_threads:int) =
 //    let WARPS = (block_threads + CUB_PTX_WARP_THREADS - 1) / CUB_PTX_WARP_THREADS
 //    let WarpScan = WarpScan.Init(WARPS, CUB_PTX_WARP_THREADS)
-//    fun (temp_storage:deviceptr<int>) (linear_tid:int) (warp_id:int) (lane_id:int) =
+//    fun (temp_storage:deviceptr<int>) (linear_tid:int) (ip.warp_id:int) (ip.lane_id:int) =
 //        fun (input:'T) (output:Ref<'T>) (identity:Ref<int> option) (scan_op:(int -> int -> int) option) (block_aggregate:Ref<int> option) (block_prefix_callback_op:Ref<int> option) =
 //            (identity, scan_op, block_aggregate, block_prefix_callback_op) |> function
 //            | Some identity, Some scan_op, Some block_aggregate, None ->

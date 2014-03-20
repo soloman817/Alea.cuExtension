@@ -24,11 +24,11 @@ type ScanTempStorage<'T> =
     }
 
     [<ReflectedDefinition>]
-    static member Init(bload_h:BlockLoad.HostApi, bstore_h:BlockStore.HostApi, bsws_h:BlockScanWarpScans.HostApi) =
+    static member Init(bload_h:BlockLoad.StaticParam, bstore_h:BlockStore.StaticParam, bsws_h:BlockScanWarpScans.StaticParam) =
         {
-            load = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
-            store = __shared__.Array<'T>(bload_h.SharedMemoryLength) |> __array_to_ptr
-            scan = BlockScanWarpScans.TempStorage<'T>.Uninitialized(bsws_h)
+            load = __shared__.Array<'T>(bload_h.BlockExchangeParam.SharedMemoryLength) |> __array_to_ptr
+            store = __shared__.Array<'T>(bload_h.BlockExchangeParam.SharedMemoryLength) |> __array_to_ptr
+            scan = BlockScanWarpScans.TempStorage<'T>.Init(bsws_h)
         }
 //
 //[<Record>]
@@ -40,7 +40,7 @@ type ScanTempStorage<'T> =
 //    }
 //
 //    [<ReflectedDefinition>]
-//    static member Init(bload_h:BlockLoad.HostApi, bstore_h:BlockStore.HostApi, bsws_h:BlockScanWarpScans.HostApi ) =
+//    static member Init(bload_h:BlockLoad.StaticParam, bstore_h:BlockStore.StaticParam, bsws_h:BlockScanWarpScans.StaticParam ) =
 //        let temp_storage = ScanTempStorage<'T>.Init(bsws_h)
 //        {
 //            load = BlockLoad.API<'T>.Init(bload_h, temp_storage.load, threadIdx.x)
@@ -69,15 +69,15 @@ module BlockScanRaking =
     [<Test>]
     let ``BlockScanRaking exclusive sum - int`` () =
         let template = cuda {
-            let bload_h = BlockLoad.HostApi.Init(block_threads, items_per_thread)
-            let bstore_h = BlockStore.HostApi.Init(block_threads, items_per_thread)
-            let bsr_h = BlockScanRaking.HostApi.Init(block_threads, true)
+            let bload_h = BlockLoad.StaticParam.Init(block_threads, items_per_thread)
+            let bstore_h = BlockStore.StaticParam.Init(block_threads, items_per_thread)
+            let bsr_h = BlockScanRaking.StaticParam.Init(block_threads, true)
 
             let! kernel =
                 <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
                     let tid = threadIdx.x
-                    let temp_storage = BlockScanRaking.TempStorage<int>.Uninitialized(bsr_h)
-                    let cached_segment = __local__.Array<int>(bsr_h.Constants.SEGMENT_LENGTH)
+                    let temp_storage = BlockScanRaking.TempStorage<int>.Init(bsr_h)
+                    let cached_segment = __local__.Array<int>(bsr_h.SEGMENT_LENGTH)
                     
                         
                     //BlockLoad.API<int>.Init(bload_h, __null()).Load(bload_h, d_in, dptr)
@@ -87,7 +87,7 @@ module BlockScanRaking =
                     let aggregate = __local__.Variable<int>()
 
 
-                    BlockScanRaking.ExclusiveSum.WithAggregateInt bsr_h temp_storage tid cached_segment !thread_data thread_data aggregate
+//                    BlockScanRaking.ExclusiveSum.WithAggregateInt bsr_h temp_storage tid cached_segment !thread_data thread_data aggregate
                     
                     __syncthreads()
 
@@ -120,15 +120,15 @@ module BlockScanWarpScans =
     [<Test>]
     let ``BlockScanWarpScans - initialization`` () =
         let template = cuda {
-            let h = BlockScanWarpScans.HostApi.Init(BLOCK_THREADS)
+            let h = BlockScanWarpScans.StaticParam.Init(BLOCK_THREADS)
 
             let! kernel =
                 <@ fun (d_in:deviceptr<int>) (d_out:deviceptr<int>) ->
                     let tid = threadIdx.x
-                    let temp_storage = BlockScanWarpScans.TempStorage<int>.Uninitialized(h)
-                    let bsws = BlockScanWarpScans.API<int>.Init(h, temp_storage, threadIdx.x)
+                    let temp_storage = BlockScanWarpScans.TempStorage<int>.Init(h)
+//                    let bsws = BlockScanWarpScans.API<int>.Init(h, temp_storage, threadIdx.x)
                     temp_storage.block_prefix := 99
-                    d_out.[tid] <- !bsws.temp_storage.block_prefix
+//                    d_out.[tid] <- !bsws.temp_storage.block_prefix
                 @> |> Compiler.DefineKernel
             
             return Entry(fun (program:Program) ->
@@ -151,9 +151,9 @@ module BlockScanWarpScans =
 
     let inline test (block_threads:int) (items_per_thread:int) = 
             cuda {
-                let bload_h = BlockLoad.HostApi.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
-                let bstore_h = BlockStore.HostApi.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
-                let bsws_h = BlockScanWarpScans.HostApi.Init(BLOCK_THREADS)
+                let bload_h = BlockLoad.StaticParam.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockLoadAlgorithm.BLOCK_LOAD_WARP_TRANSPOSE, false)
+                let bstore_h = BlockStore.StaticParam.Init(BLOCK_THREADS, ITEMS_PER_THREAD, BlockStoreAlgorithm.BLOCK_STORE_WARP_TRANSPOSE, false)
+                let bsws_h = BlockScanWarpScans.StaticParam.Init(BLOCK_THREADS)
                 
 
                 let! kernel = 
@@ -163,7 +163,7 @@ module BlockScanWarpScans =
                         let temp_storage = ScanTempStorage<int>.Init(bload_h, bstore_h, bsws_h)
                         //let temp_load = SharedRecord<int>.Init(N)
                         //let temp_store = SharedRecord<int>.Init(N)
-                        let temp_scan = BlockScanWarpScans.TempStorage<int>.Uninitialized(bsws_h)
+                        let temp_scan = BlockScanWarpScans.TempStorage<int>.Init(bsws_h)
 
                         let warp_id = BlockScanWarpScans.warp_id block_threads tid
                         let lane_id = BlockScanWarpScans.lane_id block_threads tid
@@ -171,15 +171,15 @@ module BlockScanWarpScans =
                         let data = __local__.Array<int>(items_per_thread)
                         let dptr = data |> __array_to_ptr
                         
-                        BlockLoad.API<int>.Init(bload_h, temp_storage.load, tid).Load(bload_h, d_in, dptr)
+//                        BlockLoad.API<int>.Init(bload_h, temp_storage.load, tid).Load(bload_h, d_in, dptr)
                         __syncthreads()
 
                         let aggregate = __local__.Variable<int>()
                         //BlockScanWarpScans.IntApi.Init(bsws_h, temp_storage.scan, tid).ExclusiveSum(bsws_h, dptr.[tid], dptr.Ref(tid), aggregate)
-                        BlockScanWarpScans.ExclusiveSum.WithAggregateInt bsws_h temp_scan tid warp_id lane_id d_in.[tid] (d_out.Ref(tid)) aggregate
+//                        BlockScanWarpScans.ExclusiveSum.WithAggregateInt bsws_h temp_scan tid warp_id lane_id d_in.[tid] (d_out.Ref(tid)) aggregate
                         __syncthreads()
 
-                        BlockStore.API<int>.Init(bstore_h, temp_storage.store, tid).Store(bstore_h, d_out, dptr)
+//                        BlockStore.API<int>.Init(bstore_h, temp_storage.store, tid).Store(bstore_h, d_out, dptr)
 
                         if threadIdx.x = 0 then d_out.[block_threads * items_per_thread] <- !aggregate
 

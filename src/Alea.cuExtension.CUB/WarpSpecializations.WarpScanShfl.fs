@@ -14,46 +14,37 @@ open Alea.cuExtension.CUB.Warp
 
    
 
-module Template =
-    module Host =
-        module Params =
-            type API =
-                { LOGICAL_WARPS : int; LOGICAL_WARP_THREADS : int }
+module WarpScanShfl =
+    type StaticParam =
+        { 
+            LOGICAL_WARPS           : int
+            LOGICAL_WARP_THREADS    : int
+            STEPS                   : int
+            SHFL_C                  : int
+        }
 
-                static member Init(logical_warps, logical_warp_threads) =
-                    { LOGICAL_WARPS = logical_warps; LOGICAL_WARP_THREADS = logical_warp_threads }
-        
-        module Constants =
-            type API =
-                { STEPS : int; SHFL_C : int }
-
-                static member Init(p:Params.API) =
-                    let steps = p.LOGICAL_WARP_THREADS |> log2
-                    { STEPS = steps; SHFL_C  = ((-1 <<< steps) &&& 31) <<< 8 }
-
-        type API =
-            { Params : Params.API; Constants : Constants.API; SharedMemoryLength : int }
-            
-            static member Init(logical_warps, logical_warp_threads) =
-                let p = Params.API.Init(logical_warps, logical_warp_threads)
-                let c = Constants.API.Init(p)
-                { Params = p; Constants = c; SharedMemoryLength = 0 }
-
-    module Device =
-        module TempStorage =
-            type [<Record>] API<'T> = deviceptr<'T>
-
-        [<Record>]
-        type API<'T> =
-            {
-                mutable temp_storage    : TempStorage.API<'T>
-                mutable warp_id         : int
-                mutable lane_id         : int
+        static member Init(logical_warps, logical_warp_threads) =
+            let steps = logical_warp_threads |> log2
+            { 
+                LOGICAL_WARPS           = logical_warps
+                LOGICAL_WARP_THREADS    = logical_warp_threads
+                STEPS                   = steps
+                SHFL_C                  = ((-1 <<< steps) &&& 31) <<< 8 
             }
 
-            [<ReflectedDefinition>]
-            static member Init(temp_storage, warp_id, lane_id) = 
-                { temp_storage = __null(); warp_id = warp_id; lane_id = lane_id }
+    type TempStorage<'T> = deviceptr<'T>
+
+
+    [<Record>]
+    type InstanceParam =
+        {
+            mutable warp_id         : int
+            mutable lane_id         : int
+        }
+
+        [<ReflectedDefinition>]
+        static member Init(temp_storage, warp_id, lane_id) = 
+            { warp_id = warp_id; lane_id = lane_id }  
 
 
 
@@ -61,312 +52,294 @@ module Template =
 //        (logical_warp_threads |> __ptx__.ShuffleBroadcast)
 //            (input)
 //            (src_lane)
-
-
-    type _TemplateParams    = Host.Params.API
-    type _Constants         = Host.Constants.API
-    type _HostApi           = Host.API
-
-    type _TempStorage<'T>   = Device.TempStorage.API<'T>
-    type _DeviceApi<'T>     = Device.API<'T>
-
-           
-
-module InclusiveScan =
-    open Template
-
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>) 
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        let p = h.Params
-        let c = h.Constants
-
-        output := input
-
-        for STEP = 0 to (c.STEPS - 1) do
-            let OFFSET = 1 <<< STEP
-            let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
-                
-            if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
-
-        warp_aggregate := Broadcast<'T> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)
-        
- 
- 
-    let [<ReflectedDefinition>] inline WithAggregateInt (h:_HostApi)
-        (d:_DeviceApi<int>) 
-        (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
-        let p = h.Params
-        let c = h.Constants
-
-        output := input
-
-        for STEP = 0 to (c.STEPS - 1) do
-            let OFFSET = 1 <<< STEP
-            let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
-                
-            if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret) + !output
-
-        warp_aggregate := Broadcast<int> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)       
-
-    
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>) 
-        (input:'T) (output:Ref<'T>) =
-        let warp_aggregate = __local__.Variable<'T>()
-        WithAggregate h scan_op d input output warp_aggregate
-    
-
-    let [<ReflectedDefinition>] inline DefaultInt (h:_HostApi)
-        (d:_DeviceApi<int>) 
-        (input:int) (output:Ref<int>) =
-        let warp_aggregate = __local__.Variable<int>()
-        WithAggregateInt h d input output warp_aggregate
-
-
-module InclusiveSum =
-    open Template
-
-    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type private InclusiveSumPtxAttribute() =
-        inherit Attribute()
-
-        interface ICustomCallBuilder with
-            member this.Build(ctx, irObject, info, irParams) =
-                match irObject, irParams with
-                | None, temp :: shlStep :: shfl_c :: [] ->
-                    let clrType = info.GetGenericArguments().[0]
-                    let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
-                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint32 -> int -> int-> uint32>)
-                    let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
-                    IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
-                        "{
-                            .reg .u32 r0;
-                            .reg .pred p;
-                            shfl.up.b32 r0|p, $1, $2, $3;
-                            @p add.u32 r0, r0, %4;
-                            mov.u32 %0, r0;
-                        }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
-                | _ -> None
-
-    let [<InclusiveSumPtx>] inline inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
-
-    
-    let [<ReflectedDefinition>] inline SingleShfl (h:_HostApi)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        let p = h.Params
-        let c = h.Constants
-                    
-        let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
-        for STEP = 0 to (c.STEPS - 1) do
-            temp := (!temp |> uint32, (1 <<< STEP), c.SHFL_C) |||> inclusiveSumPtx
-        output := !temp |> __obj_reinterpret
-        warp_aggregate := Broadcast<'T> p.LOGICAL_WARP_THREADS !output (p.LOGICAL_WARP_THREADS - 1)
         
 
-    let [<ReflectedDefinition>] inline MultiShfl (h:_HostApi)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        ()
-        
+    module InclusiveScan =
         
 
-    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type private InclusiveSumPtx_Float32Attribute() =
-        inherit Attribute()
-
-        interface ICustomCallBuilder with
-            member this.Build(ctx, irObject, info, irParams) =
-                match irObject, irParams with
-                | None, temp :: shlStep :: shfl_c :: [] ->
-                    let clrType = info.GetGenericArguments().[0]
-                    let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
-                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<float32 -> int -> int-> float32>)
-                    let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
-                    IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
-                        "{
-                            .reg .f32 r0;
-                            .reg .pred p;
-                            shfl.up.b32 r0|p, $1, $2, $3;
-                            @p add.f32 r0, r0, $4;
-                            mov.f32 $0, r0;
-                        }", "=f,f,r,r,f", temp :: shlStep :: shfl_c :: []) |> Some
-                | _ -> None
-
-    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
-    
-    let [<ReflectedDefinition>] inline Float32Specialized (h:_HostApi)
-        (d:_DeviceApi<float32>)
-        (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) =
-        let p = h.Params
-        let c = h.Constants
-
-        let STEPS = c.STEPS
-        let SHFL_C = c.SHFL_C
-        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
-        let broadcast = LOGICAL_WARP_THREADS |> Broadcast<float32>
-        
-        output := input
-        for STEP = 0 to (STEPS - 1) do
-            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_Float32
-
-        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
-        
-        
-
-    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
-    type private InclusiveSumPtx_uint64Attribute() =
-        inherit Attribute()
-
-        interface ICustomCallBuilder with
-            member this.Build(ctx, irObject, info, irParams) =
-                match irObject, irParams with
-                | None, temp :: shlStep :: shfl_c :: [] ->
-                    let clrType = info.GetGenericArguments().[0]
-                    let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
-                    let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint64 -> int -> int-> uint64>)
-                    let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
-                    IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
-                        "{
-                            .reg .u32 r0;
-                            .reg .u32 r1;
-                            .reg .u32 lo;
-                            .reg .u32 hi;
-                            .reg .pred p;
-                            mov.b64 {lo, hi}, $1;
-                            shfl.up.b32 r0|p, lo, $2, $3;
-                            shfl.up.b32 r1|p, hi, $2, $3;
-                            @p add.cc.u32 r0, r0, lo;
-                            @p addc.u32 r1, r1, hi;
-                            mov.b64 $0, {r0, r1};
-                        }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
-                | _ -> None
-
-    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_uint64 (output:uint64) (shlStep:int) (shfl_c:int) : uint64 = failwith ""
-    
-    let [<ReflectedDefinition>] inline uint64Specialized (h:_HostApi)
-        (d:_DeviceApi<uint64>)
-        (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
-        let p = h.Params
-        let c = h.Constants
-
-        let STEPS = c.STEPS
-        let SHFL_C = c.SHFL_C
-        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
-        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
-    
-        output := input
-        for STEP = 0 to (STEPS - 1) do
-            output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_uint64
-            
-        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
-        
-
-    let [<ReflectedDefinition>] inline Generic (h:_HostApi)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-        if __sizeof<'T>() <= __sizeof<uint32>() then SingleShfl h d input output warp_aggregate else MultiShfl h d input output warp_aggregate
-        
-        
-
-    let [<ReflectedDefinition>] inline Default (h:_HostApi)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) =
-        let warp_aggregate = __local__.Variable()
-        Generic h d input output warp_aggregate
- 
-
-
-module ExclusiveScan =
-    open Template
-
-    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>) 
-        (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
-        
-        let inclusive = __local__.Variable<'T>()
-        InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
-
-//        let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
-
-//        output := if d.lane_id = 0 then identity else exclusive |> __obj_reinterpret
-        
-
-    
-    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-        (d:_DeviceApi<'T>)
-        (input:'T) (output:Ref<'T>) (identity:'T) =
-        let warp_aggregate = __local__.Variable<'T>()
-        WithAggregate h scan_op d input output identity warp_aggregate
-            
-
-
-    module Identityless =
-        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam) 
             (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-            let inclusive = __local__.Variable<'T>()
-            InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
-//            output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
+            
             
 
-        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-            (d:_DeviceApi<'T>)
+            output := input
+
+            for STEP = 0 to (sp.STEPS - 1) do
+                let OFFSET = 1 <<< STEP
+                let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
+                
+                if ip.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
+
+            warp_aggregate := Broadcast<'T> sp.LOGICAL_WARP_THREADS !output (sp.LOGICAL_WARP_THREADS - 1)
+        
+ 
+ 
+        let [<ReflectedDefinition>] inline WithAggregateInt (sp:StaticParam)
+            (ip:InstanceParam) 
+            (input:int) (output:Ref<int>) (warp_aggregate:Ref<int>) =
+            
+            
+
+            output := input
+
+            for STEP = 0 to (sp.STEPS - 1) do
+                let OFFSET = 1 <<< STEP
+                let temp = 0 //(!output, OFFSET) |> __ptx__.ShuffleUp
+                
+                if ip.lane_id >= OFFSET then output := (temp |> __obj_reinterpret) + !output
+
+            warp_aggregate := Broadcast<int> sp.LOGICAL_WARP_THREADS !output (sp.LOGICAL_WARP_THREADS - 1)       
+
+    
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam) 
             (input:'T) (output:Ref<'T>) =
             let warp_aggregate = __local__.Variable<'T>()
-            WithAggregate h scan_op d input output warp_aggregate
+            WithAggregate sp scan_op ip input output warp_aggregate
+    
+
+        let [<ReflectedDefinition>] inline DefaultInt (sp:StaticParam)
+            (ip:InstanceParam) 
+            (input:int) (output:Ref<int>) =
+            let warp_aggregate = __local__.Variable<int>()
+            WithAggregateInt sp ip input output warp_aggregate
+
+
+    module InclusiveSum =
+        
+
+        [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+        type private InclusiveSumPtxAttribute() =
+            inherit Attribute()
+
+            interface ICustomCallBuilder with
+                member this.Build(ctx, irObject, info, irParams) =
+                    match irObject, irParams with
+                    | None, temp :: shlStep :: shfl_c :: [] ->
+                        let clrType = info.GetGenericArguments().[0]
+                        let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
+                        let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint32 -> int -> int-> uint32>)
+                        let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                        IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                            "{
+                                .reg .u32 r0;
+                                .reg .pred p;
+                                shfl.usp.b32 r0|p, $1, $2, $3;
+                                @p adu32 r0, r0, %4;
+                                mov.u32 %0, r0;
+                            }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
+                    | _ -> None
+
+        let [<InclusiveSumPtx>] inline inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
+
+    
+        let [<ReflectedDefinition>] inline SingleShfl (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            
+            
+                    
+            let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
+            for STEP = 0 to (sp.STEPS - 1) do
+                temp := (!temp |> uint32, (1 <<< STEP), sp.SHFL_C) |||> inclusiveSumPtx
+            output := !temp |> __obj_reinterpret
+            warp_aggregate := Broadcast<'T> sp.LOGICAL_WARP_THREADS !output (sp.LOGICAL_WARP_THREADS - 1)
+        
+
+        let [<ReflectedDefinition>] inline MultiShfl (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            ()
+        
+        
+
+        [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+        type private InclusiveSumPtx_Float32Attribute() =
+            inherit Attribute()
+
+            interface ICustomCallBuilder with
+                member this.Build(ctx, irObject, info, irParams) =
+                    match irObject, irParams with
+                    | None, temp :: shlStep :: shfl_c :: [] ->
+                        let clrType = info.GetGenericArguments().[0]
+                        let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
+                        let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<float32 -> int -> int-> float32>)
+                        let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                        IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                            "{
+                                .reg .f32 r0;
+                                .reg .pred p;
+                                shfl.usp.b32 r0|p, $1, $2, $3;
+                                @p adf32 r0, r0, $4;
+                                mov.f32 $0, r0;
+                            }", "=f,f,r,r,f", temp :: shlStep :: shfl_c :: []) |> Some
+                    | _ -> None
+
+        let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
+    
+        let [<ReflectedDefinition>] inline Float32Specialized (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) =
+            
+            
+
+            let STEPS = sp.STEPS
+            let SHFL_C = sp.SHFL_C
+            let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
+            let broadcast = LOGICAL_WARP_THREADS |> Broadcast<float32>
+        
+            output := input
+            for STEP = 0 to (STEPS - 1) do
+                output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_Float32
+
+            warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
+        
+        
+
+        [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
+        type private InclusiveSumPtx_uint64Attribute() =
+            inherit Attribute()
+
+            interface ICustomCallBuilder with
+                member this.Build(ctx, irObject, info, irParams) =
+                    match irObject, irParams with
+                    | None, temp :: shlStep :: shfl_c :: [] ->
+                        let clrType = info.GetGenericArguments().[0]
+                        let irType = IRTypeBuilder.Instance.Build(ctx, clrType)
+                        let irLambdaType = IRTypeBuilder.Instance.Build(ctx, typeof<uint64 -> int -> int-> uint64>)
+                        let irFunctionType = IRTypeBuilder.Instance. BuildDeviceFunctionTypeFromLambdaType(ctx, irLambdaType)
+                        IRCommonInstructionBuilder.Instance.BuildInlineAsm(ctx, irFunctionType, 
+                            "{
+                                .reg .u32 r0;
+                                .reg .u32 r1;
+                                .reg .u32 lo;
+                                .reg .u32 hi;
+                                .reg .pred p;
+                                mov.b64 {lo, hi}, $1;
+                                shfl.usp.b32 r0|p, lo, $2, $3;
+                                shfl.usp.b32 r1|p, hi, $2, $3;
+                                @p adcsp.u32 r0, r0, lo;
+                                @p addsp.u32 r1, r1, hi;
+                                mov.b64 $0, {r0, r1};
+                            }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
+                    | _ -> None
+
+        let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_uint64 (output:uint64) (shlStep:int) (shfl_c:int) : uint64 = failwith ""
+    
+        let [<ReflectedDefinition>] inline uint64Specialized (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
+            
+            
+
+            let STEPS = sp.STEPS
+            let SHFL_C = sp.SHFL_C
+            let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
+            let broadcast = LOGICAL_WARP_THREADS |> Broadcast
+    
+            output := input
+            for STEP = 0 to (STEPS - 1) do
+                output := (!output, (1 <<< STEP), SHFL_C) |||> inclusiveSumPtx_uint64
+            
+            warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
+        
+
+        let [<ReflectedDefinition>] inline Generic (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+            if __sizeof<'T>() <= __sizeof<uint32>() then SingleShfl sp ip input output warp_aggregate else MultiShfl sp ip input output warp_aggregate
+        
+        
+
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam)
+            (ip:InstanceParam)
+            (input:'T) (output:Ref<'T>) =
+            let warp_aggregate = __local__.Variable()
+            Generic sp ip input output warp_aggregate
+ 
+
+
+    module ExclusiveScan =
+        
+
+        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam) 
+            (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+        
+            let inclusive = __local__.Variable<'T>()
+            InclusiveScan.WithAggregate sp scan_op ip input inclusive warp_aggregate
+
+    //        let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
+
+    //        output := if ip.lane_id = 0 then identity else exclusive |> __obj_reinterpret
+        
+
+    
+        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+            (ip:InstanceParam)
+            (input:'T) (output:Ref<'T>) (identity:'T) =
+            let warp_aggregate = __local__.Variable<'T>()
+            WithAggregate sp scan_op ip input output identity warp_aggregate
             
 
 
-module WarpScanShfl =
-    open Template
+        module Identityless =
+            let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam)
+                (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+                let inclusive = __local__.Variable<'T>()
+                InclusiveScan.WithAggregate sp scan_op ip input inclusive warp_aggregate
+    //            output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
+            
 
-    type TemplateParams     = Template._TemplateParams
-    type Constants          = Template._Constants
-    type TempStorage<'T>    = Template._TempStorage<'T>
-    
-    type HostApi            = Template._HostApi
-    type DeviceApi<'T>      = Template._DeviceApi<'T>
+            let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+                (ip:InstanceParam)
+                (input:'T) (output:Ref<'T>) =
+                let warp_aggregate = __local__.Variable<'T>()
+                WithAggregate sp scan_op ip input output warp_aggregate
+            
 
+
+  
     
     [<Record>]
     type API<'T> =
         {
-            mutable DeviceApi      : DeviceApi<'T>
+            mutable InstanceParam      : InstanceParam
         }
         
-        [<ReflectedDefinition>] static member Create(temp_storage, warp_id, lane_id) = { DeviceApi = DeviceApi<'T>.Init(temp_storage, warp_id, lane_id)}
+        [<ReflectedDefinition>] static member Create(temp_storage, warp_id, lane_id) = { InstanceParam = InstanceParam.Init(temp_storage, warp_id, lane_id)}
         
-        [<ReflectedDefinition>] member this.InclusiveSum(h, d:DeviceApi<float32>, input:float32, output:Ref<float32>, warp_aggregate:Ref<float32>) 
-            = InclusiveSum.Float32Specialized h d input output warp_aggregate
+        [<ReflectedDefinition>] member this.InclusiveSum(sp, input:float32, output:Ref<float32>, warp_aggregate:Ref<float32>) 
+            = InclusiveSum.Float32Specialized sp this.InstanceParam input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.InclusiveSum(h, d:DeviceApi<uint64>, input:uint64, output:Ref<uint64>, warp_aggregate:Ref<uint64>) 
-            = InclusiveSum.uint64Specialized h d input output warp_aggregate
+        [<ReflectedDefinition>] member this.InclusiveSum(sp, input:uint64, output:Ref<uint64>, warp_aggregate:Ref<uint64>) 
+            = InclusiveSum.uint64Specialized sp this.InstanceParam input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.InclusiveSum(h, input, output, warp_aggregate) 
-            = InclusiveSum.Generic h this.DeviceApi input output warp_aggregate
+        [<ReflectedDefinition>] member this.InclusiveSum(sp, input, output, warp_aggregate) 
+            = InclusiveSum.Generic sp this.InstanceParam input output warp_aggregate
 
-        [<ReflectedDefinition>] member this.InclusiveSum(h, input, output) 
-            = InclusiveSum.Default h this.DeviceApi input output
+        [<ReflectedDefinition>] member this.InclusiveSum(sp, input, output) 
+            = InclusiveSum.Default sp this.InstanceParam input output
 
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output) 
-            = InclusiveScan.Default h scan_op this.DeviceApi input output
+        [<ReflectedDefinition>] member this.InclusiveScan(sp, scan_op, input, output) 
+            = InclusiveScan.Default sp scan_op this.InstanceParam input output
         
-        [<ReflectedDefinition>] member this.InclusiveScan(h, scan_op, input, output, warp_aggregate) 
-            = InclusiveScan.WithAggregate h scan_op this.DeviceApi input output warp_aggregate  
+        [<ReflectedDefinition>] member this.InclusiveScan(sp, scan_op, input, output, warp_aggregate) 
+            = InclusiveScan.WithAggregate sp scan_op this.InstanceParam input output warp_aggregate  
 
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity) 
-            = ExclusiveScan.Default h scan_op this.DeviceApi input output identity
+        [<ReflectedDefinition>] member this.ExclusiveScan(sp, scan_op, input, output, identity) 
+            = ExclusiveScan.Default sp scan_op this.InstanceParam input output identity
         
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, identity, warp_aggregate) 
-            = ExclusiveScan.WithAggregate h scan_op this.DeviceApi input output identity warp_aggregate
+        [<ReflectedDefinition>] member this.ExclusiveScan(sp, scan_op, input, output, identity, warp_aggregate) 
+            = ExclusiveScan.WithAggregate sp scan_op this.InstanceParam input output identity warp_aggregate
         
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output) 
-            = ExclusiveScan.Identityless.Default h scan_op this.DeviceApi input output
+        [<ReflectedDefinition>] member this.ExclusiveScan(sp, scan_op, input, output) 
+            = ExclusiveScan.Identityless.Default sp scan_op this.InstanceParam input output
         
-        [<ReflectedDefinition>] member this.ExclusiveScan(h, scan_op, input, output, warp_aggregate) 
-            = ExclusiveScan.Identityless.WithAggregate h scan_op this.DeviceApi input output warp_aggregate
+        [<ReflectedDefinition>] member this.ExclusiveScan(sp, scan_op, input, output, warp_aggregate) 
+            = ExclusiveScan.Identityless.WithAggregate sp scan_op this.InstanceParam input output warp_aggregate
 
 
 
@@ -376,46 +349,46 @@ module WarpScanShfl =
 //    module InclusiveSum =
 //        type _FunctionApi<'T> =
 //            {
-//                SingleShfl              : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//                MultiShfl               : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//                Float32Specialized      : Function<_DeviceApi<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
-//                uint64Specialized    : Function<_DeviceApi<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
-//                Generic                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//                Default                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>      
+//                SingleShfl              : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//                MultiShfl               : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//                Float32Specialized      : Function<_InstanceParam<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
+//                uint64Specialized    : Function<_InstanceParam<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
+//                Generic                 : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//                Default                 : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> unit>      
 //            }
 //
 //    module InclusiveScan =
 //        type _FunctionApi<'T> =
 //            {
-//                Default         : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
-//                WithAggregate   : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>                
+//                Default         : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate   : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>                
 //            }
 //            
 //    module ExclusiveScan =
 //        type _FunctionApi<'T> =
 //            {
-//                Default             : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> 'T -> unit>
-//                Default_NoID        : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>
-//                WithAggregate       : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> 'T -> Ref<'T> -> unit>
-//                WithAggregate_NoID  : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//                Default             : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> 'T -> unit>
+//                Default_NoID        : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate       : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> 'T -> Ref<'T> -> unit>
+//                WithAggregate_NoID  : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
 //            }    
 //    type FunctionApi<'T> =
 //        {
-//            SingleShfl              : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//            MultiShfl               : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//            Float32Specialized      : Function<_DeviceApi<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
-//            uint64Specialized    : Function<_DeviceApi<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
-//            Generic                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
-//            Default                 : Function<_DeviceApi<'T> -> 'T -> Ref<'T> -> unit>      
+//            SingleShfl              : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//            MultiShfl               : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//            Float32Specialized      : Function<_InstanceParam<float32> -> float32 -> Ref<float32> -> Ref<float32> -> unit>
+//            uint64Specialized    : Function<_InstanceParam<uint64> -> uint64 -> Ref<uint64> -> Ref<uint64> -> unit>
+//            Generic                 : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> Ref<'T> -> unit>
+//            Default                 : Function<_InstanceParam<'T> -> 'T -> Ref<'T> -> unit>      
 //        }
 //
-//    let [<ReflectedDefinition>] inline api<'T> (h:_HostApi) : Template<FunctionApi<'T>> = cuda {
-//        let! singleshfl     = h |> SingleShfl           |> Compiler.DefineFunction
-//        let! multishfl      = h |> MultiShfl            |> Compiler.DefineFunction
-//        let! float32spec    = h |> Float32Specialized   |> Compiler.DefineFunction
-//        let! uint64spec  = h |> uint64Specialized |> Compiler.DefineFunction
-//        let! generic        = h |> Generic              |> Compiler.DefineFunction
-//        let! dfault         = h |> Default              |> Compiler.DefineFunction
+//    let [<ReflectedDefinition>] inline api<'T> (sp:StaticParam) : Template<FunctionApi<'T>> = cuda {
+//        let! singleshfl     = sp |> SingleShfl           |> Compiler.DefineFunction
+//        let! multishfl      = sp |> MultiShfl            |> Compiler.DefineFunction
+//        let! float32spec    = sp |> Float32Specialized   |> Compiler.DefineFunction
+//        let! uint64spec  = sp |> uint64Specialized |> Compiler.DefineFunction
+//        let! generic        = sp |> Generic              |> Compiler.DefineFunction
+//        let! dfault         = sp |> Default              |> Compiler.DefineFunction
 //
 //        return
 //            {
@@ -429,16 +402,16 @@ module WarpScanShfl =
 //        }
 
 //module InclusiveScan =
-//    open Template
+//    
 //
-//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T) 
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-//        let p = h.Params
-//        let c = h.Constants
+//    let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T) 
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//        
+//        
 //        
 //
-//        let STEPS = c.STEPS
-//        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
+//        let STEPS = sp.STEPS
+//        let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
 //        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
 //        output := input
 //
@@ -446,27 +419,27 @@ module WarpScanShfl =
 //            let OFFSET = 1 <<< STEP
 //            let temp = (!output, OFFSET) |> __ptx__.ShuffleUp
 //                
-//            if d.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
+//            if ip.lane_id >= OFFSET then output := (temp |> __obj_reinterpret, !output) ||> scan_op
 //
 //        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
 //        
 //
 //    
-//    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T) 
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) =
+//    let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T) 
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) =
 //        let warp_aggregate = __local__.Variable()
-//        WithAggregate h scan_op d input output warp_aggregate
+//        WithAggregate sp scan_op ip input output warp_aggregate
 //
 //    
-//    let [<ReflectedDefinition>] inline api (h:_HostApi) (scan_op:'T -> 'T -> 'T)
+//    let [<ReflectedDefinition>] inline api (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
 //        (
-//            (h, scan_op) ||> Default,
-//            (h, scan_op) ||> WithAggregate
+//            (sp, scan_op) ||> Default,
+//            (sp, scan_op) ||> WithAggregate
 //        )
 //
 //
 //module InclusiveSum =
-//    open Template
+//    
 //
 //    [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
 //    type private InclusiveSumPtxAttribute() =
@@ -484,23 +457,23 @@ module WarpScanShfl =
 //                        "{
 //                            .reg .u32 r0;
 //                            .reg .pred p;
-//                            shfl.up.b32 r0|p, $1, $2, $3;
-//                            @p add.u32 r0, r0, %4;
+//                            shfl.usp.b32 r0|p, $1, $2, $3;
+//                            @p adu32 r0, r0, %4;
 //                            mov.u32 %0, r0;
 //                        }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
-//                | _ -> None
+//                | -> None
 //
 //    let [<InclusiveSumPtx>] inline inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
 //
 //    
-//    let [<ReflectedDefinition>] inline SingleShfl (h:_HostApi)
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
-//        let p = h.Params
-//        let c = h.Constants
+//    let [<ReflectedDefinition>] inline SingleShfl (sp:StaticParam)
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//        
+//        
 //            
-//        let STEPS = c.STEPS
-//        let SHFL_C = c.SHFL_C
-//        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
+//        let STEPS = sp.STEPS
+//        let SHFL_C = sp.SHFL_C
+//        let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
 //        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
 //        
 //        let temp : Ref<uint32> = input |> __obj_to_ref |> __ref_reinterpret
@@ -510,8 +483,8 @@ module WarpScanShfl =
 //        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
 //        
 //
-//    let [<ReflectedDefinition>] inline MultiShfl (h:_HostApi) 
-//        (d:_DeviceApi<'T>)
+//    let [<ReflectedDefinition>] inline MultiShfl (sp:StaticParam) 
+//        (ip:InstanceParam)
 //        (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
 //        ()
 //        
@@ -533,22 +506,22 @@ module WarpScanShfl =
 //                        "{
 //                            .reg .f32 r0;
 //                            .reg .pred p;
-//                            shfl.up.b32 r0|p, $1, $2, $3;
-//                            @p add.f32 r0, r0, $4;
+//                            shfl.usp.b32 r0|p, $1, $2, $3;
+//                            @p adf32 r0, r0, $4;
 //                            mov.f32 $0, r0;
 //                        }", "=f,f,r,r,f", temp :: shlStep :: shfl_c :: []) |> Some
-//                | _ -> None
+//                | -> None
 //
 //    let [<InclusiveSumPtx_Float32>] private inclusiveSumPtx_Float32 (output:float32) (shlStep:int) (shfl_c:int) : float32 = failwith ""
 //    
-//    let [<ReflectedDefinition>] inline Float32Specialized (h:_HostApi)
-//        (d:_DeviceApi<float32>) (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) =
-//        let p = h.Params
-//        let c = h.Constants
+//    let [<ReflectedDefinition>] inline Float32Specialized (sp:StaticParam)
+//        (d:_InstanceParam<float32>) (input:float32) (output:Ref<float32>) (warp_aggregate:Ref<float32>) =
+//        
+//        
 //
-//        let STEPS = c.STEPS
-//        let SHFL_C = c.SHFL_C
-//        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
+//        let STEPS = sp.STEPS
+//        let SHFL_C = sp.SHFL_C
+//        let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
 //        let broadcast = LOGICAL_WARP_THREADS |> Broadcast<float32>
 //        
 //        output := input
@@ -578,24 +551,24 @@ module WarpScanShfl =
 //                            .reg .u32 hi;
 //                            .reg .pred p;
 //                            mov.b64 {lo, hi}, $1;
-//                            shfl.up.b32 r0|p, lo, $2, $3;
-//                            shfl.up.b32 r1|p, hi, $2, $3;
-//                            @p add.cc.u32 r0, r0, lo;
-//                            @p addc.u32 r1, r1, hi;
+//                            shfl.usp.b32 r0|p, lo, $2, $3;
+//                            shfl.usp.b32 r1|p, hi, $2, $3;
+//                            @p adcsp.u32 r0, r0, lo;
+//                            @p addsp.u32 r1, r1, hi;
 //                            mov.b64 $0, {r0, r1};
 //                        }", "=l,l,r,r,l", temp :: shlStep :: shfl_c :: []) |> Some
-//                | _ -> None
+//                | -> None
 //
 //    let [<InclusiveSumPtx_Float32>] inclusiveSumPtx_uint64 (output:uint64) (shlStep:int) (shfl_c:int) : uint64 = failwith ""
 //    
-//    let [<ReflectedDefinition>] inline uint64Specialized (h:_HostApi)
-//        (d:_DeviceApi<'T>) (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
-//        let p = h.Params
-//        let c = h.Constants
+//    let [<ReflectedDefinition>] inline uint64Specialized (sp:StaticParam)
+//        (ip:InstanceParam) (input:uint64) (output:Ref<uint64>) (warp_aggregate:Ref<uint64>) =
+//        
+//        
 //
-//        let STEPS = c.STEPS
-//        let SHFL_C = c.SHFL_C
-//        let LOGICAL_WARP_THREADS = p.LOGICAL_WARP_THREADS
+//        let STEPS = sp.STEPS
+//        let SHFL_C = sp.SHFL_C
+//        let LOGICAL_WARP_THREADS = sp.LOGICAL_WARP_THREADS
 //        let broadcast = LOGICAL_WARP_THREADS |> Broadcast
 //    
 //        output := input
@@ -605,58 +578,58 @@ module WarpScanShfl =
 //        warp_aggregate := (!output, LOGICAL_WARP_THREADS - 1) ||> broadcast
 //    
 //
-//    let [<ReflectedDefinition>] inline Generic (h:_HostApi)
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//    let [<ReflectedDefinition>] inline Generic (sp:StaticParam)
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
 //        let InclusiveSum = if__sizeof<'T> <=__sizeof<uint32> then SingleShfl else MultiShfl
-//        InclusiveSum h d input output warp_aggregate
+//        InclusiveSum sp ip.warp_id ip.lane_id input output warp_aggregate
 //        
 //
-//    let [<ReflectedDefinition>] inline Default (h:_HostApi)
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) =
+//    let [<ReflectedDefinition>] inline Default (sp:StaticParam)
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) =
 //        let warp_aggregate = __local__.Variable()
-//        Generic h d input output warp_aggregate
+//        Generic sp ip.warp_id ip.lane_id input output warp_aggregate
 //    
 //
 //module ExclusiveScan =
-//    open Template
+//    
 //
-//    let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
+//    let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) (identity:'T) (warp_aggregate:Ref<'T>) =
 //        
 //
 //        let inclusive = __local__.Variable()
-//        InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
+//        InclusiveScan.WithAggregate sp scan_op ip input inclusive warp_aggregate
 //
 //        let exclusive = (!inclusive, 1) |> __ptx__.ShuffleUp
 //
-//        output := if d.lane_id = 0 then identity else exclusive |> __obj_reinterpret
+//        output := if ip.lane_id = 0 then identity else exclusive |> __obj_reinterpret
 //
 //
 //    
-//    let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-//        (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (identity:'T) =
+//    let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//        (ip:InstanceParam) (input:'T) (output:Ref<'T>) (identity:'T) =
 //        let warp_aggregate = __local__.Variable()
-//        WithAggregate h scan_op d input output identity warp_aggregate
+//        WithAggregate sp scan_op ip input output identity warp_aggregate
 //    
 //
 //
 //    module Identityless =
-//        let [<ReflectedDefinition>] inline WithAggregate (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-//            (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
+//        let [<ReflectedDefinition>] inline WithAggregate (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//            (ip:InstanceParam) (input:'T) (output:Ref<'T>) (warp_aggregate:Ref<'T>) =
 //            let inclusive = __local__.Variable()
-//            InclusiveScan.WithAggregate h scan_op d input inclusive warp_aggregate
+//            InclusiveScan.WithAggregate sp scan_op ip input inclusive warp_aggregate
 //            output := (!inclusive, 1) |> __ptx__.ShuffleUp |> __obj_reinterpret
 //        
 //
-//        let [<ReflectedDefinition>] inline Default (h:_HostApi) (scan_op:'T -> 'T -> 'T)
-//            (d:_DeviceApi<'T>) (input:'T) (output:Ref<'T>) =
+//        let [<ReflectedDefinition>] inline Default (sp:StaticParam) (scan_op:'T -> 'T -> 'T)
+//            (ip:InstanceParam) (input:'T) (output:Ref<'T>) =
 //            let warp_aggregate = __local__.Variable()
-//            WithAggregate h scan_op d input output warp_aggregate
+//            WithAggregate sp scan_op ip input output warp_aggregate
 //
 //               
 //
 //module WarpScanShfl =
-//    open Template
+//    
 //
 //    type TemplateParams     = Template._TemplateParams
 //    type Constants          = Template._Constants
@@ -664,7 +637,7 @@ module WarpScanShfl =
 //    type ThreadFields<'T>   = Template._ThreadFields<'T>
 //    
 //    type HostApi            = Template._HostApi
-//    type DeviceApi<'T>      = Template._DeviceApi<'T>
+//    type InstanceParam<'T>      = Template._InstanceParam<'T>
 //    type FunctionApi<'T>    = Template._FunctionApi<'T>
 //
 //    
@@ -672,14 +645,14 @@ module WarpScanShfl =
 //    type API<'T> =
 //        {
 //            host                : HostApi
-//            mutable device      : DeviceApi<'T>
+//            mutable device      : InstanceParam<'T>
 //        }
 //        
 //        [<ReflectedDefinition>]
-//        member this.Init(temp_storage:TempStorage<'T>, warp_id:int, lane_id:int) =
+//        member this.Init(temp_storage:TempStorage<'T>, ip.warp_id:int,ip.lane_id:int) =
 //            let mutable f = this.device.ThreadFields
-//            d.warp_id <- warp_id
-//            d.lane_id <- lane_id
+//            ip.warp_id <- ip.warp_id
+//           ip.lane_id <-ip.lane_id
 //
 //        [<ReflectedDefinition>] 
 //        member this.InclusiveSum(input:'T, output:Ref<'T>, warp_aggregate:Ref<'T>, single_shfl:bool) = 
@@ -687,7 +660,7 @@ module WarpScanShfl =
 //            else InclusiveScan.WithAggregate this.host (+) this.device input output warp_aggregate
 //
 //        [<ReflectedDefinition>] 
-//        static member Create(h:HostApi) = { host = h; device = DeviceApi<'T>.Init() }
+//        static member Create(sp:HostApi) = { host = h; device = InstanceParam<'T>.Init() }
     
 
 
@@ -734,11 +707,11 @@ module WarpScanShfl =
 //                    "{
 //                        .reg .u32 r0;
 //                        .reg .pred p;
-//                        shfl.up.b32 r0|p, $1, $2, $3;
-//                        @p add.u32 r0, r0, %4;
+//                        shfl.usp.b32 r0|p, $1, $2, $3;
+//                        @p adu32 r0, r0, %4;
 //                        mov.u32 %0, r0;
 //                    }", "=r,r,r,r,r", temp :: shlStep :: shfl_c :: []) |> Some
-//            | _ -> None
+//            | -> None
 //
 //let [<InclusiveSumPtx>] inclusiveSumPtx (temp:uint32) (shlStep:int) (shfl_c:int) : uint32 = failwith ""
 //let inclusiveSum logical_warps logical_warp_threads =
@@ -782,14 +755,14 @@ module WarpScanShfl =
 //[<Record>]
 //type ThreadFields =
 //    {
-//        mutable warp_id : int
-//        mutable lane_id : int
+//        mutable ip.warp_id : int
+//        mutableip.lane_id : int
 //    }
 //
-//    static member Init(warp_id, lane_id) =
+//    static member Init(warp_id,ip.lane_id) =
 //        {
-//            warp_id = warp_id
-//            lane_id = lane_id
+//            ip.warp_id = ip.warp_id
+//           ip.lane_id =ip.lane_id
 //        }
 //
 //
@@ -802,9 +775,9 @@ module WarpScanShfl =
 //        ThreadFields        : ThreadFields
 //    }
 //
-//    member this.Initialize(temp_storage, warp_id, lane_id) =
-//        this.ThreadFields.warp_id <- warp_id
-//        this.ThreadFields.lane_id <- lane_id
+//    member this.Initialize(temp_storage, ip.warp_id,ip.lane_id) =
+//        this.ThreadFields.warp_id <- ip.warp_id
+//        this.ThreadFields.lane_id <-ip.lane_id
 //        this
 //
 //    /// Broadcast
@@ -829,8 +802,8 @@ module WarpScanShfl =
 ////                "{"
 ////                "  .reg .u32 r0;"
 ////                "  .reg .pred p;"
-////                "  shfl.up.b32 r0|p, %1, %2, %3;"
-////                "  @p add.u32 r0, r0, %4;"
+////                "  shfl.usp.b32 r0|p, %1, %2, %3;"
+////                "  @p adu32 r0, r0, %4;"
 ////                "  mov.u32 %0, r0;"
 ////                "}"
 ////                : "=r"(temp) : "r"(temp), "r"(1 << STEP), "r"(SHFL_C), "r"(temp));
@@ -857,8 +830,8 @@ module WarpScanShfl =
 //    //                "{"
 //    //                "  .reg .f32 r0;"
 //    //                "  .reg .pred p;"
-//    //                "  shfl.up.b32 r0|p, %1, %2, %3;"
-//    //                "  @p add.f32 r0, r0, %4;"
+//    //                "  shfl.usp.b32 r0|p, %1, %2, %3;"
+//    //                "  @p adf32 r0, r0, %4;"
 //    //                "  mov.f32 %0, r0;"
 //    //                "}"
 //    //                : "=f"(output) : "f"(output), "r"(1 << STEP), "r"(SHFL_C), "f"(output));
@@ -879,10 +852,10 @@ module WarpScanShfl =
 //    //                "  .reg .u32 hi;"
 //    //                "  .reg .pred p;"
 //    //                "  mov.b64 {lo, hi}, %1;"
-//    //                "  shfl.up.b32 r0|p, lo, %2, %3;"
-//    //                "  shfl.up.b32 r1|p, hi, %2, %3;"
-//    //                "  @p add.cc.u32 r0, r0, lo;"
-//    //                "  @p addc.u32 r1, r1, hi;"
+//    //                "  shfl.usp.b32 r0|p, lo, %2, %3;"
+//    //                "  shfl.usp.b32 r1|p, hi, %2, %3;"
+//    //                "  @p adcsp.u32 r0, r0, lo;"
+//    //                "  @p addsp.u32 r1, r1, hi;"
 //    //                "  mov.b64 %0, {r0, r1};"
 //    //                "}"
 //    //                : "=l"(output) : "l"(output), "r"(1 << STEP), "r"(SHFL_C));
@@ -893,7 +866,7 @@ module WarpScanShfl =
 //
 //
 //        // Delegate to generic scan
-//        | _ ->
+//        | ->
 //            this.InclusiveScan(input, output, (+), warp_aggregate)
 //
 //
@@ -910,8 +883,8 @@ module WarpScanShfl =
 //////                "{"
 //////                "  .reg .f32 r0;"
 //////                "  .reg .pred p;"
-//////                "  shfl.up.b32 r0|p, %1, %2, %3;"
-//////                "  @p add.f32 r0, r0, %4;"
+//////                "  shfl.usp.b32 r0|p, %1, %2, %3;"
+//////                "  @p adf32 r0, r0, %4;"
 //////                "  mov.f32 %0, r0;"
 //////                "}"
 //////                : "=f"(output) : "f"(output), "r"(1 << STEP), "r"(SHFL_C), "f"(output));
@@ -938,10 +911,10 @@ module WarpScanShfl =
 //////                "  .reg .u32 hi;"
 //////                "  .reg .pred p;"
 //////                "  mov.b64 {lo, hi}, %1;"
-//////                "  shfl.up.b32 r0|p, lo, %2, %3;"
-//////                "  shfl.up.b32 r1|p, hi, %2, %3;"
-//////                "  @p add.cc.u32 r0, r0, lo;"
-//////                "  @p addc.u32 r1, r1, hi;"
+//////                "  shfl.usp.b32 r0|p, lo, %2, %3;"
+//////                "  shfl.usp.b32 r1|p, hi, %2, %3;"
+//////                "  @p adcsp.u32 r0, r0, lo;"
+//////                "  @p addsp.u32 r1, r1, hi;"
 //////                "  mov.b64 %0, {r0, r1};"
 //////                "}"
 //////                : "=l"(output) : "l"(output), "r"(1 << STEP), "r"(SHFL_C));
@@ -972,7 +945,7 @@ module WarpScanShfl =
 //    member this.InclusiveScan(input:int, output:Ref<int>, scan_op:(int -> int -> int), warp_aggregate:Ref<int>) =
 //        let LOGICAL_WARP_THREADS = this.LOGICAL_WARP_THREADS
 //        let STEPS = this.Constants.STEPS
-//        let lane_id = this.ThreadFields.lane_id
+//        letip.lane_id = this.ThreadFields.lane_id
 //
 //        output := input
 //
@@ -1003,7 +976,7 @@ module WarpScanShfl =
 //    /// Exclusive scan with aggregate
 //    // template <typename ScanOp>
 //    member this.ExclusiveScan(input:int, output:Ref<int>, identity:int, scan_op:(int -> int -> int), warp_aggregate:Ref<int>) =
-//        let lane_id = this.ThreadFields.lane_id
+//        letip.lane_id = this.ThreadFields.lane_id
 //        // Compute inclusive scan
 //        let inclusive = __null() |> __ptr_to_ref
 //        this.InclusiveScan(input, inclusive, scan_op, warp_aggregate);
@@ -1011,7 +984,7 @@ module WarpScanShfl =
 //        // Grab result from predecessor
 //        let exclusive = __ptx__.ShuffleUp(!inclusive, 1)
 //
-//        output := if lane_id = 0 then identity else exclusive
+//        output := if ip.lane_id = 0 then identity else exclusive
 //
 //
 //    /// Exclusive scan
@@ -1039,7 +1012,7 @@ module WarpScanShfl =
 //        this.ExclusiveScan(input, output, scan_op, warp_aggregate)
 //
 //
-//    static member Create(logical_warps, logical_warp_threads) : WarpScanShfl = //temp_storage, warp_id, lane_id) =
+//    static member Create(logical_warps, logical_warp_threads) : WarpScanShfl = //temp_storage, ip.warp_id,ip.lane_id) =
 //        let c = logical_warp_threads |> Constants.Init
 //        {
 //            LOGICAL_WARPS           = logical_warps
