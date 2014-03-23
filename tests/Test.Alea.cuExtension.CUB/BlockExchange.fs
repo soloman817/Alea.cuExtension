@@ -1,4 +1,4 @@
-﻿module Test.Alea.cuExtension.CUB.Block.LoadStore
+﻿module Test.Alea.cuExtension.CUB.Block.Exchange
     
 open Microsoft.FSharp.Quotations
 
@@ -35,8 +35,9 @@ let StoreAlgorithms = [
 [<Record>]
 type TempStorage<'T> =
     {
-        load : BlockLoad.TempStorage<'T>
-        store : BlockStore.TempStorage<'T>
+        //load : BlockLoad.TempStorage<'T>
+        //store : BlockStore.TempStorage<'T>
+        ex
     }
 
     [<ReflectedDefinition>] static member Init(load, store) = { load = load; store = store }
@@ -51,8 +52,9 @@ let inline template
         
     let TILE_SIZE = block_threads * items_per_thread
 
-    let bload_h = BlockLoad.StaticParam.Init(block_threads, items_per_thread, load_algorithm, warp_time_slicing)
-    let bstore_h = BlockStore.StaticParam.Init(block_threads, items_per_thread, store_algorithm, warp_time_slicing)
+//    let bload_h = BlockLoad.StaticParam.Init(block_threads, items_per_thread, load_algorithm, warp_time_slicing)
+//    let bstore_h = BlockStore.StaticParam.Init(block_threads, items_per_thread, store_algorithm, warp_time_slicing)
+    let bex_h = BlockExchange.StaticParam.Init(block_threads, items_per_thread)
 
     let! kernel =
         <@ fun (d_in:deviceptr<int>) (d_out_unguarded:deviceptr<int>) (d_out_guarded:deviceptr<int>) (num_items:int) ->
@@ -64,23 +66,7 @@ let inline template
 
             let data = __local__.Array<int>(items_per_thread) |> __array_to_ptr
 
-            BlockLoad.InstanceParam<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data)
-                
-            __syncthreads()
-
-            BlockStore.InstanceParam<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_unguarded + block_offset, data)
-            
-            __syncthreads()
-
-            for ITEM = 0 to items_per_thread - 1 do data.[ITEM] <- 0
-
-            __syncthreads()
-
-            BlockLoad.InstanceParam<int>.Init(bload_h, temp_storage.load).Load(bload_h, d_in + block_offset, data, guarded_elements)
-
-            __syncthreads()
-
-            BlockStore.InstanceParam<int>.Init(bstore_h, temp_storage.store).Store(bstore_h, d_out_guarded + block_offset, data, guarded_elements)
+            BlockExchange.InstanceParam<int>.Init(bex_h, )
                 
         @> |> Compiler.DefineKernel
         

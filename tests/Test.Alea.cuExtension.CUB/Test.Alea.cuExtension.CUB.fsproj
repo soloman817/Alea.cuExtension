@@ -70,6 +70,7 @@
     <Compile Include="Iterator.fs" />
     <Compile Include="Block.Specializations.fs" />
     <Compile Include="Block.LoadStore.fs" />
+    <Compile Include="BlockExchange.fs" />
     <Compile Include="Block.Discontinuity.fs" />
     <Compile Include="Block.Histogram.fs" />
     <Compile Include="Block.RadixRank.fs" />
